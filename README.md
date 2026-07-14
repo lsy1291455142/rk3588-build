@@ -81,10 +81,13 @@ rk3588-build/
 | Makefile 命令 | 对应 Docker 替代命令 |
 | :--- | :--- |
 | `make build` | `docker compose build` |
-| `make fetch` | `docker compose run --rm -e FETCH_ON_START=yes -it rk3588-build /bin/bash -c "/home/builder/fetch_sources.sh"` |
+| `make fetch` | `docker compose run --rm -it rk3588-build /bin/bash -c "/home/builder/fetch_sources.sh"` |
+| `make update` | `docker compose run --rm -it rk3588-build /bin/bash -c "/home/builder/fetch_sources.sh update"` |
 | `make shell` | `docker compose run --rm rk3588-build /bin/bash` |
-| `make build-kernel` | `docker compose run --rm rk3588-build /bin/bash -c "cd /home/builder/sdk/kernel && make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- rockchip_linux_defconfig && make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j\\$(nproc)"` |
-| `make build-uboot` | `docker compose run --rm rk3588-build /bin/bash -c "cd /home/builder/sdk/u-boot && make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- rk3588_defconfig && make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j\\$(nproc)"` |
+| `make build-kernel` | `docker compose run --rm rk3588-build /bin/bash -c "cd /home/builder/sdk/kernel && make rockchip_linux_defconfig && make -j\\$(nproc)"` |
+| `make build-uboot` | `docker compose run --rm rk3588-build /bin/bash -c "cd /home/builder/sdk/u-boot && make rk3588_defconfig && make -j\\$(nproc)"` |
+| `make build-all` | `docker compose run --rm rk3588-build /bin/bash -c "cd /home/builder/sdk/u-boot && make rk3588_defconfig && make -j\\$(nproc) && cd ../kernel && make rockchip_linux_defconfig && make -j\\$(nproc)"` |
+| `make pack` | `docker compose run --rm rk3588-build /bin/bash -c "cd /home/builder/sdk && mkdir -p output && cp kernel/arch/arm64/boot/Image output/ && cp kernel/arch/arm64/boot/dts/rockchip/rk3588*.dtb output/ 2>/dev/null && cp u-boot/u-boot.bin output/"` |
 
 ---
 
@@ -119,7 +122,16 @@ make fetch-radxa    # Radxa Rock 5B
 make fetch-orangepi # OrangePi 5
 ```
 
-### 3. 进入编译环境
+### 3. 更新 SDK 源码
+
+如果您已经拉取过源码，想要更新至最新状态，可以随时使用 `make update`。该命令是非交互式的，它会自动读取当前关联的 Manifest 清单并安全同步：
+
+```bash
+# 一键同步并更新已有的 SDK 仓库
+make update
+```
+
+### 4. 进入编译环境
 
 ```bash
 make shell
@@ -127,10 +139,9 @@ make shell
 #   /home/builder/sdk/kernel    - Linux 内核源码
 #   /home/builder/sdk/u-boot    - U-Boot 源码
 #   /home/builder/sdk/rkbin     - Rockchip 闭源固件 (DDR init, TF-A)
-#   /home/builder/sdk/buildroot - 根文件系统构建
 ```
 
-### 4. 编译
+### 5. 编译
 
 ```bash
 # 使用 Makefile 一键编译
@@ -144,8 +155,8 @@ make pack
 # 或在容器内手动编译
 make shell
 > cd /home/builder/sdk/kernel
-> make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- rockchip_linux_defconfig
-> make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
+> make rockchip_linux_defconfig
+> make -j$(nproc)
 ```
 
 ## 🖥️ 多架构支持
@@ -357,6 +368,7 @@ make build-nocache   # 构建 Docker 镜像 (无缓存)
 
 # SDK 拉取
 make fetch           # 交互式选择 SDK 版本
+make update          # 一键更新当前已拉取的 SDK 仓库
 make fetch-510       # Rockchip Linux 5.10
 make fetch-61        # Rockchip Linux 6.1
 make fetch-66        # Rockchip Linux 6.6
