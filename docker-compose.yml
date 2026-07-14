@@ -34,13 +34,6 @@ services:
       - ./patches:/home/builder/patches:ro
       - ./configs:/home/builder/configs:ro
 
-    # ---- 资源限制 ----
-    deploy:
-      resources:
-        limits:
-          cpus: ${DOCKER_CPUS:-8}
-          memory: ${DOCKER_MEMORY:-16G}
-
     # ---- 网络 ----
     network_mode: bridge
 
