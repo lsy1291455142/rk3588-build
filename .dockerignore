@@ -1,5 +1,14 @@
 .env
 .git
 .gitignore
+.dockerignore
 README.md
 *.log
+*.md
+!configs/README.md
+!patches/README.md
+.vscode/
+.idea/
+.DS_Store
+output/
+out/

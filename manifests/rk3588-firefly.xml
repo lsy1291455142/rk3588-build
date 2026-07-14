@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+  <remote name="firefly"
+          fetch="https://gitlab.com/anthropic-firefly"
+          review="" />
+
+  <remote name="rockchip"
+          fetch="https://github.com/rockchip-linux"
+          review="" />
+
+  <default remote="firefly"
+           revision="master"
+           sync-j="4" />
+
+  <!-- ===== Firefly AIO-3588 BSP ===== -->
+  <project name="kernel" path="kernel" remote="firefly" revision="stable-5.10-firefly" />
+  <project name="u-boot" path="u-boot" remote="firefly" revision="stable-5.10-firefly" />
+  <project name="rkbin"  path="rkbin"  remote="rockchip" revision="master" />
+
+</manifest>

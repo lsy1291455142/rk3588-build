@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+  <remote name="radxa"
+          fetch="https://github.com/radxa"
+          review="" />
+
+  <remote name="rockchip"
+          fetch="https://github.com/rockchip-linux"
+          review="" />
+
+  <default remote="radxa"
+           revision="main"
+           sync-j="4" />
+
+  <!-- ===== Radxa Rock 5B BSP ===== -->
+  <project name="kernel" path="kernel" remote="radxa" revision="linux-5.10-gen-rkr4.1" />
+  <project name="u-boot" path="u-boot" remote="radxa" revision="stable-5.10-rock5" />
+  <project name="rkbin"  path="rkbin"  remote="rockchip" revision="master" />
+
+</manifest>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+  <remote name="orangepi"
+          fetch="https://github.com/orangepi-xunlong"
+          review="" />
+
+  <remote name="rockchip"
+          fetch="https://github.com/rockchip-linux"
+          review="" />
+
+  <default remote="orangepi"
+           revision="main"
+           sync-j="4" />
+
+  <!-- ===== OrangePi 5 BSP ===== -->
+  <project name="linux-orangepi" path="kernel" remote="orangepi" revision="orange-pi-5.10-rk35xx" />
+  <project name="u-boot-orangepi" path="u-boot" remote="orangepi" revision="v2017.09-rk3588" />
+  <project name="rkbin"           path="rkbin"  remote="rockchip" revision="master" />
+
+</manifest>

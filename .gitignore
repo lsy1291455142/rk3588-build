@@ -1,2 +1,19 @@
+# 用户环境配置
 .env
+
+# 日志
 *.log
+
+# 编辑器
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# 编译产物 (如果在宿主机编译)
+output/
+out/
