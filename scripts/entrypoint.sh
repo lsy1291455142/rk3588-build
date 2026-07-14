@@ -13,10 +13,10 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-log_info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
-log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
-log_step()  { echo -e "${CYAN}[STEP]${NC}  $*"; }
+log_info()  { echo -e "${GREEN}[INFO]${NC}  $*" >&2; }
+log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $*" >&2; }
+log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
+log_step()  { echo -e "${CYAN}[STEP]${NC}  $*" >&2; }
 
 # ---- 环境变量默认值 ----
 SDK_DIR="${SDK_DIR:-/home/builder/sdk}"

@@ -14,10 +14,10 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-log_info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
-log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
-log_step()  { echo -e "${CYAN}[STEP]${NC}  $*"; }
+log_info()  { echo -e "${GREEN}[INFO]${NC}  $*" >&2; }
+log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $*" >&2; }
+log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
+log_step()  { echo -e "${CYAN}[STEP]${NC}  $*" >&2; }
 
 # ---- 配置 ----
 SDK_DIR="${SDK_DIR:-/home/builder/sdk}"
