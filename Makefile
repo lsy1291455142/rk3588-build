@@ -3,7 +3,7 @@
 # =============================================================================
 
 .PHONY: build build-nocache shell fetch fetch-510 fetch-61 fetch-66 \
-        fetch-firefly fetch-radxa fetch-orangepi \
+        fetch-firefly fetch-radxa fetch-orangepi update \
         build-kernel build-uboot build-all pack \
         up down logs clean status help
 
@@ -20,7 +20,7 @@ help: ## 显示帮助信息
 		awk 'BEGIN {FS = ":.*?## "}; {printf "    \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "  SDK 拉取:"
-	@grep -E '^fetch' $(MAKEFILE_LIST) | \
+	@grep -E '^(fetch|update)' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "    \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "  编译:"
@@ -77,6 +77,10 @@ fetch-radxa: ## 拉取 Radxa Rock 5B BSP
 fetch-orangepi: ## 拉取 OrangePi 5 BSP
 	docker compose run --rm -e MANIFEST=rk3588-orangepi.xml rk3588-build /bin/bash -c \
 		"/home/builder/fetch_sources.sh && echo 'OrangePi BSP 拉取完成'"
+
+update: ## 更新当前已拉取的 SDK 仓库 (自动同步最新代码)
+	docker compose run --rm -it rk3588-build /bin/bash -c \
+		"/home/builder/fetch_sources.sh update && echo 'SDK 仓库更新完成'"
 
 # =============================================================================
 # 编译

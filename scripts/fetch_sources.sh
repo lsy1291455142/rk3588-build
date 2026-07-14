@@ -260,14 +260,38 @@ main() {
     # 磁盘空间检查
     check_disk_space "${SDK_DIR}" || exit 1
 
-    # 交互式选择 SDK 版本
-    local chosen_manifest
-    chosen_manifest=$(pick_sdk_version)
+    local chosen_manifest=""
 
-    if [ "${chosen_manifest}" = "custom" ]; then
-        fetch_sdk_with_custom_manifest
+    # 检查是否为更新模式
+    if [ "$1" = "update" ]; then
+        log_step "===== 正在更新 SDK 仓库 ====="
+        if [ ! -d "${SDK_DIR}/.repo" ]; then
+            log_error "未检测到已初始化的 SDK 仓库 (没有发现 .repo 目录)。请先运行 make fetch 进行初始化。"
+            exit 1
+        fi
+
+        local cur_manifest=""
+        if [ -f "${SDK_DIR}/.repo/manifest.xml" ]; then
+            cur_manifest=$(basename "$(readlink "${SDK_DIR}/.repo/manifest.xml" 2>/dev/null || echo "")")
+        fi
+
+        if [ -n "${cur_manifest}" ] && [ -f "${LOCAL_MANIFESTS}/${cur_manifest}" ]; then
+            log_info "检测到当前 Manifest 为 ${cur_manifest}，正在重新初始化并更新..."
+            fetch_sdk_with_local_manifest "${cur_manifest}"
+        else
+            log_info "使用现有 .repo 配置直接同步更新代码..."
+            cd "${SDK_DIR}"
+            repo_sync_with_retry "-j${JOBS}"
+        fi
     else
-        fetch_sdk_with_local_manifest "${chosen_manifest}"
+        # 交互式选择 SDK 版本
+        chosen_manifest=$(pick_sdk_version)
+
+        if [ "${chosen_manifest}" = "custom" ]; then
+            fetch_sdk_with_custom_manifest
+        else
+            fetch_sdk_with_local_manifest "${chosen_manifest}"
+        fi
     fi
 
     # ---- 拉取后验证 ----
