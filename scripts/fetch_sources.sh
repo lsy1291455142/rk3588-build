@@ -91,7 +91,7 @@ fetch_rockchip() {
 
     # Rockchip 官方没有公开完整 manifest, 采用组件式拉取
     local kernel_branch="${BRANCH:-${ROCKCHIP_KERNEL_BRANCH}}"
-    local uboot_branch="${ROCKCHIP_UBOOT_BRANCH}}"
+    local uboot_branch="${ROCKCHIP_UBOOT_BRANCH}"
 
     git_clone "${ROCKCHIP_GITHUB}/kernel"     "kernel"     "${kernel_branch}"
     git_clone "${ROCKCHIP_GITHUB}/u-boot"     "u-boot"     "${uboot_branch}"

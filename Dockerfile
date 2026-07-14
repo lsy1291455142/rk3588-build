@@ -8,15 +8,14 @@ FROM ubuntu:22.04 AS base
 LABEL maintainer="rk3588-build"
 LABEL description="RK3588 Linux BSP Docker Build Environment (multi-arch)"
 
-# ---- 架构检测 ----
-# HOST_ARCH: 宿主机架构 (amd64 / arm64)
-RUN ARCH=$(dpkg --print-architecture) && \
-    echo "宿主机架构: ${ARCH}" && \
-    echo "${ARCH}" > /etc/host_arch
-
 # ---- 避免交互式安装提示 ----
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Shanghai
+
+# ---- 架构检测 ----
+RUN ARCH=$(dpkg --print-architecture) && \
+    echo "宿主机架构: ${ARCH}" && \
+    echo "${ARCH}" > /etc/host_arch
 
 # ---- 添加 i386 架构 (仅 x86_64 宿主机需要, Rockchip 部分 32 位工具) ----
 RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
@@ -37,7 +36,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # 版本控制
     git \
     git-lfs \
-    repo \
     # Python
     python3 \
     python3-pip \
@@ -75,7 +73,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     gnupg \
-    ssh \
+    openssh-client \
     vim \
     ccache \
     swig \
@@ -83,6 +81,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # 文档构建 (可选)
     sphinx-common \
     && rm -rf /var/lib/apt/lists/*
+
+# ---- 安装 repo 工具 (手动安装最新版, apt 版本过旧) ----
+RUN curl -sLo /usr/local/bin/repo https://storage.googleapis.com/git-repo-downloads/repo && \
+    chmod a+x /usr/local/bin/repo && \
+    repo version
 
 # ---- x86_64 宿主机专属: 32 位兼容库 (部分 Rockchip 工具需要) ----
 RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
@@ -102,7 +105,8 @@ RUN if [ "$(dpkg --print-architecture)" = "arm64" ]; then \
     fi
 
 # ---- 安装 Python 依赖 ----
-RUN python3 -m pip install --no-cache-dir --break-system-packages \
+# Ubuntu 22.04 的 pip 不支持 --break-system-packages, 直接安装即可
+RUN python3 -m pip install --no-cache-dir \
     pycryptodome \
     pyelftools \
     jsonschema \
@@ -143,9 +147,10 @@ RUN echo "========================================" && \
 USER builder
 WORKDIR /home/builder/sdk
 
-# ---- 入口脚本 ----
+# ---- 入口脚本 + 源码拉取脚本 ----
 COPY --chown=builder:builder scripts/entrypoint.sh /home/builder/entrypoint.sh
-RUN chmod +x /home/builder/entrypoint.sh
+COPY --chown=builder:builder scripts/fetch_sources.sh /home/builder/fetch_sources.sh
+RUN chmod +x /home/builder/entrypoint.sh /home/builder/fetch_sources.sh
 
 ENTRYPOINT ["/home/builder/entrypoint.sh"]
 CMD ["/bin/bash"]
