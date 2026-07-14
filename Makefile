@@ -47,19 +47,19 @@ build-nocache: ## 构建 Docker 镜像 (无缓存)
 # =============================================================================
 
 fetch: ## 拉取完整 SDK (交互选择版本)
-	docker compose run --rm -e FETCH_ON_START=yes -it rk3588-build /bin/bash -c \
+	docker compose run --rm -it rk3588-build /bin/bash -c \
 		"/home/builder/fetch_sources.sh && echo 'SDK 拉取完成'"
 
 fetch-510: ## 拉取 Rockchip SDK Linux 5.10 LTS
-	docker compose run --rm -e FETCH_ON_START=yes -e MANIFEST=rk3588-linux-5.10.xml rk3588-build /bin/bash -c \
+	docker compose run --rm -e MANIFEST=rk3588-linux-5.10.xml rk3588-build /bin/bash -c \
 		"/home/builder/fetch_sources.sh && echo 'SDK 拉取完成'"
 
 fetch-61: ## 拉取 Rockchip SDK Linux 6.1 LTS
-	docker compose run --rm -e FETCH_ON_START=yes -e MANIFEST=rk3588-linux-6.1.xml rk3588-build /bin/bash -c \
+	docker compose run --rm -e MANIFEST=rk3588-linux-6.1.xml rk3588-build /bin/bash -c \
 		"/home/builder/fetch_sources.sh && echo 'SDK 拉取完成'"
 
 fetch-66: ## 拉取 Rockchip SDK Linux 6.6
-	docker compose run --rm -e FETCH_ON_START=yes -e MANIFEST=rk3588-linux-6.6.xml rk3588-build /bin/bash -c \
+	docker compose run --rm -e MANIFEST=rk3588-linux-6.6.xml rk3588-build /bin/bash -c \
 		"/home/builder/fetch_sources.sh && echo 'SDK 拉取完成'"
 
 # =============================================================================
@@ -67,15 +67,15 @@ fetch-66: ## 拉取 Rockchip SDK Linux 6.6
 # =============================================================================
 
 fetch-firefly: ## 拉取 Firefly AIO-3588 BSP
-	docker compose run --rm -e FETCH_ON_START=yes -e MANIFEST=rk3588-firefly.xml rk3588-build /bin/bash -c \
+	docker compose run --rm -e MANIFEST=rk3588-firefly.xml rk3588-build /bin/bash -c \
 		"/home/builder/fetch_sources.sh && echo 'Firefly BSP 拉取完成'"
 
 fetch-radxa: ## 拉取 Radxa Rock 5B BSP
-	docker compose run --rm -e FETCH_ON_START=yes -e MANIFEST=rk3588-radxa.xml rk3588-build /bin/bash -c \
+	docker compose run --rm -e MANIFEST=rk3588-radxa.xml rk3588-build /bin/bash -c \
 		"/home/builder/fetch_sources.sh && echo 'Radxa BSP 拉取完成'"
 
 fetch-orangepi: ## 拉取 OrangePi 5 BSP
-	docker compose run --rm -e FETCH_ON_START=yes -e MANIFEST=rk3588-orangepi.xml rk3588-build /bin/bash -c \
+	docker compose run --rm -e MANIFEST=rk3588-orangepi.xml rk3588-build /bin/bash -c \
 		"/home/builder/fetch_sources.sh && echo 'OrangePi BSP 拉取完成'"
 
 # =============================================================================

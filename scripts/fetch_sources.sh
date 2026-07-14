@@ -106,36 +106,36 @@ pick_sdk_version() {
         return 0
     fi
 
-    echo ""
-    echo -e "${BOLD}  选择 RK3588 SDK 版本:${NC}"
-    echo "  ─────────────────────────────────────────────"
-    echo ""
-    echo -e "  ${BOLD}Rockchip 官方:${NC}"
+    echo "" >&2
+    echo -e "${BOLD}  选择 RK3588 SDK 版本:${NC}" >&2
+    echo "  ─────────────────────────────────────────────" >&2
+    echo "" >&2
+    echo -e "  ${BOLD}Rockchip 官方:${NC}" >&2
 
     for key in 1 2 3; do
         local val="${SDK_OPTIONS[$key]}"
         local desc="${val##*|}"
         if [ "${key}" = "1" ]; then
-            echo -e "  ${CYAN}${key}) ${desc}${NC} ${GREEN}[推荐]${NC}"
+            echo -e "  ${CYAN}${key}) ${desc}${NC} ${GREEN}[推荐]${NC}" >&2
         else
-            echo -e "  ${CYAN}${key}) ${desc}${NC}"
+            echo -e "  ${CYAN}${key}) ${desc}${NC}" >&2
         fi
     done
 
-    echo ""
-    echo -e "  ${BOLD}第三方 BSP:${NC}"
+    echo "" >&2
+    echo -e "  ${BOLD}第三方 BSP:${NC}" >&2
 
     for key in 4 5 6; do
         local val="${SDK_OPTIONS[$key]}"
         local desc="${val##*|}"
-        echo -e "  ${CYAN}${key}) ${desc}${NC}"
+        echo -e "  ${CYAN}${key}) ${desc}${NC}" >&2
     done
 
-    echo ""
-    echo -e "  ${CYAN}7) 自定义 Manifest URL${NC}"
+    echo "" >&2
+    echo -e "  ${CYAN}7) 自定义 Manifest URL${NC}" >&2
 
-    echo ""
-    echo -en "  请选择 [1-7] (默认 1): "
+    echo "" >&2
+    echo -en "  请选择 [1-7] (默认 1): " >&2
 
     local choice
     read -r choice
@@ -146,7 +146,7 @@ pick_sdk_version() {
 
     if [ "${xml}" = "custom" ]; then
         if [ -z "${CUSTOM_MANIFEST_URL}" ]; then
-            echo -en "  请输入自定义 Manifest URL: "
+            echo -en "  请输入自定义 Manifest URL: " >&2
             read -r CUSTOM_MANIFEST_URL
         fi
         echo "custom"
