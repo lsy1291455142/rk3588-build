@@ -33,6 +33,7 @@ services:
       - rk3588-ccache:/home/builder/.ccache
       - ./patches:/home/builder/patches:ro
       - ./configs:/home/builder/configs:ro
+      - ./output:/home/builder/output
 
     # ---- 网络 ----
     network_mode: bridge

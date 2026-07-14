@@ -87,50 +87,61 @@ update: ## 更新当前已拉取的 SDK 仓库 (自动同步最新代码)
 # =============================================================================
 
 build-kernel: ## 编译 Kernel (需先拉取源码)
+	@mkdir -p output
 	docker compose run --rm rk3588-build /bin/bash -c \
 		"cd /home/builder/sdk/kernel && \
 		 make rockchip_linux_defconfig && \
-		 make -j\$$(nproc)"
+		 make -j\$$(nproc) && \
+		 cp arch/arm64/boot/Image /home/builder/output/ && \
+		 cp arch/arm64/boot/dts/rockchip/rk3588*.dtb /home/builder/output/ 2>/dev/null || true && \
+		 echo 'Kernel 编译产物已输出到宿主机: ./output/'"
 
 build-uboot: ## 编译 U-Boot (需先拉取源码)
+	@mkdir -p output
 	docker compose run --rm rk3588-build /bin/bash -c \
 		"cd /home/builder/sdk/u-boot && \
 		 make rk3588_defconfig && \
-		 make -j\$$(nproc)"
+		 make -j\$$(nproc) && \
+		 cp u-boot.bin /home/builder/output/ && \
+		 cp u-boot.img /home/builder/output/ 2>/dev/null || true && \
+		 cp u-boot.itb /home/builder/output/ 2>/dev/null || true && \
+		 echo 'U-Boot 编译产物已输出到宿主机: ./output/'"
 
 build-all: ## 一键编译所有组件 (Kernel + U-Boot)
+	@mkdir -p output
 	docker compose run --rm rk3588-build /bin/bash -c \
 		"echo '===== 编译 U-Boot =====' && \
 		 cd /home/builder/sdk/u-boot && \
 		 make rk3588_defconfig && \
 		 make -j\$$(nproc) && \
+		 cp u-boot.bin /home/builder/output/ && \
+		 cp u-boot.img /home/builder/output/ 2>/dev/null || true && \
+		 cp u-boot.itb /home/builder/output/ 2>/dev/null || true && \
 		 echo '' && \
 		 echo '===== 编译 Kernel =====' && \
 		 cd /home/builder/sdk/kernel && \
 		 make rockchip_linux_defconfig && \
 		 make -j\$$(nproc) && \
+		 cp arch/arm64/boot/Image /home/builder/output/ && \
+		 cp arch/arm64/boot/dts/rockchip/rk3588*.dtb /home/builder/output/ 2>/dev/null || true && \
 		 echo '' && \
-		 echo '===== 编译完成 =====' && \
-		 echo 'Kernel: /home/builder/sdk/kernel/arch/arm64/boot/Image' && \
-		 echo 'U-Boot: /home/builder/sdk/u-boot/u-boot.bin'"
+		 echo '===== 编译完成，产物已输出到宿主机: ./output/ ====='"
 
-pack: ## 打包固件 (需先编译)
+pack: ## 一键收集并打包固件到 output/ 目录
+	@mkdir -p output
 	docker compose run --rm rk3588-build /bin/bash -c \
 		"cd /home/builder/sdk && \
-		 echo '===== 固件打包 =====' && \
-		 if [ ! -f kernel/arch/arm64/boot/Image ]; then \
-		   echo '[ERROR] Kernel 未编译, 请先执行 make build-kernel'; exit 1; \
+		 echo '===== 收集已编译的固件 =====' && \
+		 if [ -f kernel/arch/arm64/boot/Image ]; then \
+		   cp kernel/arch/arm64/boot/Image /home/builder/output/ && \
+		   cp kernel/arch/arm64/boot/dts/rockchip/rk3588*.dtb /home/builder/output/ 2>/dev/null || true; \
 		 fi && \
-		 if [ ! -f u-boot/u-boot.bin ]; then \
-		   echo '[ERROR] U-Boot 未编译, 请先执行 make build-uboot'; exit 1; \
+		 if [ -f u-boot/u-boot.bin ]; then \
+		   cp u-boot/u-boot.bin /home/builder/output/ && \
+		   cp u-boot/u-boot.img /home/builder/output/ 2>/dev/null || true && \
+		   cp u-boot/u-boot.itb /home/builder/output/ 2>/dev/null || true; \
 		 fi && \
-		 mkdir -p /home/builder/sdk/output && \
-		 cp kernel/arch/arm64/boot/Image output/ && \
-		 cp kernel/arch/arm64/boot/dts/rockchip/rk3588*.dtb output/ 2>/dev/null || true && \
-		 cp u-boot/u-boot.bin output/ && \
-		 echo '' && \
-		 echo '产物目录: /home/builder/sdk/output/' && \
-		 ls -lh output/"
+		 echo '收集完成，宿主机产物目录: ./output/'"
 
 # =============================================================================
 # 容器管理
