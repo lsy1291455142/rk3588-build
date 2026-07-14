@@ -25,6 +25,7 @@ BSP_SOURCE="${BSP_SOURCE:-rockchip}"
 MANIFEST="${MANIFEST:-}"          # manifest 文件名, 留空则交互选择
 DEPTH="${DEPTH:-1}"               # 浅克隆深度, 0=完整克隆
 JOBS="${JOBS:-$(nproc)}"          # repo 并行拉取数
+if [ "${JOBS}" = "0" ]; then JOBS=$(nproc 2>/dev/null || echo 4); fi
 MAX_RETRIES="${MAX_RETRIES:-3}"   # repo sync 最大重试次数
 MIN_DISK_GB="${MIN_DISK_GB:-10}"  # 最小磁盘空间 (GB)
 
@@ -210,7 +211,7 @@ fetch_sdk_with_local_manifest() {
         fi
         cp -r "${LOCAL_MANIFESTS}" "${tmp_manifest_repo}"
         cd "${tmp_manifest_repo}"
-        git init -q
+        git init -q -b master
         git add -A
         git commit -q -m "manifest" --allow-empty 2>/dev/null || true
         cd "${SDK_DIR}"

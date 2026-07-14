@@ -23,6 +23,7 @@ SDK_DIR="${SDK_DIR:-/home/builder/sdk}"
 MANIFEST="${MANIFEST:-}"                     # manifest 文件名, 留空则交互选择
 FETCH_ON_START="${FETCH_ON_START:-no}"       # 容器启动时是否自动拉取
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"  # 编译并行数
+if [ "${JOBS}" = "0" ]; then JOBS=$(nproc 2>/dev/null || echo 4); fi
 USE_NATIVE_BUILD="${USE_NATIVE_BUILD:-no}"  # ARM64 原生编译
 
 # ---- 配置交叉编译环境 ----
