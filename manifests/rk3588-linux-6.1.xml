@@ -12,7 +12,4 @@
   <project name="kernel"    path="kernel"    revision="develop-6.1" />
   <project name="u-boot"    path="u-boot"    revision="next-dev" />
   <project name="rkbin"     path="rkbin"     revision="master" />
-  <project name="buildroot" path="buildroot"  revision="master" />
-  <project name="docs"      path="docs"      revision="master" />
-
 </manifest>
