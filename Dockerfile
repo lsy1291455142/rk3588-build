@@ -115,7 +115,7 @@ RUN python3 -m pip install --no-cache-dir \
 # ---- 配置 Git ----
 RUN git config --global user.email "rk3588-builder@local" && \
     git config --global user.name "RK3588 Builder" && \
-    git config --global lfs.install
+    git lfs install
 
 # ---- 配置交叉编译环境变量 ----
 # ARM64 宿主机可选用原生 GCC 加速, 默认仍用交叉编译保持一致性
