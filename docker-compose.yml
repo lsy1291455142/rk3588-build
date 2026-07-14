@@ -1,0 +1,59 @@
+# =============================================================================
+# RK3588 Docker 编译环境 - Compose 配置
+# =============================================================================
+
+version: "3.8"
+
+services:
+  rk3588-build:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rk3588-build:latest
+    container_name: rk3588-build
+
+    # ---- 环境变量 ----
+    environment:
+      - BSP_SOURCE=${BSP_SOURCE:-rockchip}
+      - BRANCH=${BRANCH:-stable-5.10}
+      - FETCH_ON_START=${FETCH_ON_START:-no}
+      - JOBS=${JOBS:-0}               # 0 表示自动检测 CPU 核数
+      - DEPTH=${DEPTH:-1}             # 浅克隆深度
+      - EXTRA_COMPONENTS=${EXTRA_COMPONENTS:-no}
+      # 自定义 manifest (BSP_SOURCE=custom 时使用)
+      - CUSTOM_MANIFEST_URL=${CUSTOM_MANIFEST_URL:-}
+      - CUSTOM_MANIFEST_NAME=${CUSTOM_MANIFEST_NAME:-default.xml}
+      # ccache
+      - CCACHE_DIR=/home/builder/.ccache
+      - CCACHE_MAXSIZE=${CCACHE_MAXSIZE:-10G}
+
+    # ---- 卷挂载 ----
+    volumes:
+      # SDK 源码持久化 (避免容器重建后丢失)
+      - rk3588-sdk:/home/builder/sdk
+      # ccache 持久化 (加速重复编译)
+      - rk3588-ccache:/home/builder/.ccache
+      # 可选: 挂载本地补丁目录
+      - ./patches:/home/builder/patches:ro
+      # 可选: 挂载自定义配置
+      - ./configs:/home/builder/configs:ro
+
+    # ---- 资源限制 ----
+    deploy:
+      resources:
+        limits:
+          cpus: ${DOCKER_CPUS:-8}
+          memory: ${DOCKER_MEMORY:-16G}
+
+    # ---- 网络 ----
+    network_mode: bridge
+
+    # ---- 交互式 ----
+    stdin_open: true
+    tty: true
+
+volumes:
+  rk3588-sdk:
+    name: rk3588-sdk
+  rk3588-ccache:
+    name: rk3588-ccache
