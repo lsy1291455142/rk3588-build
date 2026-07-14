@@ -12,13 +12,15 @@ LABEL description="RK3588 Linux BSP Docker Build Environment"
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Shanghai
 
+# ---- 添加 i386 架构 (部分 Rockchip 32位工具需要) ----
+RUN dpkg --add-architecture i386
+
 # ---- 基础系统依赖 ----
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # 编译工具链 (host)
     build-essential \
     gcc-aarch64-linux-gnu \
     gcc-arm-linux-gnueabihf \
-    cpp-aarch64-linux-gnu \
     # 通用构建工具
     make \
     cmake \
@@ -45,7 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     device-tree-compiler \
     # 压缩/打包工具
     lz4 \
-    lzo \
+    liblzo2-dev \
     lzop \
     xz-utils \
     zstd \
@@ -73,7 +75,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # 32位兼容 (部分 Rockchip 工具需要)
     libc6:i386 \
     libstdc++6:i386 \
-    libz1:i386 \
+    zlib1g:i386 \
     # 文档构建 (可选)
     sphinx-common \
     && rm -rf /var/lib/apt/lists/*
