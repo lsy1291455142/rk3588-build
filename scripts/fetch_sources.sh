@@ -201,28 +201,29 @@ fetch_sdk_with_local_manifest() {
         exit 1
     fi
 
-    # repo init 使用本地 manifest
-    if [ ! -d ".repo" ]; then
-        log_step "初始化 repo..."
-        # 创建临时 git 仓库作为 manifest 源 (repo 要求 manifest-url 是 git 仓库)
-        local tmp_manifest_repo="/tmp/rk3588-manifest-repo"
-        if [ -d "${tmp_manifest_repo}" ]; then
-            rm -rf "${tmp_manifest_repo}"
-        fi
-        cp -r "${LOCAL_MANIFESTS}" "${tmp_manifest_repo}"
-        cd "${tmp_manifest_repo}"
-        git init -q -b master
-        git add -A
-        git commit -q -m "manifest" --allow-empty 2>/dev/null || true
-        cd "${SDK_DIR}"
+    log_step "准备 manifest 仓库..."
+    # 创建临时 git 仓库作为 manifest 源 (repo 要求 manifest-url 是 git 仓库)
+    local tmp_manifest_repo="/tmp/rk3588-manifest-repo"
+    if [ -d "${tmp_manifest_repo}" ]; then
+        rm -rf "${tmp_manifest_repo}"
+    fi
+    cp -r "${LOCAL_MANIFESTS}" "${tmp_manifest_repo}"
+    cd "${tmp_manifest_repo}"
+    git init -q -b master
+    git add -A
+    git commit -q -m "manifest" --allow-empty 2>/dev/null || true
+    cd "${SDK_DIR}"
 
-        local init_opts="-u file://${tmp_manifest_repo} -m ${manifest_file} -b master"
-        if [ "${DEPTH}" != "0" ]; then
-            init_opts="${init_opts} --depth=${DEPTH}"
-        fi
+    local init_opts="-u file://${tmp_manifest_repo} -m ${manifest_file} -b master"
+    if [ "${DEPTH}" != "0" ]; then
+        init_opts="${init_opts} --depth=${DEPTH}"
+    fi
+
+    log_step "执行 repo init..."
+    if ! repo init ${init_opts}; then
+        log_warn "repo init 失败，可能是 .repo 目录损坏。正在自动清理并重新尝试..."
+        rm -rf .repo
         repo init ${init_opts}
-    else
-        log_info ".repo 已存在, 跳过 init (如需重新初始化请先删除 .repo 目录)"
     fi
 
     # repo sync (带重试)
@@ -236,14 +237,16 @@ fetch_sdk_with_custom_manifest() {
 
     cd "${SDK_DIR}"
 
-    if [ ! -d ".repo" ]; then
-        local init_opts="-u ${CUSTOM_MANIFEST_URL} -m ${CUSTOM_MANIFEST_NAME:-default.xml} -b ${BRANCH:-main}"
-        if [ "${DEPTH}" != "0" ]; then
-            init_opts="${init_opts} --depth=${DEPTH}"
-        fi
+    local init_opts="-u ${CUSTOM_MANIFEST_URL} -m ${CUSTOM_MANIFEST_NAME:-default.xml} -b ${BRANCH:-main}"
+    if [ "${DEPTH}" != "0" ]; then
+        init_opts="${init_opts} --depth=${DEPTH}"
+    fi
+
+    log_step "执行 repo init..."
+    if ! repo init ${init_opts}; then
+        log_warn "repo init 失败，可能是 .repo 目录损坏。正在自动清理并重新尝试..."
+        rm -rf .repo
         repo init ${init_opts}
-    else
-        log_info ".repo 已存在, 跳过 init"
     fi
 
     repo_sync_with_retry "-j${JOBS}"
