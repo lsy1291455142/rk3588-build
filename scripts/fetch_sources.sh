@@ -284,12 +284,33 @@ main() {
         cd "${SDK_DIR}"
 
         local cur_manifest=""
-        if [ -f "${SDK_DIR}/.repo/manifest.xml" ]; then
+        if [ -L "${SDK_DIR}/.repo/manifest.xml" ]; then
             cur_manifest=$(basename "$(readlink "${SDK_DIR}/.repo/manifest.xml" 2>/dev/null || echo "")")
+        elif [ -f "${SDK_DIR}/.repo/manifest.xml" ]; then
+            # 如果是普通文件，比对内容以匹配对应的本地 manifest (针对 NTFS 共享挂载下符号链接变普通文件的情况)
+            for f in "${LOCAL_MANIFESTS}"/*.xml; do
+                if [ -f "$f" ] && diff -q "${SDK_DIR}/.repo/manifest.xml" "$f" >/dev/null 2>&1; then
+                    cur_manifest=$(basename "$f")
+                    break
+                fi
+            done
+            # 备用方案：尝试从文件中检索 include name
+            if [ -z "${cur_manifest}" ]; then
+                cur_manifest=$(sed -n 's/.*include name="\([^"]*\)".*/\1/p' "${SDK_DIR}/.repo/manifest.xml" 2>/dev/null || echo "")
+            fi
         fi
 
         if [ -n "${cur_manifest}" ] && [ -f "${LOCAL_MANIFESTS}/${cur_manifest}" ]; then
             log_info "检测到当前 Manifest 为 ${cur_manifest}，正在重新初始化并更新..."
+            
+            # 清理已有的 manifest 仓库以防止 git rebase 历史不一致报错 (invalid upstream)
+            if [ -d ".repo/manifests" ]; then
+                rm -rf ".repo/manifests"
+            fi
+            if [ -d ".repo/manifests.git" ]; then
+                rm -rf ".repo/manifests.git"
+            fi
+
             local init_opts="-u file://${tmp_manifest_repo} -m ${cur_manifest} -b master"
             if [ "${DEPTH}" != "0" ]; then
                 init_opts="${init_opts} --depth=${DEPTH}"
