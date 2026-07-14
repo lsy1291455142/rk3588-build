@@ -37,10 +37,10 @@ help: ## 显示帮助信息
 # =============================================================================
 
 build: ## 构建 Docker 镜像
-	docker compose build
+	docker compose build --progress=plain
 
 build-nocache: ## 构建 Docker 镜像 (无缓存)
-	docker compose build --no-cache
+	docker compose build --no-cache --progress=plain
 
 # =============================================================================
 # SDK 拉取 - Rockchip 官方

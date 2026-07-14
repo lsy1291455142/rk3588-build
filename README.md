@@ -80,7 +80,7 @@ rk3588-build/
 
 | Makefile 命令 | 对应 Docker 替代命令 |
 | :--- | :--- |
-| `make build` | `docker compose build` |
+| `make build` | `docker compose build --progress=plain` |
 | `make fetch` | `docker compose run --rm -it rk3588-build /bin/bash -c "/home/builder/fetch_sources.sh"` |
 | `make update` | `docker compose run --rm -it rk3588-build /bin/bash -c "/home/builder/fetch_sources.sh update"` |
 | `make shell` | `docker compose run --rm rk3588-build /bin/bash` |
