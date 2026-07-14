@@ -87,7 +87,7 @@ update: ## 更新当前已拉取的 SDK 仓库 (自动同步最新代码)
 # =============================================================================
 
 build-kernel: ## 编译 Kernel (需先拉取源码)
-	@mkdir -p output
+	@mkdir -p output && chmod 777 output 2>/dev/null || true
 	docker compose run --rm rk3588-build /bin/bash -c \
 		"cd /home/builder/sdk/kernel && \
 		 make rockchip_linux_defconfig && \
@@ -97,7 +97,7 @@ build-kernel: ## 编译 Kernel (需先拉取源码)
 		 echo 'Kernel 编译产物已输出到宿主机: ./output/'"
 
 build-uboot: ## 编译 U-Boot (需先拉取源码)
-	@mkdir -p output
+	@mkdir -p output && chmod 777 output 2>/dev/null || true
 	docker compose run --rm rk3588-build /bin/bash -c \
 		"cd /home/builder/sdk/u-boot && \
 		 make rk3588_defconfig && \
@@ -108,7 +108,7 @@ build-uboot: ## 编译 U-Boot (需先拉取源码)
 		 echo 'U-Boot 编译产物已输出到宿主机: ./output/'"
 
 build-all: ## 一键编译所有组件 (Kernel + U-Boot)
-	@mkdir -p output
+	@mkdir -p output && chmod 777 output 2>/dev/null || true
 	docker compose run --rm rk3588-build /bin/bash -c \
 		"echo '===== 编译 U-Boot =====' && \
 		 cd /home/builder/sdk/u-boot && \
@@ -128,7 +128,7 @@ build-all: ## 一键编译所有组件 (Kernel + U-Boot)
 		 echo '===== 编译完成，产物已输出到宿主机: ./output/ ====='"
 
 pack: ## 一键收集并打包固件到 output/ 目录
-	@mkdir -p output
+	@mkdir -p output && chmod 777 output 2>/dev/null || true
 	docker compose run --rm rk3588-build /bin/bash -c \
 		"cd /home/builder/sdk && \
 		 echo '===== 收集已编译的固件 =====' && \
