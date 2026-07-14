@@ -26,6 +26,68 @@ rk3588-build/
 └── patches/                # 本地补丁目录
 ```
 
+## ⚙️ 宿主机前置环境配置
+
+本项目基于 Docker 与 `make` 工具。在开始前，请确保宿主机已安装以下环境：
+
+### 1. 安装 Docker
+* **Windows / macOS**: 下载并安装 [Docker Desktop](https://www.docker.com/products/docker-desktop/)。确保 Docker 守护进程已启动。
+* **Linux**: 安装 Docker Engine 与 Docker Compose Plugin：
+  ```bash
+  sudo apt update && sudo apt install -y docker.io docker-compose-v2
+  ```
+
+### 2. 安装 Make 工具
+`Makefile` 提供了便捷的包装命令。如果宿主机未安装 `make`，可以选择安装它，或直接使用 **Docker 替代命令**：
+
+#### 🛠️ 各平台安装 `make` 指引：
+* **Windows (PowerShell / CMD)**:
+  使用 Windows 包管理器（推荐）：
+  ```powershell
+  # 方式一：使用 winget (Windows 10/11 内置)
+  winget install GnuWin32.Make
+  # 安装后需重新打开终端以使环境变量生效
+  
+  # 方式二：使用 Scoop
+  scoop install make
+  
+  # 方式三：使用 Chocolatey
+  choco install make
+  ```
+  *(注：也可以在 Git Bash 或 WSL 内直接运行项目。)*
+
+* **macOS**:
+  安装 Xcode Command Line Tools：
+  ```bash
+  xcode-select --install
+  ```
+  或者使用 Homebrew 安装：
+  ```bash
+  brew install make
+  ```
+
+* **Linux**:
+  ```bash
+  # Ubuntu / Debian
+  sudo apt update && sudo apt install -y make
+  
+  # CentOS / RedHat
+  sudo yum install -y make
+  ```
+
+#### 💡 无 Make 环境下的 Docker 替代命令：
+如果您不想安装 `make`，可以直接运行对应的 Docker 命令：
+
+| Makefile 命令 | 对应 Docker 替代命令 |
+| :--- | :--- |
+| `make build` | `docker compose build` |
+| `make fetch` | `docker compose run --rm -e FETCH_ON_START=yes -it rk3588-build /bin/bash -c "/home/builder/fetch_sources.sh"` |
+| `make shell` | `docker compose run --rm rk3588-build /bin/bash` |
+| `make build-kernel` | `docker compose run --rm rk3588-build /bin/bash -c "cd /home/builder/sdk/kernel && make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- rockchip_linux_defconfig && make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j\\$(nproc)"` |
+| `make build-uboot` | `docker compose run --rm rk3588-build /bin/bash -c "cd /home/builder/sdk/u-boot && make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- rk3588_defconfig && make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j\\$(nproc)"` |
+
+---
+
 ## 🚀 快速开始
 
 ### 1. 构建 Docker 镜像

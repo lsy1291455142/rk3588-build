@@ -41,12 +41,13 @@ services:
     stdin_open: true
     tty: true
 
-    # ---- 资源限制 (可选) ----
-    deploy:
-      resources:
-        limits:
-          cpus: "${DOCKER_CPUS:-}"
-          memory: "${DOCKER_MEMORY:-}"
+    # ---- 资源限制 (可选，若需使用请取消注释并在 .env 中配置 DOCKER_CPUS/DOCKER_MEMORY) ----
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "${DOCKER_CPUS:-}"
+    #       memory: "${DOCKER_MEMORY:-}"
+
 
 volumes:
   rk3588-sdk:
