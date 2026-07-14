@@ -3,18 +3,15 @@
 # 支持 x86_64 / ARM64 宿主机多架构构建
 # =============================================================================
 
-FROM --platform=$BUILDPLATFORM ubuntu:22.04 AS base
+FROM ubuntu:22.04 AS base
 
 LABEL maintainer="rk3588-build"
 LABEL description="RK3588 Linux BSP Docker Build Environment (multi-arch)"
 
 # ---- 架构检测 ----
-ARG TARGETPLATFORM
-ARG BUILDPLATFORM
 # HOST_ARCH: 宿主机架构 (amd64 / arm64)
-# CROSS_TRIPLE: 交叉编译目标三元组
 RUN ARCH=$(dpkg --print-architecture) && \
-    echo "构建平台: ${BUILDPLATFORM:-unknown}, 宿主机架构: ${ARCH}" && \
+    echo "宿主机架构: ${ARCH}" && \
     echo "${ARCH}" > /etc/host_arch
 
 # ---- 避免交互式安装提示 ----

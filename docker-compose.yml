@@ -2,19 +2,11 @@
 # RK3588 Docker 编译环境 - Compose 配置 (支持 x86_64 / ARM64)
 # =============================================================================
 
-version: "3.8"
-
 services:
   rk3588-build:
     build:
       context: .
       dockerfile: Dockerfile
-      # 多架构构建支持
-      platforms:
-        - linux/amd64
-        - linux/arm64
-      args:
-        - BUILDPLATFORM=${BUILDPLATFORM:-}
     image: rk3588-build:latest
     container_name: rk3588-build
     platform: ${DOCKER_PLATFORM:-linux/amd64}
