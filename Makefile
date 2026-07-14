@@ -85,26 +85,26 @@ fetch-orangepi: ## 拉取 OrangePi 5 BSP
 build-kernel: ## 编译 Kernel (需先拉取源码)
 	docker compose run --rm rk3588-build /bin/bash -c \
 		"cd /home/builder/sdk/kernel && \
-		 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- rockchip_linux_defconfig && \
-		 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j\$$(nproc)"
+		 make rockchip_linux_defconfig && \
+		 make -j\$$(nproc)"
 
 build-uboot: ## 编译 U-Boot (需先拉取源码)
 	docker compose run --rm rk3588-build /bin/bash -c \
 		"cd /home/builder/sdk/u-boot && \
-		 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- rk3588_defconfig && \
-		 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j\$$(nproc)"
+		 make rk3588_defconfig && \
+		 make -j\$$(nproc)"
 
 build-all: ## 一键编译所有组件 (Kernel + U-Boot)
 	docker compose run --rm rk3588-build /bin/bash -c \
 		"echo '===== 编译 U-Boot =====' && \
 		 cd /home/builder/sdk/u-boot && \
-		 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- rk3588_defconfig && \
-		 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j\$$(nproc) && \
+		 make rk3588_defconfig && \
+		 make -j\$$(nproc) && \
 		 echo '' && \
 		 echo '===== 编译 Kernel =====' && \
 		 cd /home/builder/sdk/kernel && \
-		 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- rockchip_linux_defconfig && \
-		 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j\$$(nproc) && \
+		 make rockchip_linux_defconfig && \
+		 make -j\$$(nproc) && \
 		 echo '' && \
 		 echo '===== 编译完成 =====' && \
 		 echo 'Kernel: /home/builder/sdk/kernel/arch/arm64/boot/Image' && \

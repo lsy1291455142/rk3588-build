@@ -216,18 +216,17 @@ fetch_sdk_with_local_manifest() {
         git commit -q -m "manifest" --allow-empty 2>/dev/null || true
         cd "${SDK_DIR}"
 
-        repo init -u "file://${tmp_manifest_repo}" -m "${manifest_file}" -b master
+        local init_opts="-u file://${tmp_manifest_repo} -m ${manifest_file} -b master"
+        if [ "${DEPTH}" != "0" ]; then
+            init_opts="${init_opts} --depth=${DEPTH}"
+        fi
+        repo init ${init_opts}
     else
         log_info ".repo 已存在, 跳过 init (如需重新初始化请先删除 .repo 目录)"
     fi
 
     # repo sync (带重试)
-    local sync_opts="-j${JOBS}"
-    if [ "${DEPTH}" != "0" ]; then
-        sync_opts="${sync_opts} --depth=${DEPTH}"
-    fi
-
-    repo_sync_with_retry "${sync_opts}"
+    repo_sync_with_retry "-j${JOBS}"
 }
 
 # ---- 使用自定义远程 manifest URL ----
@@ -238,17 +237,16 @@ fetch_sdk_with_custom_manifest() {
     cd "${SDK_DIR}"
 
     if [ ! -d ".repo" ]; then
-        repo init -u "${CUSTOM_MANIFEST_URL}" -m "${CUSTOM_MANIFEST_NAME:-default.xml}" -b "${BRANCH:-main}"
+        local init_opts="-u ${CUSTOM_MANIFEST_URL} -m ${CUSTOM_MANIFEST_NAME:-default.xml} -b ${BRANCH:-main}"
+        if [ "${DEPTH}" != "0" ]; then
+            init_opts="${init_opts} --depth=${DEPTH}"
+        fi
+        repo init ${init_opts}
     else
         log_info ".repo 已存在, 跳过 init"
     fi
 
-    local sync_opts="-j${JOBS}"
-    if [ "${DEPTH}" != "0" ]; then
-        sync_opts="${sync_opts} --depth=${DEPTH}"
-    fi
-
-    repo_sync_with_retry "${sync_opts}"
+    repo_sync_with_retry "-j${JOBS}"
 }
 
 # ---- 主流程 ----

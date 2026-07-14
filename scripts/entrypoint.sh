@@ -101,10 +101,23 @@ check_sdk() {
     fi
 }
 
+# ---- 配置 Git (防止 repo init / commit 失败) ----
+setup_git() {
+    if ! git config --global user.email >/dev/null 2>&1; then
+        git config --global user.email "rk3588-builder@local"
+    fi
+    if ! git config --global user.name >/dev/null 2>&1; then
+        git config --global user.name "RK3588 Builder"
+    fi
+    git lfs install --skip-smudge >/dev/null 2>&1 || git lfs install >/dev/null 2>&1
+}
+
 # ---- 主逻辑 ----
 setup_compiler
 setup_ccache
+setup_git
 show_banner
+
 
 if [ "${FETCH_ON_START}" = "yes" ]; then
     log_step "自动拉取 SDK (MANIFEST=${MANIFEST:-交互选择})"
