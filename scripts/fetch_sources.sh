@@ -270,6 +270,19 @@ main() {
             exit 1
         fi
 
+        # 无论如何，先准备好临时 manifest 仓库，防止容器重启后 /tmp 目录丢失导致 repo sync 报错
+        log_info "正在准备本地 manifest 仓库镜像..."
+        local tmp_manifest_repo="/tmp/rk3588-manifest-repo"
+        if [ -d "${tmp_manifest_repo}" ]; then
+            rm -rf "${tmp_manifest_repo}"
+        fi
+        cp -r "${LOCAL_MANIFESTS}" "${tmp_manifest_repo}"
+        cd "${tmp_manifest_repo}"
+        git init -q -b master
+        git add -A
+        git commit -q -m "manifest" --allow-empty 2>/dev/null || true
+        cd "${SDK_DIR}"
+
         local cur_manifest=""
         if [ -f "${SDK_DIR}/.repo/manifest.xml" ]; then
             cur_manifest=$(basename "$(readlink "${SDK_DIR}/.repo/manifest.xml" 2>/dev/null || echo "")")
@@ -277,12 +290,16 @@ main() {
 
         if [ -n "${cur_manifest}" ] && [ -f "${LOCAL_MANIFESTS}/${cur_manifest}" ]; then
             log_info "检测到当前 Manifest 为 ${cur_manifest}，正在重新初始化并更新..."
-            fetch_sdk_with_local_manifest "${cur_manifest}"
+            local init_opts="-u file://${tmp_manifest_repo} -m ${cur_manifest} -b master"
+            if [ "${DEPTH}" != "0" ]; then
+                init_opts="${init_opts} --depth=${DEPTH}"
+            fi
+            repo init ${init_opts}
         else
             log_info "使用现有 .repo 配置直接同步更新代码..."
-            cd "${SDK_DIR}"
-            repo_sync_with_retry "-j${JOBS}"
         fi
+
+        repo_sync_with_retry "-j${JOBS}"
     else
         # 交互式选择 SDK 版本
         chosen_manifest=$(pick_sdk_version)
