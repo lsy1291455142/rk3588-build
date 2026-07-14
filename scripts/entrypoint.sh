@@ -21,7 +21,7 @@ log_step()  { echo -e "${CYAN}[STEP]${NC}  $*"; }
 # ---- 环境变量默认值 ----
 SDK_DIR="${SDK_DIR:-/home/builder/sdk}"
 BSP_SOURCE="${BSP_SOURCE:-rockchip}"       # rockchip | firefly | radxa | orangepi
-BRANCH="${BRANCH:-}"                   # 留空则交互选择
+MANIFEST="${MANIFEST:-}"             # manifest 文件名, 留空则交互选择
 FETCH_ON_START="${FETCH_ON_START:-no}"      # 容器启动时是否自动拉取
 JOBS="${JOBS:-$(nproc)}"                    # 编译并行数
 

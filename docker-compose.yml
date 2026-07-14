@@ -15,7 +15,7 @@ services:
     # ---- 环境变量 ----
     environment:
       - BSP_SOURCE=${BSP_SOURCE:-rockchip}
-      - BRANCH=${BRANCH:-}
+      - MANIFEST=${MANIFEST:-}
       - FETCH_ON_START=${FETCH_ON_START:-no}
       - JOBS=${JOBS:-0}
       - DEPTH=${DEPTH:-1}

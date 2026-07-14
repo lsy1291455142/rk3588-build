@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+  <include name="rk3588-linux-5.10.xml" />
+</manifest>

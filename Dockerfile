@@ -150,6 +150,7 @@ WORKDIR /home/builder/sdk
 # ---- 入口脚本 + 源码拉取脚本 ----
 COPY --chown=builder:builder scripts/entrypoint.sh /home/builder/entrypoint.sh
 COPY --chown=builder:builder scripts/fetch_sources.sh /home/builder/fetch_sources.sh
+COPY --chown=builder:builder manifests/ /home/builder/manifests/
 RUN chmod +x /home/builder/entrypoint.sh /home/builder/fetch_sources.sh
 
 ENTRYPOINT ["/home/builder/entrypoint.sh"]
