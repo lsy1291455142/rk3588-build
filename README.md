@@ -1,18 +1,19 @@
 # RK3588 Linux BSP Docker 编译环境
 
-一键搭建 RK3588 Linux 编译环境，自动安装依赖并拉取公开 SDK 源码。
+一键搭建 RK3588 Linux 编译环境，自动安装依赖并拉取公开 SDK 源码。  
+**支持 x86_64 和 ARM64 宿主机**（Mac M1/M2、ARM 服务器等）。
 
 ## 📁 项目结构
 
 ```
 rk3588-build/
-├── Dockerfile              # Docker 镜像定义 (编译依赖 + 交叉工具链)
+├── Dockerfile              # 多架构 Docker 镜像 (x86_64 + ARM64)
 ├── docker-compose.yml      # Compose 编排配置
 ├── Makefile                # 便捷命令 (build/shell/fetch/compile)
 ├── .env.example            # 环境变量模板
 ├── scripts/
-│   ├── entrypoint.sh       # 容器入口脚本
-│   └── fetch_sources.sh    # SDK 源码拉取脚本
+│   ├── entrypoint.sh       # 容器入口脚本 (架构感知)
+│   └── fetch_sources.sh    # SDK 源码拉取脚本 (4 种 BSP 来源)
 ├── configs/                # 自定义编译配置 (defconfig 等)
 └── patches/                # 本地补丁目录
 ```
@@ -23,8 +24,11 @@ rk3588-build/
 
 ```bash
 cd rk3588-build
+
+# 自动检测宿主机架构
 make build
-# 或
+
+# 或显式指定
 docker compose build
 ```
 
@@ -46,19 +50,17 @@ make fetch-radxa
 ```bash
 make shell
 # 进入容器后可看到:
-#   /home/builder/sdk/kernel   - Linux 内核源码
-#   /home/builder/sdk/u-boot   - U-Boot 源码
-#   /home/builder/sdk/rkbin    - Rockchip 闭源固件 (DDR init, TF-A)
+#   /home/builder/sdk/kernel    - Linux 内核源码
+#   /home/builder/sdk/u-boot    - U-Boot 源码
+#   /home/builder/sdk/rkbin     - Rockchip 闭源固件 (DDR init, TF-A)
 #   /home/builder/sdk/buildroot - 根文件系统构建
 ```
 
 ### 4. 编译
 
 ```bash
-# 编译 Kernel
+# 使用 Makefile 一键编译
 make build-kernel
-
-# 编译 U-Boot
 make build-uboot
 
 # 或在容器内手动编译
@@ -66,6 +68,28 @@ make shell
 > cd /home/builder/sdk/kernel
 > make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- rockchip_linux_defconfig
 > make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
+```
+
+## 🖥️ 多架构支持
+
+Docker 镜像同时支持 **x86_64** 和 **ARM64** 宿主机：
+
+| 宿主机架构 | 状态 | 说明 |
+|-----------|------|------|
+| **x86_64** (Intel/AMD) | ✅ 完全支持 | i386 兼容库已启用，Rockchip 32 位工具可运行 |
+| **ARM64** (Mac M1/M2/M3, ARM 服务器) | ✅ 完全支持 | 跳过 i386 包，可选原生 GCC 加速编译 |
+
+### ARM64 宿主机使用
+
+```bash
+# 方式一: 自动检测 (推荐)
+docker compose build
+
+# 方式二: 显式指定平台
+DOCKER_PLATFORM=linux/arm64 docker compose build
+
+# 方式三: ARM64 宿主机启用原生编译加速
+DOCKER_PLATFORM=linux/arm64 USE_NATIVE_BUILD=yes docker compose build
 ```
 
 ## 🔧 配置说明
@@ -82,10 +106,12 @@ vim .env
 | `BSP_SOURCE` | `rockchip` | BSP 来源: `rockchip` / `firefly` / `radxa` / `orangepi` / `custom` |
 | `BRANCH` | `stable-5.10` | 代码分支 |
 | `FETCH_ON_START` | `no` | 容器启动时自动拉取源码 |
-| `JOBS` | `0` | 编译并行数 (0=自动) |
-| `DEPTH` | `1` | Git 浅克隆深度 (0=完整) |
+| `JOBS` | `0` | 编译并行数 (0=自动检测) |
+| `DEPTH` | `1` | Git 浅克隆深度 (0=完整克隆) |
 | `EXTRA_COMPONENTS` | `no` | 拉取额外组件 (device-tree 等) |
 | `CCACHE_MAXSIZE` | `10G` | ccache 最大缓存 |
+| `DOCKER_PLATFORM` | `linux/amd64` | Docker 运行平台: `linux/amd64` 或 `linux/arm64` |
+| `USE_NATIVE_BUILD` | `no` | ARM64 宿主机使用原生 GCC 加速 (仅 ARM64 有效) |
 | `DOCKER_CPUS` | `8` | Docker CPU 限制 |
 | `DOCKER_MEMORY` | `16G` | Docker 内存限制 |
 
@@ -159,8 +185,8 @@ make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- rockchip/rk3588-evb1-v10.dtb
 
 # 产物:
-#   arch/arm64/boot/Image        - 内核镜像
-#   arch/arm64/boot/dts/rockchip/*.dtb  - 设备树
+#   arch/arm64/boot/Image                    - 内核镜像
+#   arch/arm64/boot/dts/rockchip/*.dtb       - 设备树
 ```
 
 ### 完整编译 U-Boot
@@ -177,11 +203,11 @@ make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- rk3588_defconfig
 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
 
 # 产物:
-#   u-boot.bin          - U-Boot 二进制
-#   rk3588_spl.bin      - SPL
+#   u-boot.bin       - U-Boot 二进制
+#   rk3588_spl.bin   - SPL
 ```
 
-### 打包固件 (需 Rockchip 工具)
+### 打包固件
 
 ```bash
 # 在容器内, 使用 rkbin 中的工具打包完整固件
@@ -210,6 +236,31 @@ vim rk3588-myboard.dts
 #    - GPIO / LED / 按键
 ```
 
+## 🔒 闭源固件说明
+
+RK3588 SDK 包含部分闭源内容，**不影响构建，不影响多架构支持**：
+
+| 闭源内容 | 性质 | 影响构建？ | 说明 |
+|---------|------|-----------|------|
+| DDR init / TF-A (rkbin) | ARM64 二进制**文件** | ❌ 不影响 | 仅打包进固件，不在宿主机执行 |
+| Mali GPU 驱动 (.so) | ARM64 二进制**文件** | ❌ 不影响 | 目标侧运行，与宿主机无关 |
+| NPU 驱动 (.ko) | ARM64 二进制**文件** | ❌ 不影响 | 目标侧运行 |
+| VPU 固件 | ARM64 二进制**文件** | ❌ 不影响 | 目标侧运行 |
+| `upgrade_tool` (烧写) | x86_64 **可执行程序** | ❌ 不影响 | 仅烧写环节使用，不影响编译 |
+
+### ARM64 宿主机烧写方案
+
+`upgrade_tool` 是 x86_64 程序，在 ARM64 宿主机上无法直接运行，但烧写有替代方案：
+
+| 方案 | 架构限制 | 说明 |
+|------|---------|------|
+| **SD 卡烧写** | 无限制 ✅ | `dd if=firmware.img of=/dev/sdX` 直接写入 |
+| **fastboot** | 无限制 ✅ | U-Boot 进入 fastboot 模式，主机用开源 `fastboot` 命令刷写 |
+| **TFTP/NFS** | 无限制 ✅ | U-Boot 通过网络加载固件，不依赖主机侧工具 |
+| **QEMU 模拟** | 无限制 ✅ | 在 ARM64 上用 QEMU 运行 x86_64 的 `upgrade_tool` |
+
+> 💡 大多数开发者用 **SD 卡** 或 **fastboot** 烧写，不需要 `upgrade_tool`。
+
 ## 💡 常用 Makefile 命令
 
 ```bash
@@ -233,10 +284,11 @@ make clean         # 清理所有容器/镜像/卷
 4. **闭源固件**: `rkbin` 中的 DDR init / TF-A / GPU / NPU / VPU 固件为闭源预编译，**芯片级通用**，无需修改
 5. **浅克隆**: 默认 `DEPTH=1` 加速拉取，如需 `git log / git blame` 请设为 `0`
 6. **ccache**: 编译产物通过 Docker 卷持久化，重复编译会自动加速
+7. **多架构**: Dockerfile 根据宿主机架构自动选择依赖，无需手动干预
 
 ## 📋 许可证合规 (商用注意)
 
-- **Kernel / U-Boot**: GPL-2.0，分发时**必须提供源码**
+- **Kernel / U-Boot**: GPL-2.0，分发时**必须提供对应源码**
 - **rkbin 闭源固件**: 需确认 Rockchip 分发条款
-- **Mali GPU 驱动**: ARM 闭源，需确认 EULA
+- **Mali GPU 驱动**: ARM 闭源，需确认 ARM EULA
 - 商用量产建议使用 **Buildroot / Yocto** 从源码构建，便于许可证管理
