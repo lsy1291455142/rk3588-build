@@ -38,6 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git-lfs \
     # Python
     python3 \
+    python3-dev \
     python3-pip \
     python3-setuptools \
     python3-wheel \
@@ -51,6 +52,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libncursesw5-dev \
     libssl-dev \
     libelf-dev \
+    uuid-dev \
+    libyaml-dev \
     # 设备树编译
     device-tree-compiler \
     # 压缩/打包工具

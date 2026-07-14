@@ -119,6 +119,47 @@ setup_git
 show_banner
 
 
+# ---- 运行环境自我检测 (仅在进入交互式 Shell 时触发) ----
+check_environment() {
+    log_step "正在执行编译环境自检..."
+    local ok=true
+
+    # 1. 检查基础工具链
+    for cmd in gcc g++ aarch64-linux-gnu-gcc make cmake ninja dtc git git-lfs repo; do
+        if command -v $cmd &>/dev/null; then
+            echo -e "  ${GREEN}[✓]${NC} $cmd"
+        else
+            echo -e "  ${RED}[✗]${NC} $cmd ${YELLOW}(缺失)${NC}"
+            ok=false
+        fi
+    done
+
+    # 2. 检查 Python 核心签名/打包库 (特殊适配 pycryptodome 导入名 Crypto/Cryptodome)
+    local py_libs_ok=true
+    for lib in elftools jsonschema jinja2; do
+        if ! python3 -c "import $lib" >/dev/null 2>&1; then
+            py_libs_ok=false
+        fi
+    done
+    if ! python3 -c "import Crypto" >/dev/null 2>&1 && ! python3 -c "import Cryptodome" >/dev/null 2>&1; then
+        py_libs_ok=false
+    fi
+
+    if ${py_libs_ok}; then
+        echo -e "  ${GREEN}[✓]${NC} python3 libraries (Cryptodome, elftools, jsonschema, jinja2)"
+    else
+        echo -e "  ${RED}[✗]${NC} python3 libraries ${YELLOW}(存在缺失, 影响固件打包)${NC}"
+        ok=false
+    fi
+
+    if ${ok}; then
+        log_info "🎉 所有编译工具和系统依赖已就绪，环境验证通过！"
+    else
+        log_warn "⚠️ 发现编译环境依赖缺失，请检查上方标红的 [✗] 项目！"
+    fi
+    echo ""
+}
+
 if [ "${FETCH_ON_START}" = "yes" ]; then
     log_step "自动拉取 SDK (MANIFEST=${MANIFEST:-交互选择})"
     if [ -f "/home/builder/fetch_sources.sh" ]; then
@@ -128,6 +169,11 @@ if [ "${FETCH_ON_START}" = "yes" ]; then
     fi
 else
     check_sdk || log_warn "提示: 设置 FETCH_ON_START=yes 或手动运行 fetch_sources.sh"
+fi
+
+# 如果是进入交互式 Shell，自动输出环境自检
+if [ "$1" = "/bin/bash" ] && [ $# -eq 1 ]; then
+    check_environment
 fi
 
 log_info "环境准备就绪，进入 Shell"
