@@ -25,17 +25,21 @@ build-nocache: ## 构建 Docker 镜像 (无缓存)
 shell: ## 进入容器交互式 Shell
 	docker compose run --rm rk3588-build /bin/bash
 
-fetch: ## 拉取 SDK 源码 (Rockchip 官方)
-	docker compose run --rm -e FETCH_ON_START=yes rk3588-build /bin/bash -c \
-		"/home/builder/fetch_sources.sh && echo '源码拉取完成'"
+fetch: ## 拉取完整 SDK (交互选择版本)
+	docker compose run --rm -e FETCH_ON_START=yes -it rk3588-build /bin/bash -c \
+		"/home/builder/fetch_sources.sh && echo 'SDK 拉取完成'"
 
-fetch-firefly: ## 拉取 Firefly BSP 源码
-	docker compose run --rm -e BSP_SOURCE=firefly -e FETCH_ON_START=yes rk3588-build /bin/bash -c \
-		"/home/builder/fetch_sources.sh"
+fetch-510: ## 拉取 SDK Linux 5.10 LTS
+	docker compose run --rm -e FETCH_ON_START=yes -e MANIFEST=rk3588-linux-5.10.xml rk3588-build /bin/bash -c \
+		"/home/builder/fetch_sources.sh && echo 'SDK 拉取完成'"
 
-fetch-radxa: ## 拉取 Radxa BSP 源码
-	docker compose run --rm -e BSP_SOURCE=radxa -e FETCH_ON_START=yes rk3588-build /bin/bash -c \
-		"/home/builder/fetch_sources.sh"
+fetch-61: ## 拉取 SDK Linux 6.1 LTS
+	docker compose run --rm -e FETCH_ON_START=yes -e MANIFEST=rk3588-linux-6.1.xml rk3588-build /bin/bash -c \
+		"/home/builder/fetch_sources.sh && echo 'SDK 拉取完成'"
+
+fetch-66: ## 拉取 SDK Linux 6.6
+	docker compose run --rm -e FETCH_ON_START=yes -e MANIFEST=rk3588-linux-6.6.xml rk3588-build /bin/bash -c \
+		"/home/builder/fetch_sources.sh && echo 'SDK 拉取完成'"
 
 build-kernel: ## 编译 Kernel (需先拉取源码)
 	docker compose run --rm rk3588-build /bin/bash -c \

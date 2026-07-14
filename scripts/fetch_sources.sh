@@ -42,12 +42,13 @@ SDK_OPTIONS=(
 pick_sdk_version() {
     # 如果 MANIFEST 已设置, 直接使用
     if [ -n "${MANIFEST}" ]; then
+        log_info "使用指定 Manifest: ${MANIFEST}"
         echo "${MANIFEST}"
         return 0
     fi
 
     # 非交互模式 (无 TTY), 使用默认
-    if [ ! -t 0 ]; then
+    if [ ! -t 0 ] && [ ! -t 1 ]; then
         log_warn "非交互模式, 使用默认 SDK: Linux 5.10 LTS"
         echo "rk3588-linux-5.10.xml"
         return 0
