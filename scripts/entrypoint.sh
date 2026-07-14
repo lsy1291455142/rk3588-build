@@ -30,16 +30,24 @@ export ARCH=arm64
 
 # ---- 显示环境信息 ----
 show_banner() {
+    local HOST_ARCH=$(dpkg --print-architecture 2>/dev/null || echo "unknown")
     echo ""
     echo "╔══════════════════════════════════════════════════════════╗"
     echo "║           RK3588 Linux BSP Build Environment            ║"
     echo "╠══════════════════════════════════════════════════════════╣"
+    echo "║  宿主机架构  : ${HOST_ARCH}"
     echo "║  BSP Source  : ${BSP_SOURCE}"
     echo "║  Branch      : ${BRANCH}"
     echo "║  SDK Dir     : ${SDK_DIR}"
     echo "║  Cross Compile: ${CROSS_COMPILE}"
+    echo "║  目标架构    : arm64 (RK3588)"
     echo "║  Jobs        : ${JOBS}"
     echo "║  Fetch on Start: ${FETCH_ON_START}"
+    if [ "${HOST_ARCH}" = "amd64" ]; then
+    echo "║  i386 兼容   : 已启用 (Rockchip 工具)"
+    else
+    echo "║  i386 兼容   : 不适用 (非 x86_64)"
+    fi
     echo "╚══════════════════════════════════════════════════════════╝"
     echo ""
 }

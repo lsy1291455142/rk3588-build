@@ -1,21 +1,32 @@
 # =============================================================================
 # RK3588 Linux BSP Docker 编译环境
-# 支持自动拉取 Rockchip 官方 / 开发板厂商公开 SDK 源码
+# 支持 x86_64 / ARM64 宿主机多架构构建
 # =============================================================================
 
-FROM ubuntu:22.04 AS base
+FROM --platform=$BUILDPLATFORM ubuntu:22.04 AS base
 
 LABEL maintainer="rk3588-build"
-LABEL description="RK3588 Linux BSP Docker Build Environment"
+LABEL description="RK3588 Linux BSP Docker Build Environment (multi-arch)"
+
+# ---- 架构检测 ----
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+# HOST_ARCH: 宿主机架构 (amd64 / arm64)
+# CROSS_TRIPLE: 交叉编译目标三元组
+RUN ARCH=$(dpkg --print-architecture) && \
+    echo "构建平台: ${BUILDPLATFORM:-unknown}, 宿主机架构: ${ARCH}" && \
+    echo "${ARCH}" > /etc/host_arch
 
 # ---- 避免交互式安装提示 ----
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Shanghai
 
-# ---- 添加 i386 架构 (部分 Rockchip 32位工具需要) ----
-RUN dpkg --add-architecture i386
+# ---- 添加 i386 架构 (仅 x86_64 宿主机需要, Rockchip 部分 32 位工具) ----
+RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
+        dpkg --add-architecture i386; \
+    fi
 
-# ---- 基础系统依赖 ----
+# ---- 基础系统依赖 (x86_64 / ARM64 通用) ----
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # 编译工具链 (host)
     build-essential \
@@ -72,13 +83,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ccache \
     swig \
     u-boot-tools \
-    # 32位兼容 (部分 Rockchip 工具需要)
-    libc6:i386 \
-    libstdc++6:i386 \
-    zlib1g:i386 \
     # 文档构建 (可选)
     sphinx-common \
     && rm -rf /var/lib/apt/lists/*
+
+# ---- x86_64 宿主机专属: 32 位兼容库 (部分 Rockchip 工具需要) ----
+RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends \
+            libc6:i386 \
+            libstdc++6:i386 \
+            zlib1g:i386 \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# ---- ARM64 宿主机专属: 原生编译工具 (可选, 加速本地编译) ----
+RUN if [ "$(dpkg --print-architecture)" = "arm64" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends \
+            gcc \
+            g++ \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 # ---- 安装 Python 依赖 ----
 RUN python3 -m pip install --no-cache-dir --break-system-packages \
@@ -93,6 +117,7 @@ RUN git config --global user.email "rk3588-builder@local" && \
     git config --global lfs.install
 
 # ---- 配置交叉编译环境变量 ----
+# ARM64 宿主机可选用原生 GCC 加速, 默认仍用交叉编译保持一致性
 ENV CROSS_COMPILE=aarch64-linux-gnu-
 ENV ARCH=arm64
 ENV CCACHE_DIR=/home/builder/.ccache
@@ -105,6 +130,18 @@ RUN useradd -m -s /bin/bash builder && \
 # ---- 配置 ccache ----
 RUN mkdir -p /home/builder/.ccache && \
     chown -R builder:builder /home/builder/.ccache
+
+# ---- 架构信息标记 ----
+RUN echo "========================================" && \
+    echo "  宿主机架构 : $(dpkg --print-architecture)" && \
+    echo "  交叉编译   : aarch64-linux-gnu-" && \
+    echo "  目标架构   : arm64 (RK3588)" && \
+    if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
+        echo "  i386 兼容  : 已启用 (Rockchip 工具)"; \
+    else \
+        echo "  i386 兼容  : 不适用 (非 x86_64 宿主)"; \
+    fi && \
+    echo "========================================"
 
 USER builder
 WORKDIR /home/builder/sdk
