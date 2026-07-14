@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # RK3588 SDK 源码拉取脚本
-# 支持多种 BSP 来源: rockchip / firefly / radxa / orangepi
+# 支持多种 BSP 来源 + 交互式分支选择
 # =============================================================================
 
 set -e
@@ -11,6 +11,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m'
 
 log_info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
@@ -21,34 +22,139 @@ log_step()  { echo -e "${CYAN}[STEP]${NC}  $*"; }
 # ---- 配置 ----
 SDK_DIR="${SDK_DIR:-/home/builder/sdk}"
 BSP_SOURCE="${BSP_SOURCE:-rockchip}"
-BRANCH="${BRANCH:-stable-5.10}"
-DEPTH="${DEPTH:-1}"                # 浅克隆深度, 设为 0 表示完整克隆
-JOBS="${JOBS:-4}"                  # repo 并行拉取数
+BRANCH="${BRANCH:-}"                # 留空则交互选择
+DEPTH="${DEPTH:-1}"                 # 浅克隆深度, 0=完整克隆
+JOBS="${JOBS:-4}"                   # repo 并行拉取数
 
-# ---- BSP 源配置 ----
-# Rockchip 官方 GitHub 组件式拉取
+# ---- BSP 源配置 (实际验证过的分支) ----
 ROCKCHIP_GITHUB="https://github.com/rockchip-linux"
-ROCKCHIP_KERNEL_BRANCH="stable-5.10"
-ROCKCHIP_UBOOT_BRANCH="next-dev"
-ROCKCHIP_RKBIN_BRANCH="master"
 
-# Firefly GitLab
+# Rockchip kernel 实际分支: develop-4.19, develop-5.10, develop-6.1, develop-6.6
+# Rockchip u-boot 实际分支: next-dev, master
+# Rockchip rkbin 实际分支: master
+
 FIREFLY_GITLAB="https://gitlab.com/firefly-linux"
-FIREFLY_KERNEL_BRANCH="main"
-FIREFLY_UBOOT_BRANCH="main"
-FIREFLY_RKBIN_BRANCH="main"
-
-# Radxa GitHub
 RADXA_GITHUB="https://github.com/radxa"
-RADXA_KERNEL_BRANCH="main"
-RADXA_UBOOT_BRANCH="main"
-
-# OrangePi GitHub
 ORANGEPI_GITHUB="https://github.com/orangepi-xunlong"
-ORANGEPI_KERNEL_BRANCH="main"
-ORANGEPI_UBOOT_BRANCH="main"
 
-# ---- 工具函数 ----
+# ---- 交互式选择工具 ----
+
+# 列出远程仓库分支
+list_remote_branches() {
+    local url="$1"
+    git ls-remote --heads "${url}" 2>/dev/null | awk -F'/' '{print $NF}' | sort
+}
+
+# 交互式选择分支
+pick_branch() {
+    local url="$1"
+    local repo_name="$2"
+    local default_branch="$3"
+
+    # 如果 BRANCH 已设置, 直接使用
+    if [ -n "${BRANCH}" ]; then
+        echo "${BRANCH}"
+        return 0
+    fi
+
+    # 非交互模式 (无 TTY), 使用默认
+    if [ ! -t 0 ]; then
+        log_warn "非交互模式, ${repo_name} 使用默认分支: ${default_branch}"
+        echo "${default_branch}"
+        return 0
+    fi
+
+    log_step "获取 ${repo_name} 远程分支列表..."
+    local branches
+    branches=$(list_remote_branches "${url}")
+
+    if [ -z "${branches}" ]; then
+        log_warn "无法获取分支列表, 使用默认: ${default_branch}"
+        echo "${default_branch}"
+        return 0
+    fi
+
+    # 显示分支列表
+    echo ""
+    echo -e "${BOLD}  ${repo_name} 可用分支:${NC}"
+    echo "  ─────────────────────────"
+
+    local i=1
+    local default_idx=1
+    local branch_array=()
+    while IFS= read -r b; do
+        branch_array+=("${b}")
+        if [ "${b}" = "${default_branch}" ]; then
+            default_idx=${i}
+            echo -e "  ${CYAN}${i}) ${b} ${GREEN}[推荐]${NC}"
+        else
+            echo "  ${i}) ${b}"
+        fi
+        i=$((i + 1))
+    done <<< "${branches}"
+
+    echo ""
+    echo -en "  请选择 [1-$((i-1))] (默认 ${default_idx}): "
+
+    local choice
+    read -r choice
+
+    if [ -z "${choice}" ]; then
+        choice=${default_idx}
+    fi
+
+    # 验证输入
+    if ! echo "${choice}" | grep -qE '^[0-9]+$' || [ "${choice}" -lt 1 ] || [ "${choice}" -ge "${i}" ]; then
+        log_warn "无效选择, 使用默认分支: ${default_branch}"
+        echo "${default_branch}"
+        return 0
+    fi
+
+    local selected="${branch_array[$((choice - 1))]}"
+    log_info "已选择: ${selected}"
+    echo "${selected}"
+}
+
+# 交互式选择 BSP 来源
+pick_bsp_source() {
+    # 如果已设置且非默认, 直接使用
+    if [ -n "${BSP_SOURCE}" ] && [ "${BSP_SOURCE}" != "rockchip" ]; then
+        echo "${BSP_SOURCE}"
+        return 0
+    fi
+
+    # 非交互模式
+    if [ ! -t 0 ]; then
+        echo "rockchip"
+        return 0
+    fi
+
+    echo ""
+    echo -e "${BOLD}  选择 BSP 来源:${NC}"
+    echo "  ─────────────────────────"
+    echo -e "  ${CYAN}1) rockchip${NC}   ${GREEN}[推荐]${NC} Rockchip 官方 GitHub (最通用)"
+    echo "  2) firefly     Firefly AIO-3588 BSP (较完整)"
+    echo "  3) radxa       Radxa Rock 5B BSP (社区活跃)"
+    echo "  4) orangepi    Orange Pi 5 BSP"
+    echo "  5) custom      自定义 Manifest URL"
+    echo ""
+    echo -en "  请选择 [1-5] (默认 1): "
+
+    local choice
+    read -r choice
+    choice="${choice:-1}"
+
+    case "${choice}" in
+        1) echo "rockchip" ;;
+        2) echo "firefly" ;;
+        3) echo "radxa" ;;
+        4) echo "orangepi" ;;
+        5) echo "custom" ;;
+        *) log_warn "无效选择, 使用 rockchip"; echo "rockchip" ;;
+    esac
+}
+
+# ---- Git 克隆 ----
 git_clone() {
     local url="$1"
     local dir="$2"
@@ -89,13 +195,16 @@ fetch_rockchip() {
     log_step "===== 拉取 Rockchip 官方 SDK ====="
     cd "${SDK_DIR}"
 
-    # Rockchip 官方没有公开完整 manifest, 采用组件式拉取
-    local kernel_branch="${BRANCH:-${ROCKCHIP_KERNEL_BRANCH}}"
-    local uboot_branch="${ROCKCHIP_UBOOT_BRANCH}"
+    # 交互式选择各组件分支
+    local kernel_branch
+    kernel_branch=$(pick_branch "${ROCKCHIP_GITHUB}/kernel" "Kernel" "develop-5.10")
+
+    local uboot_branch
+    uboot_branch=$(pick_branch "${ROCKCHIP_GITHUB}/u-boot" "U-Boot" "next-dev")
 
     git_clone "${ROCKCHIP_GITHUB}/kernel"     "kernel"     "${kernel_branch}"
     git_clone "${ROCKCHIP_GITHUB}/u-boot"     "u-boot"     "${uboot_branch}"
-    git_clone "${ROCKCHIP_GITHUB}/rkbin"      "rkbin"      "${ROCKCHIP_RKBIN_BRANCH}"
+    git_clone "${ROCKCHIP_GITHUB}/rkbin"      "rkbin"      "master"
     git_clone "${ROCKCHIP_GITHUB}/buildroot"  "buildroot"  "master"
     git_clone "${ROCKCHIP_GITHUB}/docs"       "docs"       "master"
 
@@ -107,9 +216,9 @@ fetch_rockchip() {
     fi
 
     log_info "Rockchip 官方 SDK 拉取完成"
-    log_info "  kernel  : ${SDK_DIR}/kernel  (${kernel_branch})"
-    log_info "  u-boot  : ${SDK_DIR}/u-boot  (${uboot_branch})"
-    log_info "  rkbin   : ${SDK_DIR}/rkbin"
+    log_info "  kernel   : ${SDK_DIR}/kernel  (${kernel_branch})"
+    log_info "  u-boot   : ${SDK_DIR}/u-boot  (${uboot_branch})"
+    log_info "  rkbin    : ${SDK_DIR}/rkbin"
     log_info "  buildroot: ${SDK_DIR}/buildroot"
 }
 
@@ -117,18 +226,16 @@ fetch_firefly() {
     log_step "===== 拉取 Firefly AIO-3588 BSP ====="
     cd "${SDK_DIR}"
 
-    # Firefly 提供了较完整的 BSP, 优先尝试 repo manifest
-    local manifest_url="${FIREFLY_GITLAB}/manifests.git"
+    local kernel_branch
+    kernel_branch=$(pick_branch "${FIREFLY_GITLAB}/kernel.git" "Kernel" "main")
 
-    if repo_sync "${manifest_url}" "${BRANCH}" "rk3588_linux.xml" 2>/dev/null; then
-        log_info "Firefly BSP 通过 repo 拉取成功"
-    else
-        log_warn "repo 拉取失败, 回退到组件式拉取"
-        git_clone "${FIREFLY_GITLAB}/kernel.git"       "kernel"    "${FIREFLY_KERNEL_BRANCH}"
-        git_clone "${FIREFLY_GITLAB}/u-boot.git"       "u-boot"    "${FIREFLY_UBOOT_BRANCH}"
-        git_clone "${FIREFLY_GITLAB}/rkbin.git"        "rkbin"     "${FIREFLY_RKBIN_BRANCH}"
-        git_clone "${FIREFLY_GITLAB}/buildroot.git"    "buildroot" "main"
-    fi
+    local uboot_branch
+    uboot_branch=$(pick_branch "${FIREFLY_GITLAB}/u-boot.git" "U-Boot" "main")
+
+    git_clone "${FIREFLY_GITLAB}/kernel.git"    "kernel"    "${kernel_branch}"
+    git_clone "${FIREFLY_GITLAB}/u-boot.git"    "u-boot"    "${uboot_branch}"
+    git_clone "${FIREFLY_GITLAB}/rkbin.git"     "rkbin"     "main"
+    git_clone "${FIREFLY_GITLAB}/buildroot.git" "buildroot" "main"
 
     log_info "Firefly BSP 拉取完成"
 }
@@ -137,11 +244,16 @@ fetch_radxa() {
     log_step "===== 拉取 Radxa Rock 5B BSP ====="
     cd "${SDK_DIR}"
 
-    git_clone "${RADXA_GITHUB}/kernel.git"   "kernel"   "${RADXA_KERNEL_BRANCH}"
-    git_clone "${RADXA_GITHUB}/u-boot.git"   "u-boot"   "${RADXA_UBOOT_BRANCH}"
-    git_clone "${ROCKCHIP_GITHUB}/rkbin"     "rkbin"    "${ROCKCHIP_RKBIN_BRANCH}"
+    local kernel_branch
+    kernel_branch=$(pick_branch "${RADXA_GITHUB}/kernel.git" "Kernel" "main")
 
-    # Radxa 使用 Debian 构建而非 Buildroot
+    local uboot_branch
+    uboot_branch=$(pick_branch "${RADXA_GITHUB}/u-boot.git" "U-Boot" "main")
+
+    git_clone "${RADXA_GITHUB}/kernel.git"   "kernel"   "${kernel_branch}"
+    git_clone "${RADXA_GITHUB}/u-boot.git"   "u-boot"   "${uboot_branch}"
+    git_clone "${ROCKCHIP_GITHUB}/rkbin"     "rkbin"    "master"
+
     if [ "${EXTRA_COMPONENTS}" = "yes" ]; then
         log_step "拉取 Radxa Debian 构建脚本..."
         git_clone "${RADXA_GITHUB}/radxa-debian.git" "debian" "main" 2>/dev/null || \
@@ -155,9 +267,15 @@ fetch_orangepi() {
     log_step "===== 拉取 Orange Pi 5 BSP ====="
     cd "${SDK_DIR}"
 
-    git_clone "${ORANGEPI_GITHUB}/orangepi5-linux.git"   "kernel"   "${ORANGEPI_KERNEL_BRANCH}"
-    git_clone "${ORANGEPI_GITHUB}/orangepi5-uboot.git"   "u-boot"   "${ORANGEPI_UBOOT_BRANCH}"
-    git_clone "${ROCKCHIP_GITHUB}/rkbin"                 "rkbin"    "${ROCKCHIP_RKBIN_BRANCH}"
+    local kernel_branch
+    kernel_branch=$(pick_branch "${ORANGEPI_GITHUB}/orangepi5-linux.git" "Kernel" "main")
+
+    local uboot_branch
+    uboot_branch=$(pick_branch "${ORANGEPI_GITHUB}/orangepi5-uboot.git" "U-Boot" "main")
+
+    git_clone "${ORANGEPI_GITHUB}/orangepi5-linux.git"   "kernel"   "${kernel_branch}"
+    git_clone "${ORANGEPI_GITHUB}/orangepi5-uboot.git"   "u-boot"   "${uboot_branch}"
+    git_clone "${ROCKCHIP_GITHUB}/rkbin"                 "rkbin"    "master"
 
     log_info "Orange Pi BSP 拉取完成"
 }
@@ -165,11 +283,15 @@ fetch_orangepi() {
 # ---- 主流程 ----
 main() {
     log_info "SDK 目录: ${SDK_DIR}"
-    log_info "BSP 来源: ${BSP_SOURCE}"
-    log_info "分支    : ${BRANCH}"
 
     mkdir -p "${SDK_DIR}"
     cd "${SDK_DIR}"
+
+    # 交互式选择 BSP 来源
+    if [ -z "${BSP_SOURCE}" ] || [ "${BSP_SOURCE}" = "rockchip" ]; then
+        BSP_SOURCE=$(pick_bsp_source)
+    fi
+    log_info "BSP 来源: ${BSP_SOURCE}"
 
     case "${BSP_SOURCE}" in
         rockchip)
@@ -205,7 +327,8 @@ main() {
 
     for comp in kernel u-boot rkbin; do
         if [ -d "${SDK_DIR}/${comp}" ]; then
-            local rev=$(cd "${SDK_DIR}/${comp}" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+            local rev
+            rev=$(cd "${SDK_DIR}/${comp}" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
             log_info "  ✓ ${comp}: ${rev}"
         else
             log_error "  ✗ ${comp}: 缺失"
