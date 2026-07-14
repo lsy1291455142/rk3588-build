@@ -373,8 +373,8 @@ main() {
         fi
         echo ""
         echo -e "${BOLD}  快速开始编译:${NC}"
-        echo "  kernel:  cd kernel && make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- rockchip_linux_defconfig && make -j\${JOBS}"
-        echo "  u-boot:  cd u-boot && make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- rk3588_defconfig && make -j\${JOBS}"
+        echo "  kernel:  cd kernel && make rockchip_linux_defconfig && make -j\${JOBS}"
+        echo "  u-boot:  cd u-boot && make rk3588_defconfig && make -j\${JOBS}"
     else
         log_error "部分组件拉取失败, 请检查网络或 manifest 配置"
         exit 1
