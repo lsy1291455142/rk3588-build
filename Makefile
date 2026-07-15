@@ -103,7 +103,9 @@ fetch-orangepi:
 		bash /home/builder/scripts/fetch_sources.sh
 
 update:
-	docker compose run --rm --no-deps -T rk3588-build \
+	docker compose run --rm --no-deps -T \
+		-e SDK_VOLUME=$(SDK_VOLUME) \
+		rk3588-build bash /home/builder/scripts/fetch_sources.sh update
 		bash /home/builder/scripts/fetch_sources.sh update
 
 shell:
