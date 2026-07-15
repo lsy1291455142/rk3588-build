@@ -20,6 +20,15 @@ log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $*" >&2; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 log_step()  { echo -e "${CYAN}[STEP]${NC}  $*" >&2; }
 
+HOST_ARCH="$(dpkg --print-architecture 2>/dev/null || echo "unknown")"
+
+# ---- Drop to builder user if started as root ----
+if [ "$(id -u)" -eq 0 ] && command -v gosu >/dev/null 2>&1; then
+    BUILDER_UID="$(id -u builder 2>/dev/null || echo 1000)"
+    BUILDER_GID="$(id -g builder 2>/dev/null || echo 1000)"
+    exec gosu "${BUILDER_UID}:${BUILDER_GID}" /bin/bash "${BASH_SOURCE[0]}" "$@"
+fi
+
 # ---- 环境变量默认值 ----
 SDK_DIR="${SDK_DIR:-/home/builder/sdk}"
 MANIFEST="${MANIFEST:-}"                     # manifest 文件名, 留空则交互选择
@@ -30,9 +39,6 @@ USE_NATIVE_BUILD="${USE_NATIVE_BUILD:-no}"  # ARM64 原生编译
 
 # ---- 配置交叉编译环境 ----
 setup_compiler() {
-    local HOST_ARCH
-    HOST_ARCH=$(dpkg --print-architecture 2>/dev/null || echo "unknown")
-
     if [ "${USE_NATIVE_BUILD}" = "yes" ] && [ "${HOST_ARCH}" = "arm64" ]; then
         # ARM64 宿主机: 使用原生 GCC (比交叉编译更快)
         export CROSS_COMPILE=""
@@ -61,9 +67,6 @@ setup_ccache() {
 
 # ---- 显示环境信息 ----
 show_banner() {
-    local HOST_ARCH
-    HOST_ARCH=$(dpkg --print-architecture 2>/dev/null || echo "unknown")
-
     local manifest_display="${MANIFEST:-交互选择}"
     local compiler_display
     if [ "${USE_NATIVE_BUILD}" = "yes" ] && [ "${HOST_ARCH}" = "arm64" ]; then

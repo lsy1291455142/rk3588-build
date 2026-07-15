@@ -61,6 +61,7 @@ RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
         mtools \
         ninja-build \
         openssh-client \
+        gosu \
         openssl \
         patch \
         perl \
@@ -94,6 +95,13 @@ RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
         rm -rf /var/lib/apt/lists/*; \
     fi
 
+RUN if [ "$(dpkg --print-architecture)" = "arm64" ]; then \
+        apt-get update && \
+        apt-get install -y --no-install-recommends \
+            qemu-user-static && \
+        rm -rf /var/lib/apt/lists/*; \
+    fi
+
 RUN curl -fsSL -o /usr/local/bin/repo \
         https://storage.googleapis.com/git-repo-downloads/repo && \
     chmod 0755 /usr/local/bin/repo && \
@@ -118,7 +126,6 @@ COPY --chown=builder:builder rootfs/ /home/builder/rootfs/
 RUN find /home/builder/scripts /home/builder/rootfs -type f -name '*.sh' \
         -exec chmod 0755 {} +
 
-USER builder
 WORKDIR /home/builder
 
 ENTRYPOINT ["/bin/bash", "/home/builder/scripts/entrypoint.sh"]

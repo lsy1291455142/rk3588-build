@@ -27,6 +27,39 @@ require_file "${UBOOT_DIR}/make.sh" "Rockchip U-Boot make.sh"
 [ "${BOOTLOADER_LAYOUT}" = "rockchip-gpt-extlinux-v1" ] ||
     die "Unsupported BOOTLOADER_LAYOUT=${BOOTLOADER_LAYOUT}"
 
+# On ARM64 hosts, Rockchip's prebuilt x86-64 rkbin tools (boot_merger,
+# trust_merger, etc.) cannot execute natively. Wrap them with qemu-x86_64.
+wrap_rkbin_tools() {
+    if [ "$(dpkg --print-architecture 2>/dev/null || echo unknown)" != "arm64" ]; then
+        return 0
+    fi
+    local qemu bin real
+    qemu="$(command -v qemu-x86_64-static 2>/dev/null || true)"
+    if [ -z "${qemu}" ]; then
+        die "ARM64 host requires qemu-user-static for x86-64 rkbin tools"
+    fi
+    for bin in "${RKBIN_DIR}/tools"/*; do
+        [ -f "${bin}" ] && [ -x "${bin}" ] || continue
+        real="${bin}.real"
+        # Skip if already wrapped (shell script wrapper in place)
+        if head -c2 "${bin}" 2>/dev/null | grep -q '^#!' && \
+            grep -q 'qemu-x86_64' "${bin}" 2>/dev/null; then
+            continue
+        fi
+        if [ -f "${real}" ]; then
+            continue
+        fi
+        # Only wrap x86-64 ELF binaries
+        file "${bin}" 2>/dev/null | grep -q 'ELF.*x86-64' || continue
+        mv "${bin}" "${real}"
+        printf '#!/bin/sh\nexec %s %s.real "$@"\n' "${qemu}" "${bin}" >"${bin}"
+        chmod 0755 "${bin}"
+    done
+    log_info "Wrapped x86-64 rkbin tools with qemu-x86_64-static"
+}
+
+wrap_rkbin_tools
+
 mkdir -p "${COMMON_OUTPUT}"
 
 validate_extlinux_boot_contract() {
