@@ -3,6 +3,7 @@
   <remote name="rockchip"
           fetch="https://github.com/rockchip-linux"
           review="gerrit.rockchip.com" />
+  <remote name="buildroot" fetch="https://gitlab.com/buildroot.org" />
 
   <default remote="rockchip"
            revision="develop-6.1"
@@ -12,4 +13,6 @@
   <project name="kernel"    path="kernel"    revision="develop-6.1" />
   <project name="u-boot"    path="u-boot"    revision="next-dev" />
   <project name="rkbin"     path="rkbin"     revision="master" />
+  <project name="buildroot" path="buildroot"
+           remote="buildroot" revision="2025.02.15" />
 </manifest>

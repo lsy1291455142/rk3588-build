@@ -1,0 +1,22 @@
+#!/bin/sh
+
+MARKER=/var/lib/rk3588-rootfs-expanded
+
+case "$1" in
+    start)
+        [ ! -e "$MARKER" ] || exit 0
+
+        rootdev="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
+        rootdev="$(readlink -f "$rootdev" 2>/dev/null || true)"
+        if [ -z "$rootdev" ] || [ ! -b "$rootdev" ]; then
+            rootdev="$(findfs LABEL=rootfs 2>/dev/null || true)"
+        fi
+
+        if [ -n "$rootdev" ] && [ -b "$rootdev" ] && resize2fs "$rootdev"; then
+            mkdir -p "$(dirname "$MARKER")"
+            touch "$MARKER"
+        fi
+        ;;
+esac
+
+exit 0

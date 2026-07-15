@@ -7,6 +7,7 @@
   <remote name="rockchip"
           fetch="https://github.com/rockchip-linux"
           review="" />
+  <remote name="buildroot" fetch="https://gitlab.com/buildroot.org" />
 
   <default remote="radxa"
            revision="main"
@@ -16,5 +17,7 @@
   <project name="kernel" path="kernel" remote="radxa" revision="linux-5.10-gen-rkr4.1" />
   <project name="u-boot" path="u-boot" remote="radxa" revision="stable-5.10-rock5" />
   <project name="rkbin"  path="rkbin"  remote="rockchip" revision="master" />
+  <project name="buildroot" path="buildroot"
+           remote="buildroot" revision="2025.02.15" />
 
 </manifest>

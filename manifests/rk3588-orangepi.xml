@@ -7,6 +7,7 @@
   <remote name="rockchip"
           fetch="https://github.com/rockchip-linux"
           review="" />
+  <remote name="buildroot" fetch="https://gitlab.com/buildroot.org" />
 
   <default remote="orangepi"
            revision="main"
@@ -16,5 +17,7 @@
   <project name="linux-orangepi" path="kernel" remote="orangepi" revision="orange-pi-5.10-rk35xx" />
   <project name="u-boot-orangepi" path="u-boot" remote="orangepi" revision="v2017.09-rk3588" />
   <project name="rkbin"           path="rkbin"  remote="rockchip" revision="master" />
+  <project name="buildroot" path="buildroot"
+           remote="buildroot" revision="2025.02.15" />
 
 </manifest>

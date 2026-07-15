@@ -1,54 +1,70 @@
-# =============================================================================
-# RK3588 Docker 编译环境 - Compose 配置 (支持 x86_64 / ARM64)
-# =============================================================================
-
 services:
   rk3588-build:
     build:
       context: .
       dockerfile: Dockerfile
+      target: rk3588-build
     image: rk3588-build:latest
-    container_name: rk3588-build
-    # 自动使用宿主机架构; 如需强制指定, 设置 DOCKER_PLATFORM
-    platform: ${DOCKER_PLATFORM:-}
-
-    # ---- 环境变量 ----
     environment:
-      - MANIFEST=${MANIFEST:-}
-      - BSP_SOURCE=${BSP_SOURCE:-rockchip}
-      - FETCH_ON_START=${FETCH_ON_START:-no}
-      - JOBS=${JOBS:-0}
-      - DEPTH=${DEPTH:-1}
-      - EXTRA_COMPONENTS=${EXTRA_COMPONENTS:-no}
-      - CUSTOM_MANIFEST_URL=${CUSTOM_MANIFEST_URL:-}
-      - CUSTOM_MANIFEST_NAME=${CUSTOM_MANIFEST_NAME:-default.xml}
-      - CCACHE_DIR=/home/builder/.ccache
-      - CCACHE_MAXSIZE=${CCACHE_MAXSIZE:-10G}
-      # ARM64 宿主机可选: 使用原生编译加速
-      - USE_NATIVE_BUILD=${USE_NATIVE_BUILD:-no}
-
-    # ---- 卷挂载 ----
+      BOARD: ${BOARD:-}
+      ROOTFS: ${ROOTFS:-buildroot}
+      DEBIAN_RELEASE: ${DEBIAN_RELEASE:-13}
+      ROOTFS_USERNAME: ${ROOTFS_USERNAME:-rk3588}
+      ROOTFS_PASSWORD: ${ROOTFS_PASSWORD:-rk3588}
+      DEBIAN_MIRROR: ${DEBIAN_MIRROR:-http://deb.debian.org/debian}
+      DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-http://security.debian.org/debian-security}
+      DEBIAN_ALLOW_ARCHIVE_FALLBACK: ${DEBIAN_ALLOW_ARCHIVE_FALLBACK:-yes}
+      MANIFEST: ${MANIFEST:-}
+      BSP_SOURCE: ${BSP_SOURCE:-rockchip}
+      FETCH_ON_START: ${FETCH_ON_START:-no}
+      JOBS: ${JOBS:-0}
+      DEPTH: ${DEPTH:-1}
+      EXTRA_COMPONENTS: ${EXTRA_COMPONENTS:-no}
+      CUSTOM_MANIFEST_URL: ${CUSTOM_MANIFEST_URL:-}
+      CUSTOM_MANIFEST_NAME: ${CUSTOM_MANIFEST_NAME:-default.xml}
+      CCACHE_DIR: /home/builder/.ccache
+      CCACHE_MAXSIZE: ${CCACHE_MAXSIZE:-10G}
+      USE_NATIVE_BUILD: ${USE_NATIVE_BUILD:-no}
+      ZSTD_LEVEL: ${ZSTD_LEVEL:-6}
     volumes:
       - rk3588-sdk:/home/builder/sdk
       - rk3588-ccache:/home/builder/.ccache
+      - ./scripts:/home/builder/scripts:ro
+      - ./manifests:/home/builder/manifests:ro
       - ./patches:/home/builder/patches:ro
       - ./configs:/home/builder/configs:ro
+      - ./rootfs:/home/builder/rootfs:ro
       - ./output:/home/builder/output
-
-    # ---- 网络 ----
-    network_mode: bridge
-
-    # ---- 交互式 ----
+    init: true
     stdin_open: true
     tty: true
 
-    # ---- 资源限制 (可选，若需使用请取消注释并在 .env 中配置 DOCKER_CPUS/DOCKER_MEMORY) ----
-    # deploy:
-    #   resources:
-    #     limits:
-    #       cpus: "${DOCKER_CPUS:-}"
-    #       memory: "${DOCKER_MEMORY:-}"
-
+  debian-rootfs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: debian-rootfs
+    image: rk3588-debian-rootfs:latest
+    platform: linux/arm64
+    privileged: true
+    environment:
+      BOARD: ${BOARD:-}
+      ROOTFS: debian
+      DEBIAN_RELEASE: ${DEBIAN_RELEASE:-13}
+      ROOTFS_USERNAME: ${ROOTFS_USERNAME:-rk3588}
+      ROOTFS_PASSWORD: ${ROOTFS_PASSWORD:-rk3588}
+      DEBIAN_MIRROR: ${DEBIAN_MIRROR:-http://deb.debian.org/debian}
+      DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-http://security.debian.org/debian-security}
+      DEBIAN_ALLOW_ARCHIVE_FALLBACK: ${DEBIAN_ALLOW_ARCHIVE_FALLBACK:-yes}
+    volumes:
+      - rk3588-sdk:/home/builder/sdk
+      - ./scripts:/home/builder/scripts:ro
+      - ./configs:/home/builder/configs:ro
+      - ./rootfs:/home/builder/rootfs:ro
+      - ./output:/home/builder/output
+    init: true
+    stdin_open: true
+    tty: true
 
 volumes:
   rk3588-sdk:

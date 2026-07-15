@@ -159,21 +159,20 @@ pick_sdk_version() {
 
 # ---- 带重试的 repo sync ----
 repo_sync_with_retry() {
-    local sync_opts="$1"
     local attempt=1
 
-    while [ ${attempt} -le ${MAX_RETRIES} ]; do
+    while [ "${attempt}" -le "${MAX_RETRIES}" ]; do
         log_step "repo sync (第 ${attempt}/${MAX_RETRIES} 次)..."
 
-        if repo sync ${sync_opts}; then
+        if repo sync "$@"; then
             log_info "repo sync 成功"
             return 0
         else
             log_warn "repo sync 失败 (第 ${attempt}/${MAX_RETRIES} 次)"
-            if [ ${attempt} -lt ${MAX_RETRIES} ]; then
+            if [ "${attempt}" -lt "${MAX_RETRIES}" ]; then
                 local wait_sec=$((attempt * 10))
                 log_info "等待 ${wait_sec} 秒后重试..."
-                sleep ${wait_sec}
+                sleep "${wait_sec}"
             fi
             attempt=$((attempt + 1))
         fi
@@ -195,9 +194,8 @@ fetch_sdk_with_local_manifest() {
     if [ ! -f "${LOCAL_MANIFESTS}/${manifest_file}" ]; then
         log_error "Manifest 文件不存在: ${LOCAL_MANIFESTS}/${manifest_file}"
         log_info "可用的 manifest 文件:"
-        ls -1 "${LOCAL_MANIFESTS}"/*.xml 2>/dev/null | while read -r f; do
-            echo "  - $(basename "${f}")"
-        done
+        find "${LOCAL_MANIFESTS}" -maxdepth 1 -type f -name '*.xml' \
+            -printf '  - %f\n' 2>/dev/null
         exit 1
     fi
 
@@ -214,16 +212,20 @@ fetch_sdk_with_local_manifest() {
     git commit -q -m "manifest" --allow-empty 2>/dev/null || true
     cd "${SDK_DIR}"
 
-    local init_opts="-u file://${tmp_manifest_repo} -m ${manifest_file} -b master"
+    local -a init_opts=(
+        -u "file://${tmp_manifest_repo}"
+        -m "${manifest_file}"
+        -b master
+    )
     if [ "${DEPTH}" != "0" ]; then
-        init_opts="${init_opts} --depth=${DEPTH}"
+        init_opts+=("--depth=${DEPTH}")
     fi
 
     log_step "执行 repo init..."
-    if ! repo init ${init_opts}; then
+    if ! repo init "${init_opts[@]}"; then
         log_warn "repo init 失败，可能是 .repo 目录损坏。正在自动清理并重新尝试..."
         rm -rf .repo
-        repo init ${init_opts}
+        repo init "${init_opts[@]}"
     fi
 
     # repo sync (带重试)
@@ -237,16 +239,20 @@ fetch_sdk_with_custom_manifest() {
 
     cd "${SDK_DIR}"
 
-    local init_opts="-u ${CUSTOM_MANIFEST_URL} -m ${CUSTOM_MANIFEST_NAME:-default.xml} -b ${BRANCH:-main}"
+    local -a init_opts=(
+        -u "${CUSTOM_MANIFEST_URL}"
+        -m "${CUSTOM_MANIFEST_NAME:-default.xml}"
+        -b "${BRANCH:-main}"
+    )
     if [ "${DEPTH}" != "0" ]; then
-        init_opts="${init_opts} --depth=${DEPTH}"
+        init_opts+=("--depth=${DEPTH}")
     fi
 
     log_step "执行 repo init..."
-    if ! repo init ${init_opts}; then
+    if ! repo init "${init_opts[@]}"; then
         log_warn "repo init 失败，可能是 .repo 目录损坏。正在自动清理并重新尝试..."
         rm -rf .repo
-        repo init ${init_opts}
+        repo init "${init_opts[@]}"
     fi
 
     repo_sync_with_retry "-j${JOBS}"
@@ -311,11 +317,15 @@ main() {
                 rm -rf ".repo/manifests.git"
             fi
 
-            local init_opts="-u file://${tmp_manifest_repo} -m ${cur_manifest} -b master"
+            local -a init_opts=(
+                -u "file://${tmp_manifest_repo}"
+                -m "${cur_manifest}"
+                -b master
+            )
             if [ "${DEPTH}" != "0" ]; then
-                init_opts="${init_opts} --depth=${DEPTH}"
+                init_opts+=("--depth=${DEPTH}")
             fi
-            repo init ${init_opts}
+            repo init "${init_opts[@]}"
         else
             log_info "使用现有 .repo 配置直接同步更新代码..."
         fi
@@ -336,12 +346,7 @@ main() {
     echo ""
     log_step "===== SDK 验证 ====="
     local ok=true
-    local components="kernel u-boot rkbin"
-
-    # 根据 manifest 检查 buildroot (非所有 BSP 都有)
-    if [ -d "${SDK_DIR}/buildroot" ]; then
-        components="${components} buildroot"
-    fi
+    local components="kernel u-boot rkbin buildroot"
 
     for comp in ${components}; do
         if [ -d "${SDK_DIR}/${comp}" ]; then
@@ -365,16 +370,14 @@ main() {
         echo "  ├── kernel/      Linux 内核源码"
         echo "  ├── u-boot/      U-Boot 引导加载程序"
         echo "  ├── rkbin/       Rockchip 闭源固件 (DDR init, TF-A)"
-        if [ -d "${SDK_DIR}/buildroot" ]; then
         echo "  ├── buildroot/   根文件系统构建"
-        fi
         if [ -d "${SDK_DIR}/docs" ]; then
         echo "  ├── docs/        文档"
         fi
         echo ""
         echo -e "${BOLD}  快速开始编译:${NC}"
         echo "  kernel:  cd kernel && make rockchip_linux_defconfig && make -j\${JOBS}"
-        echo "  u-boot:  cd u-boot && make rk3588_defconfig && make -j\${JOBS}"
+        echo "  u-boot:  cd u-boot && ./make.sh rk3588"
     else
         log_error "部分组件拉取失败, 请检查网络或 manifest 配置"
         exit 1

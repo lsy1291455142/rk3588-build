@@ -1,0 +1,2 @@
+menu "RK3588 root filesystem"
+endmenu

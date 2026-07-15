@@ -1,0 +1,33 @@
+#!/bin/sh
+
+start_network() {
+    for path in /sys/class/net/*; do
+        iface="${path##*/}"
+        [ "$iface" != "lo" ] || continue
+        [ -e "$path/device" ] || continue
+
+        ip link set "$iface" up 2>/dev/null || true
+        if [ ! -f "/run/udhcpc.${iface}.pid" ]; then
+            udhcpc -b -R -i "$iface" -p "/run/udhcpc.${iface}.pid" || true
+        fi
+    done
+}
+
+stop_network() {
+    for pidfile in /run/udhcpc.*.pid; do
+        [ -f "$pidfile" ] || continue
+        kill "$(cat "$pidfile")" 2>/dev/null || true
+        rm -f "$pidfile"
+    done
+}
+
+case "$1" in
+    start) start_network ;;
+    stop) stop_network ;;
+    restart)
+        stop_network
+        start_network
+        ;;
+esac
+
+exit 0

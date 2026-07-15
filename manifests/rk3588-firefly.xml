@@ -7,6 +7,7 @@
   <remote name="rockchip"
           fetch="https://github.com/rockchip-linux"
           review="" />
+  <remote name="buildroot" fetch="https://gitlab.com/buildroot.org" />
 
   <default remote="firefly"
            revision="master"
@@ -16,5 +17,7 @@
   <project name="kernel" path="kernel" remote="firefly" revision="stable-5.10-firefly" />
   <project name="u-boot" path="u-boot" remote="firefly" revision="stable-5.10-firefly" />
   <project name="rkbin"  path="rkbin"  remote="rockchip" revision="master" />
+  <project name="buildroot" path="buildroot"
+           remote="buildroot" revision="2025.02.15" />
 
 </manifest>

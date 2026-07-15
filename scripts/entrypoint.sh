@@ -6,6 +6,8 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # ---- 颜色输出 ----
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -92,7 +94,10 @@ show_banner() {
 
 # ---- 检查 SDK 是否已拉取 ----
 check_sdk() {
-    if [ -d "${SDK_DIR}/kernel" ] && [ -d "${SDK_DIR}/u-boot" ]; then
+    if [ -d "${SDK_DIR}/kernel" ] &&
+        [ -d "${SDK_DIR}/u-boot" ] &&
+        [ -d "${SDK_DIR}/rkbin" ] &&
+        [ -d "${SDK_DIR}/buildroot" ]; then
         log_info "SDK 源码已存在: ${SDK_DIR}"
         return 0
     else
@@ -162,8 +167,8 @@ check_environment() {
 
 if [ "${FETCH_ON_START}" = "yes" ]; then
     log_step "自动拉取 SDK (MANIFEST=${MANIFEST:-交互选择})"
-    if [ -f "/home/builder/fetch_sources.sh" ]; then
-        /home/builder/fetch_sources.sh
+    if [ -f "${SCRIPT_DIR}/fetch_sources.sh" ]; then
+        bash "${SCRIPT_DIR}/fetch_sources.sh"
     else
         log_error "fetch_sources.sh 不存在，跳过拉取"
     fi
