@@ -108,6 +108,7 @@ debian-shell:
 prepare-output:
 	@mkdir -p output
 	@chmod a+rwx output 2>/dev/null || true
+	@if [ -d output ]; then find output -type d -exec chmod a+rwx {} + 2>/dev/null || true; fi
 
 build-kernel: prepare-output
 	docker compose run --rm --no-deps -T \
