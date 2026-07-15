@@ -72,9 +72,8 @@ build-debian-builder:
 	docker compose build debian-rootfs
 
 fetch:
-	docker compose run --rm -it rk3588-build \
-		bash /home/builder/scripts/fetch_sources.sh
-
+	@if [ -z "$(SDK_VOLUME)" ]; then 		echo "Usage: make fetch SDK_VOLUME=<volume> [MANIFEST=<file>]" >&2; 		echo "" >&2; 		echo "Or use a specific fetch target:" >&2; 		echo "  make fetch-510      # Rockchip Linux 5.10 -> rk3588-sdk-rockchip-5.10" >&2; 		echo "  make fetch-radxa    # Radxa Rock 5B -> rk3588-sdk-radxa" >&2; 		echo "  make fetch-firefly  # Firefly -> rk3588-sdk-firefly" >&2; 		echo "  make fetch-orangepi  # OrangePi -> rk3588-sdk-orangepi" >&2; 		echo "" >&2; 		echo "Or specify manually:" >&2; 		echo "  make fetch SDK_VOLUME=rk3588-sdk-mycustom MANIFEST=rk3588-linux-5.10.xml" >&2; 		exit 1; 	fi
+	docker compose run --rm -it 		-e SDK_VOLUME=$(SDK_VOLUME) 		-e MANIFEST=$(MANIFEST) 		rk3588-build bash /home/builder/scripts/fetch_sources.sh
 fetch-510:
 	docker compose run --rm --no-deps -T \
 		-e MANIFEST=rk3588-linux-5.10.xml -e SDK_VOLUME=rk3588-sdk-rockchip-5.10 rk3588-build \
