@@ -14,7 +14,10 @@ DEFAULT_BOARD := rk3588-evb1-lp4-v10-linux
 BOARD ?=
 BOARD_FOR_COMPONENT = $(if $(strip $(BOARD)),$(BOARD),$(DEFAULT_BOARD))
 ROOTFS ?= buildroot
-SDK_VOLUME ?= rk3588-sdk
+# SDK_VOLUME: set explicitly to select which SDK volume to use.
+# fetch-* targets set this automatically. For update/build, pass it
+# explicitly, e.g. make update SDK_VOLUME=rk3588-sdk-radxa.
+SDK_VOLUME ?=
 DEBIAN_RELEASE ?= 13
 ROOTFS_USERNAME ?= rk3588
 ROOTFS_PASSWORD ?= rk3588
@@ -103,6 +106,17 @@ fetch-orangepi:
 		bash /home/builder/scripts/fetch_sources.sh
 
 update:
+	@if [ -z "$(SDK_VOLUME)" ]; then \
+		echo "Usage: make update SDK_VOLUME=<volume>" >&2; \
+		echo "" >&2; \
+		echo "Available SDK volumes:" >&2; \
+		docker volume ls --filter name=rk3588-sdk --format '  {{.Name}}' 2>/dev/null; \
+		echo "" >&2; \
+		echo "Examples:" >&2; \
+		echo "  make update SDK_VOLUME=rk3588-sdk-rockchip-5.10" >&2; \
+		echo "  make update SDK_VOLUME=rk3588-sdk-radxa" >&2; \
+		exit 1; \
+	fi
 	docker compose run --rm --no-deps -T \
 		-e SDK_VOLUME=$(SDK_VOLUME) \
 		rk3588-build bash /home/builder/scripts/fetch_sources.sh update
