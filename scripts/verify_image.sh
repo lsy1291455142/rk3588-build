@@ -74,7 +74,7 @@ last_sector() {
 }
 
 partition_code() {
-    partition_field "$1" "Partition GUID code" | awk '{print $1}'
+    sgdisk -p "${IMAGE_PATH}" 2>/dev/null | awk -v n="$1" '$1 == n {print $6}'
 }
 
 partition_name() {

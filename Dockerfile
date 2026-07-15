@@ -111,6 +111,17 @@ RUN curl -fsSL -o /usr/local/bin/repo \
         pycryptodome \
         pyelftools
 
+# Build newer e2fsprogs (1.47.2) to support ext4 features from Debian trixie
+RUN cd /tmp && \
+    curl -fsSL -o e2fsprogs.tar.gz \
+        https://github.com/tytso/e2fsprogs/archive/refs/tags/v1.47.2.tar.gz && \
+    tar xzf e2fsprogs.tar.gz && \
+    cd e2fsprogs-1.47.2 && \
+    ./configure --quiet --prefix=/usr/local && \
+    make -j"$(nproc)" --quiet && \
+    make install --quiet && \
+    cd / && rm -rf /tmp/e2fsprogs*
+
 RUN git config --global user.email "rk3588-builder@local" && \
     git config --global user.name "RK3588 Builder" && \
     git lfs install
