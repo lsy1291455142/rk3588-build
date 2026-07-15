@@ -18,6 +18,6 @@
   <project name="u-boot" path="u-boot" remote="radxa" revision="stable-5.10-rock5" />
   <project name="rkbin"  path="rkbin"  remote="rockchip" revision="master" />
   <project name="buildroot" path="buildroot"
-           remote="buildroot" revision="2025.02.15" />
+           remote="buildroot" revision="refs/tags/2025.02.15" />
 
 </manifest>

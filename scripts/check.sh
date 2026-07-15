@@ -61,7 +61,7 @@ check_manifests() {
 
         if [ "$(basename "${manifest}")" != "default.xml" ]; then
             grep -q 'remote name="buildroot"' "${manifest}" || return 1
-            grep -q 'revision="2025.02.15"' "${manifest}" || return 1
+            grep -q 'revision="refs/tags/2025.02.15"' "${manifest}" || return 1
         fi
     done < <(find "${PROJECT_DIR}/manifests" -maxdepth 1 -type f \
         -name '*.xml' -print0)
@@ -101,6 +101,8 @@ check_buildroot_external() {
 check_uboot_boot_contract_guard() {
     local script="${PROJECT_DIR}/scripts/build_uboot.sh"
     local marker
+    # These markers must match literal shell expressions.
+    # shellcheck disable=SC2016
     local -a markers=(
         validate_extlinux_boot_contract
         CONFIG_DISTRO_DEFAULTS

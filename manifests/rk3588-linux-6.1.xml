@@ -14,5 +14,5 @@
   <project name="u-boot"    path="u-boot"    revision="next-dev" />
   <project name="rkbin"     path="rkbin"     revision="master" />
   <project name="buildroot" path="buildroot"
-           remote="buildroot" revision="2025.02.15" />
+           remote="buildroot" revision="refs/tags/2025.02.15" />
 </manifest>

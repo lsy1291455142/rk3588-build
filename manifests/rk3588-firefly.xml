@@ -18,6 +18,6 @@
   <project name="u-boot" path="u-boot" remote="firefly" revision="stable-5.10-firefly" />
   <project name="rkbin"  path="rkbin"  remote="rockchip" revision="master" />
   <project name="buildroot" path="buildroot"
-           remote="buildroot" revision="2025.02.15" />
+           remote="buildroot" revision="refs/tags/2025.02.15" />
 
 </manifest>
