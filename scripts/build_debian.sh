@@ -179,12 +179,31 @@ EOF
 
 enable_unit() {
     local unit="$1"
-    local target wants_dir
+    local unit_file target wants_dir
     # Try systemctl first; on x86_64+QEMU it may fail due to missing linker.
     if systemctl --root="${ROOT_DIR}" enable "${unit}" 2>/dev/null; then
         return 0
     fi
     # Fall back: create the [Install] symlink(s) manually.
+    # Check both /lib and /usr/lib for the unit file.
+    for unit_file in "${ROOT_DIR}/lib/systemd/system/${unit}" \
+                     "${ROOT_DIR}/usr/lib/systemd/system/${unit}"; do
+        if [ -f "${unit_file}" ]; then
+            break
+        fi
+        unit_file=""
+    done
+    # Handle template instances: serial-getty@ttyFIQ0.service -> serial-getty@.service
+    if [ -z "${unit_file}" ]; then
+        local template="${unit%%@*}@.service"
+        for unit_file in "${ROOT_DIR}/lib/systemd/system/${template}" \
+                         "${ROOT_DIR}/usr/lib/systemd/system/${template}"; do
+            if [ -f "${unit_file}" ]; then
+                break
+            fi
+            unit_file=""
+        done
+    fi
     # Most units want multi-user.target; socket units want sockets.target.
     case "${unit}" in
         *.socket) target="sockets.target.wants" ;;
@@ -192,8 +211,8 @@ enable_unit() {
     esac
     wants_dir="${ROOT_DIR}/etc/systemd/system/${target}"
     mkdir -p "${wants_dir}"
-    if [ -f "${ROOT_DIR}/lib/systemd/system/${unit}" ]; then
-        ln -sf "/lib/systemd/system/${unit}" "${wants_dir}/${unit}"
+    if [ -n "${unit_file}" ]; then
+        ln -sf "${unit_file#"${ROOT_DIR}"}" "${wants_dir}/${unit}"
         return 0
     fi
     die "Unable to enable Debian systemd unit: ${unit}"
