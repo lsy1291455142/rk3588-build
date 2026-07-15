@@ -14,6 +14,7 @@ DEFAULT_BOARD := rk3588-evb1-lp4-v10-linux
 BOARD ?=
 BOARD_FOR_COMPONENT = $(if $(strip $(BOARD)),$(BOARD),$(DEFAULT_BOARD))
 ROOTFS ?= buildroot
+SDK_VOLUME ?= rk3588-sdk
 DEBIAN_RELEASE ?= 13
 ROOTFS_USERNAME ?= rk3588
 ROOTFS_PASSWORD ?= rk3588
@@ -31,9 +32,15 @@ help:
 		'  make build                         Build the primary Docker builder' \
 		'  make build-debian-builder          Build the ARM64 Debian builder' \
 		'  make fetch-510                     Fetch the Rockchip Linux 5.10 SDK' \
-		'  make shell                         Open the primary build container' \
-		'' \
-		'Components (BOARD defaults to $(DEFAULT_BOARD)):' \
+	'  make shell                         Open the primary build container' \
+	'' \
+	'SDK volume switching (no re-download):' \
+	'  make build-kernel SDK_VOLUME=rk3588-sdk-radxa' \
+	'  make build-uboot  SDK_VOLUME=rk3588-sdk-radxa' \
+	'  make build-rootfs  SDK_VOLUME=rk3588-sdk-radxa' \
+	'  make image         SDK_VOLUME=rk3588-sdk-radxa' \
+	'' \
+	'Components (BOARD defaults to $(DEFAULT_BOARD)):' \
 		'  make build-kernel [BOARD=...]' \
 		'  make build-uboot [BOARD=...]' \
 		'  make build-rootfs [BOARD=...] ROOTFS=buildroot|debian|all' \
@@ -67,32 +74,32 @@ fetch:
 
 fetch-510:
 	docker compose run --rm --no-deps -T \
-		-e MANIFEST=rk3588-linux-5.10.xml rk3588-build \
+		-e MANIFEST=rk3588-linux-5.10.xml -e SDK_VOLUME=rk3588-sdk-rockchip-5.10 rk3588-build \
 		bash /home/builder/scripts/fetch_sources.sh
 
 fetch-61:
 	docker compose run --rm --no-deps -T \
-		-e MANIFEST=rk3588-linux-6.1.xml rk3588-build \
+		-e MANIFEST=rk3588-linux-6.1.xml -e SDK_VOLUME=rk3588-sdk-rockchip-6.1 rk3588-build \
 		bash /home/builder/scripts/fetch_sources.sh
 
 fetch-66:
 	docker compose run --rm --no-deps -T \
-		-e MANIFEST=rk3588-linux-6.6.xml rk3588-build \
+		-e MANIFEST=rk3588-linux-6.6.xml -e SDK_VOLUME=rk3588-sdk-rockchip-6.6 rk3588-build \
 		bash /home/builder/scripts/fetch_sources.sh
 
 fetch-firefly:
 	docker compose run --rm --no-deps -T \
-		-e MANIFEST=rk3588-firefly.xml rk3588-build \
+		-e MANIFEST=rk3588-firefly.xml -e SDK_VOLUME=rk3588-sdk-firefly rk3588-build \
 		bash /home/builder/scripts/fetch_sources.sh
 
 fetch-radxa:
 	docker compose run --rm --no-deps -T \
-		-e MANIFEST=rk3588-radxa.xml rk3588-build \
+		-e MANIFEST=rk3588-radxa.xml -e SDK_VOLUME=rk3588-sdk-radxa rk3588-build \
 		bash /home/builder/scripts/fetch_sources.sh
 
 fetch-orangepi:
 	docker compose run --rm --no-deps -T \
-		-e MANIFEST=rk3588-orangepi.xml rk3588-build \
+		-e MANIFEST=rk3588-orangepi.xml -e SDK_VOLUME=rk3588-sdk-orangepi rk3588-build \
 		bash /home/builder/scripts/fetch_sources.sh
 
 update:
@@ -113,11 +120,13 @@ prepare-output:
 build-kernel: prepare-output
 	docker compose run --rm --no-deps -T \
 		-e BOARD="$(BOARD_FOR_COMPONENT)" -e JOBS="$(JOBS)" \
+		-e SDK_VOLUME=$(SDK_VOLUME) \
 		rk3588-build bash /home/builder/scripts/build_kernel.sh
 
 build-uboot: prepare-output
 	docker compose run --rm --no-deps -T \
 		-e BOARD="$(BOARD_FOR_COMPONENT)" -e JOBS="$(JOBS)" \
+		-e SDK_VOLUME=$(SDK_VOLUME) \
 		rk3588-build bash /home/builder/scripts/build_uboot.sh
 
 validate-rootfs:
@@ -140,6 +149,7 @@ _buildroot-rootfs: prepare-output
 		-e BOARD="$(BOARD_FOR_COMPONENT)" -e ROOTFS=buildroot \
 		-e ROOTFS_USERNAME="$(ROOTFS_USERNAME)" \
 		-e ROOTFS_PASSWORD="$(ROOTFS_PASSWORD)" -e JOBS="$(JOBS)" \
+		-e SDK_VOLUME=$(SDK_VOLUME) \
 		rk3588-build bash /home/builder/scripts/build_buildroot.sh
 
 debian-preflight:
@@ -163,6 +173,7 @@ debian-preflight:
 _debian-rootfs: prepare-output debian-preflight
 	docker compose run --rm --no-deps -T \
 		-e BOARD="$(BOARD_FOR_COMPONENT)" -e ROOTFS=debian \
+		-e SDK_VOLUME=$(SDK_VOLUME) \
 		-e DEBIAN_RELEASE="$(DEBIAN_RELEASE)" \
 		-e ROOTFS_USERNAME="$(ROOTFS_USERNAME)" \
 		-e ROOTFS_PASSWORD="$(ROOTFS_PASSWORD)" \
@@ -190,6 +201,7 @@ image: require-board validate-rootfs
 _image-one: prepare-output
 	docker compose run --rm --no-deps -T \
 		-e BOARD="$(BOARD)" -e ROOTFS="$(ROOTFS)" \
+		-e SDK_VOLUME=$(SDK_VOLUME) \
 		-e DEBIAN_RELEASE="$(DEBIAN_RELEASE)" \
 		-e ROOTFS_USERNAME="$(ROOTFS_USERNAME)" -e ZSTD_LEVEL="$(ZSTD_LEVEL)" \
 		rk3588-build bash /home/builder/scripts/make_image.sh
@@ -207,6 +219,7 @@ verify-image: require-board validate-rootfs
 _verify-one: prepare-output
 	docker compose run --rm --no-deps -T \
 		-e BOARD="$(BOARD)" -e ROOTFS="$(ROOTFS)" \
+		-e SDK_VOLUME=$(SDK_VOLUME) \
 		-e DEBIAN_RELEASE="$(DEBIAN_RELEASE)" \
 		-e ROOTFS_USERNAME="$(ROOTFS_USERNAME)" \
 		rk3588-build bash /home/builder/scripts/verify_image.sh

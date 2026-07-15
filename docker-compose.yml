@@ -16,6 +16,7 @@ services:
       DEBIAN_ALLOW_ARCHIVE_FALLBACK: ${DEBIAN_ALLOW_ARCHIVE_FALLBACK:-yes}
       MANIFEST: ${MANIFEST:-}
       BSP_SOURCE: ${BSP_SOURCE:-rockchip}
+      SDK_VOLUME: ${SDK_VOLUME:-rk3588-sdk}
       FETCH_ON_START: ${FETCH_ON_START:-no}
       JOBS: ${JOBS:-0}
       DEPTH: ${DEPTH:-1}
@@ -27,7 +28,7 @@ services:
       USE_NATIVE_BUILD: ${USE_NATIVE_BUILD:-no}
       ZSTD_LEVEL: ${ZSTD_LEVEL:-6}
     volumes:
-      - rk3588-sdk:/home/builder/sdk
+      - ${SDK_VOLUME:-rk3588-sdk}:/home/builder/sdk
       - rk3588-ccache:/home/builder/.ccache
       - ./scripts:/home/builder/scripts:ro
       - ./manifests:/home/builder/manifests:ro
@@ -57,7 +58,7 @@ services:
       DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-http://security.debian.org/debian-security}
       DEBIAN_ALLOW_ARCHIVE_FALLBACK: ${DEBIAN_ALLOW_ARCHIVE_FALLBACK:-yes}
     volumes:
-      - rk3588-sdk:/home/builder/sdk
+      - ${SDK_VOLUME:-rk3588-sdk}:/home/builder/sdk
       - ./scripts:/home/builder/scripts:ro
       - ./configs:/home/builder/configs:ro
       - ./rootfs:/home/builder/rootfs:ro
