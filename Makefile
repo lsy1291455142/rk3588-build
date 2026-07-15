@@ -5,6 +5,8 @@
 .PHONY: help build build-nocache build-builder build-debian-builder \
 	fetch fetch-510 fetch-61 fetch-66 fetch-firefly fetch-radxa \
 	fetch-orangepi update shell debian-shell \
+	use-rockchip-5.10 use-rockchip-6.1 use-rockchip-6.6 \
+	use-firefly use-radxa use-orangepi use-current \
 	build-kernel build-uboot build-rootfs image verify-image pack \
 	build-all test-debian-all check clean clean-all status \
 	require-board require-sdk-volume validate-rootfs prepare-output \
@@ -40,6 +42,15 @@ help:
 		'  make fetch-radxa                   Radxa Rock 5B -> rk3588-sdk-radxa' \
 		'  make fetch-orangepi                OrangePi 5 -> rk3588-sdk-orangepi' \
 		'  make update SDK_VOLUME=<volume>    Update an existing SDK' \
+		'' \
+		'Switch active SDK (writes .env):' \
+		'  make use-rockchip-5.10             -> rk3588-sdk-rockchip-5.10' \
+		'  make use-rockchip-6.1              -> rk3588-sdk-rockchip-6.1' \
+		'  make use-rockchip-6.6              -> rk3588-sdk-rockchip-6.6' \
+		'  make use-firefly                  -> rk3588-sdk-firefly' \
+		'  make use-radxa                    -> rk3588-sdk-radxa' \
+		'  make use-orangepi                 -> rk3588-sdk-orangepi' \
+		'  make use-current                  Show current SDK_VOLUME' \
 		'' \
 		'Build components (SDK_VOLUME required):' \
 		'  make build-kernel SDK_VOLUME=... [BOARD=...]' \
@@ -108,6 +119,39 @@ fetch-orangepi:
 	docker compose run --rm --no-deps -T \
 		-e MANIFEST=rk3588-orangepi.xml -e SDK_VOLUME=rk3588-sdk-orangepi rk3588-build \
 		bash /home/builder/scripts/fetch_sources.sh
+
+
+# ---- Switch active SDK (writes .env) ----
+_use_switch:
+	@if [ -z "$(SWITCH_VOL)" ]; then echo "Internal target"; exit 1; fi
+	touch .env
+	@if grep -q '^SDK_VOLUME=' .env; then \
+		sed -i 's|^SDK_VOLUME=.*|SDK_VOLUME=$(SWITCH_VOL)|' .env; \
+	else \
+		echo 'SDK_VOLUME=$(SWITCH_VOL)' >> .env; \
+	fi
+	@echo "Switched to: $(SWITCH_VOL)"
+	@echo "All make commands now use this SDK volume."
+
+use-rockchip-5.10: SWITCH_VOL=rk3588-sdk-rockchip-5.10
+use-rockchip-5.10: _use_switch
+use-rockchip-6.1: SWITCH_VOL=rk3588-sdk-rockchip-6.1
+use-rockchip-6.1: _use_switch
+use-rockchip-6.6: SWITCH_VOL=rk3588-sdk-rockchip-6.6
+use-rockchip-6.6: _use_switch
+use-firefly: SWITCH_VOL=rk3588-sdk-firefly
+use-firefly: _use_switch
+use-radxa: SWITCH_VOL=rk3588-sdk-radxa
+use-radxa: _use_switch
+use-orangepi: SWITCH_VOL=rk3588-sdk-orangepi
+use-orangepi: _use_switch
+
+use-current:
+	@if [ -f .env ] && grep -q '^SDK_VOLUME=' .env; then \
+		echo "Current SDK_VOLUME: $$(grep '^SDK_VOLUME=' .env | cut -d= -f2)"; \
+	else \
+		echo "SDK_VOLUME not set. Run 'make use-rockchip-5.10' or edit .env"; \
+	fi
 
 update:
 	@if [ -z "$(SDK_VOLUME)" ]; then \
