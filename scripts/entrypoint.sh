@@ -70,6 +70,30 @@ setup_ccache() {
     fi
 }
 
+# ---- 动态计算终端显示宽度并对齐边框 ----
+get_display_width() {
+    if command -v python3 &>/dev/null; then
+        python3 -c 'import sys, unicodedata; print(sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in sys.argv[1]))' "$1" 2>/dev/null || echo "${#1}"
+    else
+        echo "${#1}"
+    fi
+}
+
+print_line() {
+    local label="$1"
+    local value="$2"
+    local content="  ${label}${value}"
+    local total_width=56 # 盒子内部总宽度（不含左右边框）
+    local width
+    width=$(get_display_width "${content}")
+    local pad=$((total_width - width))
+    local padding=""
+    if [ $pad -gt 0 ]; then
+        padding=$(printf '%*s' $pad "")
+    fi
+    echo "║${content}${padding}║"
+}
+
 # ---- 显示环境信息 ----
 show_banner() {
     local manifest_display="${MANIFEST:-交互选择}"
@@ -84,21 +108,22 @@ show_banner() {
     echo "╔══════════════════════════════════════════════════════════╗"
     echo "║           RK3588 Linux BSP Build Environment            ║"
     echo "╠══════════════════════════════════════════════════════════╣"
-    echo "║  宿主机架构   : ${HOST_ARCH}"
-    echo "║  Manifest    : ${manifest_display}"
-    echo "║  SDK Dir     : ${SDK_DIR}"
-    echo "║  编译器       : ${compiler_display}"
-    echo "║  目标架构     : arm64 (RK3588)"
-    echo "║  Jobs        : ${JOBS}"
-    echo "║  Fetch on Start: ${FETCH_ON_START}"
+    print_line "宿主机架构   : " "${HOST_ARCH}"
+    print_line "Manifest    : " "${manifest_display}"
+    print_line "SDK Dir     : " "${SDK_DIR}"
+    print_line "编译器       : " "${compiler_display}"
+    print_line "目标架构     : " "arm64 (RK3588)"
+    print_line "Jobs        : " "${JOBS}"
+    print_line "Fetch on Start: " "${FETCH_ON_START}"
     if [ "${HOST_ARCH}" = "amd64" ]; then
-    echo "║  i386 兼容    : 已启用 (Rockchip 工具)"
+        print_line "i386 兼容    : " "已启用 (Rockchip 工具)"
     else
-    echo "║  i386 兼容    : 不适用 (非 x86_64)"
+        print_line "i386 兼容    : " "不适用 (非 x86_64)"
     fi
     echo "╚══════════════════════════════════════════════════════════╝"
     echo ""
 }
+
 
 # ---- 检查 SDK 是否已拉取 ----
 check_sdk() {
