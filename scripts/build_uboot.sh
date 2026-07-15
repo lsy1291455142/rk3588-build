@@ -6,12 +6,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 
 load_board_profile
-require_cmd bash find sort stat git realpath grep
 
 UBOOT_DIR="${SDK_DIR}/u-boot"
 RKBIN_DIR="${SDK_DIR}/rkbin"
 COMMON_OUTPUT="$(board_common_output_dir)"
 JOBS_RESOLVED="$(resolve_jobs)"
+CROSS_COMPILE="${CROSS_COMPILE-aarch64-linux-gnu-}"
+UBOOT_CC="${CROSS_COMPILE}gcc"
+
+require_cmd bash find sort stat git realpath grep "${UBOOT_CC}"
+UBOOT_CC_PATH="$(command -v "${UBOOT_CC}")"
 
 require_dir "${UBOOT_DIR}" "U-Boot source"
 require_dir "${RKBIN_DIR}" "rkbin source"
@@ -62,11 +66,13 @@ validate_extlinux_boot_contract() {
 }
 
 log_step "Building Rockchip boot chain for ${BOARD}"
+log_info "U-Boot compiler: ${UBOOT_CC_PATH}"
 (
     cd "${UBOOT_DIR}"
     export RKBIN="${RKBIN_DIR}"
     export MAKEFLAGS="-j${JOBS_RESOLVED}"
-    bash ./make.sh "${UBOOT_BOARD}"
+    # Rockchip make.sh only selects an external toolchain through this argument.
+    bash ./make.sh "${UBOOT_BOARD}" "CROSS_COMPILE=${CROSS_COMPILE}"
 )
 
 log_step "Validating the GPT/extlinux boot contract"
@@ -128,6 +134,8 @@ write_common_metadata "${COMMON_OUTPUT}/uboot-build-info.txt" \
     "loader_sector=${LOADER_SECTOR}" \
     "uboot_source=$(basename "${UBOOT_IMAGE_PATH}")" \
     "uboot_sector=${UBOOT_SECTOR}" \
+    "cross_compile=${CROSS_COMPILE}" \
+    "compiler_path=${UBOOT_CC_PATH}" \
     "boot_flow=rockchip-gpt-extlinux-v1" \
     "boot_flow_validation=config-and-u-boot-bin" \
     "jobs=${JOBS_RESOLVED}"

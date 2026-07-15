@@ -113,6 +113,7 @@ check_uboot_boot_contract_guard() {
         CONFIG_AVB_VBMETA_PUBLIC_KEY_VALIDATE
         'run distro_bootcmd;'
         extlinux/extlinux.conf
+        'bash ./make.sh "${UBOOT_BOARD}" "CROSS_COMPILE=${CROSS_COMPILE}"'
         boot_flow=rockchip-gpt-extlinux-v1
     )
 
