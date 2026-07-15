@@ -1,8 +1,7 @@
-# RK3588 完整系统镜像构建环境
+# RK3588 Linux BSP Docker Build Environment
 
-这个项目用 Docker 拉取 RK3588 BSP，并构建可直接写入 SD 卡或 eMMC 的完整
-GPT 原始镜像。流程不再只输出 `Image`、DTB 和 U-Boot，还会生成 Buildroot
-或 Debian 根文件系统、`extlinux.conf`、压缩镜像、校验和与构建元数据。
+本项目提供一个基于 Docker 的 RK3588 BSP 编译与构建环境，支持一键生成可直接烧录至 SD 卡或 eMMC 的完整 GPT 格式系统镜像。构建流程不仅输出 U-Boot、内核 `Image` 和设备树（DTB），还会完整集成 Buildroot 或 Debian 根文件系统、`extlinux` 引导配置，并自动完成镜像打包、压缩与校验。
+
 
 新手建议先阅读：[RK3588 开发板完整系统镜像构建流程](docs/RK3588_SYSTEM_IMAGE_BUILD_FLOW.md)。
 
