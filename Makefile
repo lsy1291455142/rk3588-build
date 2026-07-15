@@ -144,18 +144,18 @@ _buildroot-rootfs: prepare-output
 
 debian-preflight:
 	@arch=$$(docker compose run --rm --no-deps -T debian-rootfs \
-		dpkg --print-architecture 2>/dev/null) || { \
+		bash -c 'dpkg --print-architecture 2>/dev/null' 2>/dev/null | tail -1) || { \
 			echo "Cannot run the linux/arm64 Debian builder." >&2; \
 			echo "Attempting to register ARM64 binfmt emulation..." >&2; \
 			docker run --privileged --rm tonistiigi/binfmt --install arm64 >/dev/null 2>&1 || true; \
 			arch=$$(docker compose run --rm --no-deps -T debian-rootfs \
-				dpkg --print-architecture 2>/dev/null) || { \
+				bash -c 'dpkg --print-architecture 2>/dev/null' 2>/dev/null | tail -1) || { \
 				echo "Still cannot run the linux/arm64 Debian builder." >&2; \
 				echo "Run 'make build-debian-builder' and ensure Docker ARM64/binfmt support is available." >&2; \
 				exit 1; \
 			}; \
 		}; \
-	test "$$arch" = arm64 || { \
+	test "$$arch" = "arm64" || { \
 		echo "Debian builder returned '$$arch', expected arm64." >&2; \
 		exit 1; \
 	}
