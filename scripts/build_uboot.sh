@@ -33,25 +33,22 @@ wrap_rkbin_tools() {
     if [ "$(dpkg --print-architecture 2>/dev/null || echo unknown)" != "arm64" ]; then
         return 0
     fi
-    local qemu bin real
+    local qemu bin
     qemu="$(command -v qemu-x86_64-static 2>/dev/null || true)"
     if [ -z "${qemu}" ]; then
         die "ARM64 host requires qemu-user-static for x86-64 rkbin tools"
     fi
+    # Restore any previously wrapped binaries from .real backups
+    for bin in "${RKBIN_DIR}/tools"/*.real; do
+        [ -f "${bin}" ] || continue
+        local orig="${bin%.real}"
+        mv -f "${bin}" "${orig}"
+    done
+    # Wrap each x86-64 ELF binary with a qemu shim
     for bin in "${RKBIN_DIR}/tools"/*; do
         [ -f "${bin}" ] && [ -x "${bin}" ] || continue
-        real="${bin}.real"
-        # Skip if already wrapped (shell script wrapper in place)
-        if head -c2 "${bin}" 2>/dev/null | grep -q '^#!' && \
-            grep -q 'qemu-x86_64' "${bin}" 2>/dev/null; then
-            continue
-        fi
-        if [ -f "${real}" ]; then
-            continue
-        fi
-        # Only wrap x86-64 ELF binaries
         file "${bin}" 2>/dev/null | grep -q 'ELF.*x86-64' || continue
-        mv "${bin}" "${real}"
+        mv "${bin}" "${bin}.real"
         printf '#!/bin/sh\nexec %s %s.real "$@"\n' "${qemu}" "${bin}" >"${bin}"
         chmod 0755 "${bin}"
     done
