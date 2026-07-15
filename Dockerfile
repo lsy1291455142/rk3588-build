@@ -150,6 +150,7 @@ RUN apt-get update && \
         debian-archive-keyring \
         e2fsprogs \
         findutils \
+        gnupg \
         kmod \
         mmdebstrap \
         mount \
