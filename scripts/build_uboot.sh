@@ -40,13 +40,17 @@ wrap_rkbin_tools() {
     fi
     # Restore any previously wrapped binaries from .real backups
     for bin in "${RKBIN_DIR}/tools"/*.real; do
-        [ -f "${bin}" ] || continue
+        if [ ! -f "${bin}" ]; then
+            continue
+        fi
         local orig="${bin%.real}"
         mv -f "${bin}" "${orig}"
     done
     # Wrap each x86-64 ELF binary with a qemu shim
     for bin in "${RKBIN_DIR}/tools"/*; do
-        [ -f "${bin}" ] && [ -x "${bin}" ] || continue
+        if [ ! -f "${bin}" ] || [ ! -x "${bin}" ]; then
+            continue
+        fi
         file "${bin}" 2>/dev/null | grep -q 'ELF.*x86-64' || continue
         mv "${bin}" "${bin}.real"
         printf '#!/bin/sh\nexec %s %s.real "$@"\n' "${qemu}" "${bin}" >"${bin}"
