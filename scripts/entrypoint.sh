@@ -24,6 +24,11 @@ HOST_ARCH="$(dpkg --print-architecture 2>/dev/null || echo "unknown")"
 
 # ---- Drop to builder user if started as root ----
 if [ "$(id -u)" -eq 0 ] && command -v gosu >/dev/null 2>&1; then
+    # Ensure output directory is writable by builder before dropping privileges
+    mkdir -p /home/builder/output 2>/dev/null || true
+    chmod a+rwx /home/builder/output 2>/dev/null || true
+    find /home/builder/output -type d -exec chmod a+rwx {} + 2>/dev/null || true
+
     BUILDER_UID="$(id -u builder 2>/dev/null || echo 1000)"
     BUILDER_GID="$(id -g builder 2>/dev/null || echo 1000)"
     exec gosu "${BUILDER_UID}:${BUILDER_GID}" /bin/bash "${BASH_SOURCE[0]}" "$@"
