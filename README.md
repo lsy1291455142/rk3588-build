@@ -6,6 +6,12 @@ GPT 原始镜像。流程不再只输出 `Image`、DTB 和 U-Boot，还会生成
 
 新手建议先阅读：[RK3588 开发板完整系统镜像构建流程](docs/RK3588_SYSTEM_IMAGE_BUILD_FLOW.md)。
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/lsy1291455142/rk3588-build)
+
+> [!TIP]
+> **一键云端构建**：本项目已完整支持 GitHub Codespaces。点击上方按钮可直接在云端打开预配置了 Docker-in-Docker 和编译工具链的开发环境，无需在本地安装 Docker 和配置复杂的编译依赖。
+
+
 ## 支持范围
 
 - Kernel `Image`、指定板级 DTB、内核模块
