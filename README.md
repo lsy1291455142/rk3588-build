@@ -2,17 +2,23 @@
 
 本项目提供一个基于 Docker 的 RK3588 BSP 编译与构建环境，支持一键生成可直接烧录至 SD 卡或 eMMC 的完整 GPT 格式系统镜像。构建流程不仅输出 U-Boot、内核 `Image` 和设备树（DTB），还会完整集成 Buildroot 或 Debian 根文件系统、`extlinux` 引导配置，并自动完成镜像打包、压缩与校验。
 
-
 新手建议先阅读：[RK3588 开发板完整系统镜像构建流程](docs/RK3588_SYSTEM_IMAGE_BUILD_FLOW.md)。
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/lsy1291455142/rk3588-build)
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://github.com/codespaces.new/lsy1291455142/rk3588-build)
 
 > [!TIP]
 > **一键云端构建**：本项目已完整支持 GitHub Codespaces。点击上方按钮可直接在云端打开预配置好 Docker-in-Docker 和编译工具链的开发环境，无需在本地配置 Docker 和运行环境。
 > * **免费额度**：GitHub 个人账户每月赠送 **120 核时**（默认 2 核机器可运行 60 小时）与 **15 GB 存储**空间。
 > * **省流建议**：不使用时容器会自动暂停（不计运行时间）。为了避免持续占用 15 GB 存储额度，编译/测试完成后建议及时去 [GitHub Codespaces 管理页](https://github.com/codespaces) 删除不用的实例。
 
+## 宿主机架构支持
 
+| 宿主机架构 | U-Boot/Kernel | Buildroot rootfs | Debian rootfs | 说明 |
+|---|---|---|---|---|
+| x86_64 (PC/Codespace) | 交叉编译 | 交叉编译 | QEMU binfmt 模拟 ARM64 | 自动注册 binfmt，自动安装 i386 兼容库 |
+| ARM64 (服务器/开发板) | 交叉编译或原生编译 | 交叉编译 | 原生 ARM64 | 自动安装 qemu-user-static 用于运行 rkbin 中的 x86-64 预编译工具 |
+
+两套架构均无需手动配置，`make` 会自动检测并处理。
 
 ## 支持范围
 
@@ -25,6 +31,7 @@
 - FAT32 boot 分区、extlinux、ext4 rootfs
 - 首次启动在线扩展 rootfs
 - 串口、DHCP、SSH、sudo 和常用诊断工具
+- root 账户可直接登录（密码与普通用户相同）
 - 4 GiB GPT raw image、`.img.zst`、SHA256 和元数据
 
 当前内置的完整镜像板级配置只有
@@ -40,22 +47,26 @@
 cp .env.example .env
 
 make build
-make fetch-510
+make build-debian-builder
 
-# Buildroot 完整镜像
+# 1. 拉取 SDK（每个 BSP 使用独立 volume，互不干扰）
+make fetch-510            # Rockchip Linux 5.10
+# make fetch-radxa        # Radxa Rock 5B BSP
+# make fetch-firefly      # Firefly AIO-3588 BSP
+# make fetch-orangepi     # OrangePi 5 BSP
+
+# 2. 构建 Buildroot 完整镜像
 make build-all \
   BOARD=rk3588-evb1-lp4-v10-linux \
   ROOTFS=buildroot
 
-# Debian 13 完整镜像
-make build-debian-builder
+# 3. 构建 Debian 13 完整镜像
 make build-all \
   BOARD=rk3588-evb1-lp4-v10-linux \
   ROOTFS=debian \
   DEBIAN_RELEASE=13
 
-# 同时生成 Buildroot 和指定 Debian 版本
-make build-debian-builder
+# 4. 同时生成 Buildroot 和 Debian 13
 make build-all \
   BOARD=rk3588-evb1-lp4-v10-linux \
   ROOTFS=all \
@@ -65,12 +76,45 @@ make build-all \
 组件构建允许省略 `BOARD`，此时使用内置 EVB 示例配置。`image`、`pack` 和
 `build-all` 必须显式提供 `BOARD`，防止把错误 DTB 或 bootloader 写入镜像。
 
-Debian rootfs 在独立的 `linux/arm64` 容器中原生构建。Docker Desktop 通常已
-提供 ARM64 模拟；Linux x86_64 主机需要先启用 ARM64/binfmt。`make` 会在执行
-Debian 构建前检查容器架构并给出明确错误。
+Debian rootfs 在独立的 `linux/arm64` 容器中原生构建。x86_64 宿主机上
+`make` 会自动通过 `tonistiigi/binfmt` 注册 ARM64 QEMU 模拟。`mmdebstrap`
+构建期间需要在容器内创建临时挂载，因此 `debian-rootfs` 服务以 privileged
+模式运行。只应在可信代码和可信构建主机上执行 Debian rootfs 构建。
 
-`mmdebstrap` 构建期间需要在容器内创建临时挂载，因此 `debian-rootfs` 服务以
-privileged 模式运行。只应在可信代码和可信构建主机上执行 Debian rootfs 构建。
+## 多 SDK 源切换
+
+每个 BSP 源码拉取到独立的 Docker volume，切换时不需要重新下载，也不会交叉
+污染：
+
+| 命令 | Volume | 说明 |
+|---|---|---|
+| `make fetch-510` | `rk3588-sdk-rockchip-5.10` | Rockchip Linux 5.10 LTS |
+| `make fetch-61` | `rk3588-sdk-rockchip-6.1` | Rockchip Linux 6.1 LTS |
+| `make fetch-66` | `rk3588-sdk-rockchip-6.6` | Rockchip Linux 6.6 |
+| `make fetch-firefly` | `rk3588-sdk-firefly` | Firefly AIO-3588 BSP |
+| `make fetch-radxa` | `rk3588-sdk-radxa` | Radxa Rock 5B BSP |
+| `make fetch-orangepi` | `rk3588-sdk-orangepi` | OrangePi 5 BSP |
+
+构建时通过 `SDK_VOLUME` 指定使用哪套 SDK：
+
+```bash
+# 用 Radxa SDK 构建
+make build-kernel SDK_VOLUME=rk3588-sdk-radxa
+make build-uboot  SDK_VOLUME=rk3588-sdk-radxa
+make build-rootfs  SDK_VOLUME=rk3588-sdk-radxa ROOTFS=debian
+make image         SDK_VOLUME=rk3588-sdk-radxa ROOTFS=debian
+
+# 切回 Rockchip 5.10
+make build-kernel SDK_VOLUME=rk3588-sdk-rockchip-5.10
+
+# 更新指定 SDK
+make update SDK_VOLUME=rk3588-sdk-radxa
+
+# 查看所有 SDK volume
+docker volume ls --filter name=rk3588
+```
+
+不传 `SDK_VOLUME` 时默认使用 `rk3588-sdk`。
 
 ## 输出目录
 
@@ -103,7 +147,7 @@ output/<board>/
 
 每次 `make image` 都会自动运行离线校验，包括 GPT 几何、bootloader 固定偏移、
 FAT 中的 Kernel/DTB/extlinux、ext4 一致性、rootfs 标签、内核模块版本、开发
-账户、root 锁定状态和首次启动扩容钩子。
+账户、root 登录状态和首次启动扩容钩子。
 
 ## 镜像布局
 
@@ -133,25 +177,35 @@ root password: rk3588
 
 ```bash
 make help
-make build-builder
+make build
 make build-debian-builder
+make check
 
-make fetch
+# 拉取 SDK
 make fetch-510
-make fetch-61
-make fetch-66
-make update
+make fetch-radxa
+make update SDK_VOLUME=rk3588-sdk-radxa
 
+# 组件构建
 make build-kernel BOARD=rk3588-evb1-lp4-v10-linux
 make build-uboot BOARD=rk3588-evb1-lp4-v10-linux
 make build-rootfs BOARD=rk3588-evb1-lp4-v10-linux ROOTFS=buildroot
 
+# 切换 SDK 源
+make build-kernel SDK_VOLUME=rk3588-sdk-radxa
+make build-uboot  SDK_VOLUME=rk3588-sdk-radxa
+
+# 生成镜像
 make image BOARD=rk3588-evb1-lp4-v10-linux ROOTFS=buildroot
 make verify-image BOARD=rk3588-evb1-lp4-v10-linux ROOTFS=buildroot
-make pack BOARD=rk3588-evb1-lp4-v10-linux ROOTFS=buildroot
 
+# 一次性构建 Debian 11/12/13
 make test-debian-all BOARD=rk3588-evb1-lp4-v10-linux
-make check
+
+make shell                # 进入构建容器
+make status               # 查看容器和 volume 状态
+make clean                # 停止容器
+make clean-all            # 停止容器并删除 volume 和镜像
 ```
 
 `make test-debian-all` 会复用一次 Kernel/U-Boot 构建，依次生成并校验 Debian
@@ -177,7 +231,7 @@ sudo dd if=output/<board>/<variant>/<board>-<variant>.img \
 ```text
 kernel/       Rockchip 或板厂内核
 u-boot/       Rockchip 或板厂 U-Boot
-rkbin/        DDR init 和 TF-A 等固件
+rkbin/        DDR init、TF-A、OP-TEE 等预编译固件和打包工具
 buildroot/    官方 Buildroot 固定版本
 ```
 
