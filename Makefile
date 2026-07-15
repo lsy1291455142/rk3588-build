@@ -3,7 +3,7 @@
 -include .env
 
 .PHONY: help build build-nocache build-builder build-debian-builder \
-	fetch fetch-510 fetch-61 fetch-66 fetch-firefly fetch-radxa \
+	fetch-custom fetch-510 fetch-61 fetch-66 fetch-firefly fetch-radxa \
 	fetch-orangepi update shell debian-shell \
 	use-rockchip-5.10 use-rockchip-6.1 use-rockchip-6.6 \
 	use-firefly use-radxa use-orangepi use-current \
@@ -41,6 +41,7 @@ help:
 		'  make fetch-firefly                 Firefly AIO-3588 -> rk3588-sdk-firefly' \
 		'  make fetch-radxa                   Radxa Rock 5B -> rk3588-sdk-radxa' \
 		'  make fetch-orangepi                OrangePi 5 -> rk3588-sdk-orangepi' \
+		'  make fetch-custom SDK_VOLUME=... MANIFEST=...   Custom local manifest' \
 		'  make update SDK_VOLUME=<volume>    Update an existing SDK' \
 		'' \
 		'Switch active SDK (writes .env):' \
@@ -79,16 +80,21 @@ build-builder:
 build-debian-builder:
 	SDK_VOLUME=rk3588-sdk-build docker compose build debian-rootfs
 
-fetch:
+fetch-custom:
 	@if [ -z "$(SDK_VOLUME)" ]; then \
-		echo "Usage: make fetch SDK_VOLUME=<volume> [MANIFEST=<file>]" >&2; \
-		echo "Or use a specific fetch target (fetch-510, fetch-radxa, etc.)" >&2; \
+		echo "ERROR: SDK_VOLUME is required." >&2; exit 1; \
+	fi
+	@if [ -z "$(MANIFEST)" ] && { [ -z "$(CUSTOM_MANIFEST_URL)" ] || [ -z "$(CUSTOM_MANIFEST_NAME)" ]; }; then \
+		echo "Usage (local):  make fetch-custom SDK_VOLUME=<volume> MANIFEST=<file.xml>" >&2; \
+		echo "Usage (remote): make fetch-custom SDK_VOLUME=<volume> CUSTOM_MANIFEST_URL=<url> CUSTOM_MANIFEST_NAME=<file.xml>" >&2; \
 		exit 1; \
 	fi
 	docker volume create $(SDK_VOLUME) >/dev/null
-	SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm -it \
+	SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
 		-e SDK_VOLUME=$(SDK_VOLUME) \
 		-e MANIFEST=$(MANIFEST) \
+		-e CUSTOM_MANIFEST_URL=$(CUSTOM_MANIFEST_URL) \
+		-e CUSTOM_MANIFEST_NAME=$(CUSTOM_MANIFEST_NAME) \
 		rk3588-build bash /home/builder/scripts/fetch_sources.sh
 
 fetch-510: SDK_VOLUME=rk3588-sdk-rockchip-5.10

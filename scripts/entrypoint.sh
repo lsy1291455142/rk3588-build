@@ -36,7 +36,7 @@ fi
 
 # ---- 环境变量默认值 ----
 SDK_DIR="${SDK_DIR:-/home/builder/sdk}"
-MANIFEST="${MANIFEST:-}"                     # manifest 文件名, 留空则交互选择
+MANIFEST="${MANIFEST:-}"                     # manifest 文件名
 FETCH_ON_START="${FETCH_ON_START:-no}"       # 容器启动时是否自动拉取
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"  # 编译并行数
 if [ "${JOBS}" = "0" ]; then JOBS=$(nproc 2>/dev/null || echo 4); fi
@@ -96,7 +96,7 @@ print_line() {
 
 # ---- 显示环境信息 ----
 show_banner() {
-    local manifest_display="${MANIFEST:-交互选择}"
+    local manifest_display="${MANIFEST:-未指定}"
     local compiler_display
     if [ "${USE_NATIVE_BUILD}" = "yes" ] && [ "${HOST_ARCH}" = "arm64" ]; then
         compiler_display="原生 GCC (加速)"
@@ -199,14 +199,19 @@ check_environment() {
 }
 
 if [ "${FETCH_ON_START}" = "yes" ]; then
-    log_step "自动拉取 SDK (MANIFEST=${MANIFEST:-交互选择})"
+    if [ -z "${MANIFEST}" ] && \
+        { [ -z "${CUSTOM_MANIFEST_URL:-}" ] || [ -z "${CUSTOM_MANIFEST_NAME:-}" ]; }; then
+        log_error "FETCH_ON_START=yes requires MANIFEST or CUSTOM_MANIFEST_URL/CUSTOM_MANIFEST_NAME"
+        exit 1
+    fi
+    log_step "自动拉取 SDK (MANIFEST=${MANIFEST:-未指定})"
     if [ -f "${SCRIPT_DIR}/fetch_sources.sh" ]; then
         bash "${SCRIPT_DIR}/fetch_sources.sh"
     else
         log_error "fetch_sources.sh 不存在，跳过拉取"
     fi
 else
-    check_sdk || log_warn "提示: 设置 FETCH_ON_START=yes 或手动运行 fetch_sources.sh"
+    check_sdk || log_warn "提示: 运行对应的 make fetch-* 或 fetch-custom 拉取 SDK"
 fi
 
 # 如果是进入交互式 Shell，自动输出环境自检

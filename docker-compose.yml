@@ -15,7 +15,6 @@ services:
       DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-http://security.debian.org/debian-security}
       DEBIAN_ALLOW_ARCHIVE_FALLBACK: ${DEBIAN_ALLOW_ARCHIVE_FALLBACK:-yes}
       MANIFEST: ${MANIFEST:-}
-      BSP_SOURCE: ${BSP_SOURCE:-rockchip}
       SDK_VOLUME: ${SDK_VOLUME:?SDK_VOLUME is required}
       FETCH_ON_START: ${FETCH_ON_START:-no}
       JOBS: ${JOBS:-0}
