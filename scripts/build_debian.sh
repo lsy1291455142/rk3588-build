@@ -108,7 +108,9 @@ printf '127.0.0.1 localhost\n127.0.1.1 rk3588\n' >"${ROOT_DIR}/etc/hosts"
 chroot "${ROOT_DIR}" useradd -m -s /bin/bash -G sudo "${ROOTFS_USERNAME}"
 printf '%s:%s\n' "${ROOTFS_USERNAME}" "${ROOTFS_PASSWORD}" |
     chroot "${ROOT_DIR}" chpasswd
-chroot "${ROOT_DIR}" passwd -l root
+printf 'root:%s\n' "${ROOTFS_PASSWORD}" |
+    chroot "${ROOT_DIR}" chpasswd
+chroot "${ROOT_DIR}" passwd -u root
 
 install -d "${ROOT_DIR}/etc/systemd/network" "${ROOT_DIR}/etc/ssh/sshd_config.d"
 cat >"${ROOT_DIR}/etc/systemd/network/20-wired.network" <<'EOF'
@@ -121,7 +123,7 @@ IPv6AcceptRA=yes
 EOF
 cat >"${ROOT_DIR}/etc/ssh/sshd_config.d/10-rk3588.conf" <<'EOF'
 PasswordAuthentication yes
-PermitRootLogin no
+PermitRootLogin yes
 EOF
 
 rm -f "${ROOT_DIR}"/etc/ssh/ssh_host_* "${ROOT_DIR}/etc/machine-id"
@@ -209,8 +211,8 @@ debugfs -R "stat /lib/modules/${KERNEL_RELEASE}" "${ROOTFS_IMAGE}" 2>&1 |
     grep -q 'Inode:' ||
     die "Debian rootfs does not contain modules for ${KERNEL_RELEASE}"
 debugfs -R "cat /etc/shadow" "${ROOTFS_IMAGE}" 2>/dev/null |
-    grep -q '^root:!' ||
-    die "Debian root account is not locked"
+    grep -Eq '^root:[^!*:][^:]*:' ||
+    die "Debian root account is not enabled"
 
 write_common_metadata "${VARIANT_OUTPUT}/rootfs-build-info.txt" \
     "rootfs=debian" \
@@ -218,7 +220,7 @@ write_common_metadata "${VARIANT_OUTPUT}/rootfs-build-info.txt" \
     "debian_codename=${DEBIAN_CODENAME}" \
     "kernel_release=${KERNEL_RELEASE}" \
     "username=${ROOTFS_USERNAME}" \
-    "root_login=locked" \
+    "root_login=enabled" \
     "rootfs_size_mib=${ROOTFS_SIZE_MIB}"
 
 log_info "Debian rootfs: ${ROOTFS_IMAGE}"

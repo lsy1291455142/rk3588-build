@@ -156,8 +156,8 @@ debugfs -R "cat /etc/passwd" "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
     grep -q "^${ROOTFS_USERNAME}:" ||
     die "Embedded rootfs lacks user ${ROOTFS_USERNAME}"
 debugfs -R "cat /etc/shadow" "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-    grep -Eq '^root:[!*]' ||
-    die "Embedded root account is not locked"
+    grep -Eq '^root:[^!*:][^:]*:' ||
+    die "Embedded root account is not enabled"
 
 if [ "${ROOTFS}" = "buildroot" ]; then
     debugfs -R "cat /etc/init.d/S02rootfs-resize" \

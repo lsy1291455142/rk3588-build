@@ -55,6 +55,7 @@ log_step "Building Buildroot rootfs"
 make "${make_args[@]}" -j"${JOBS_RESOLVED}" \
     "BR2_ROOTFS_USERS_TABLES=${USERS_TABLE}" \
     "BR2_ROOTFS_POST_BUILD_SCRIPT=${POST_BUILD_SCRIPT}" \
+    "BR2_TARGET_GENERIC_ROOT_PASSWD=${ROOTFS_PASSWORD}" \
     "BR2_TARGET_ROOTFS_EXT2_SIZE=${ROOTFS_SIZE_MIB}M"
 
 ROOTFS_IMAGE="${BUILD_DIR}/images/rootfs.ext4"
@@ -78,15 +79,15 @@ debugfs -R "cat /etc/passwd" "${VARIANT_OUTPUT}/rootfs.ext4" 2>/dev/null |
     grep -q "^${ROOTFS_USERNAME}:" ||
     die "Buildroot rootfs does not contain user ${ROOTFS_USERNAME}"
 debugfs -R "cat /etc/shadow" "${VARIANT_OUTPUT}/rootfs.ext4" 2>/dev/null |
-    grep -Eq '^root:[!*]' ||
-    die "Buildroot root account is not locked"
+    grep -Eq '^root:[^!*:][^:]*:' ||
+    die "Buildroot root account is not enabled"
 
 write_common_metadata "${VARIANT_OUTPUT}/rootfs-build-info.txt" \
     "rootfs=buildroot" \
     "buildroot_revision=$(git_revision "${BUILDROOT_DIR}")" \
     "kernel_release=${KERNEL_RELEASE}" \
     "username=${ROOTFS_USERNAME}" \
-    "root_login=locked" \
+    "root_login=enabled" \
     "rootfs_size_mib=${ROOTFS_SIZE_MIB}" \
     "jobs=${JOBS_RESOLVED}"
 
