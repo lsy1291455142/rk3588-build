@@ -179,7 +179,21 @@ EOF
 
 enable_unit() {
     local unit="$1"
-    if systemctl --root="${ROOT_DIR}" enable "${unit}"; then
+    local target wants_dir
+    # Try systemctl first; on x86_64+QEMU it may fail due to missing linker.
+    if systemctl --root="${ROOT_DIR}" enable "${unit}" 2>/dev/null; then
+        return 0
+    fi
+    # Fall back: create the [Install] symlink(s) manually.
+    # Most units want multi-user.target; socket units want sockets.target.
+    case "${unit}" in
+        *.socket) target="sockets.target.wants" ;;
+        *) target="multi-user.target.wants" ;;
+    esac
+    wants_dir="${ROOT_DIR}/etc/systemd/system/${target}"
+    mkdir -p "${wants_dir}"
+    if [ -f "${ROOT_DIR}/lib/systemd/system/${unit}" ]; then
+        ln -sf "/lib/systemd/system/${unit}" "${wants_dir}/${unit}"
         return 0
     fi
     die "Unable to enable Debian systemd unit: ${unit}"
