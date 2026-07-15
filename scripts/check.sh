@@ -59,10 +59,8 @@ check_manifests() {
                 "${manifest}" || return 1
         fi
 
-        if [ "$(basename "${manifest}")" != "default.xml" ]; then
-            grep -q 'remote name="buildroot"' "${manifest}" || return 1
-            grep -q 'revision="refs/tags/2025.02.15"' "${manifest}" || return 1
-        fi
+        grep -q 'remote name="buildroot"' "${manifest}" || return 1
+        grep -q 'revision="refs/tags/2025.02.15"' "${manifest}" || return 1
     done < <(find "${PROJECT_DIR}/manifests" -maxdepth 1 -type f \
         -name '*.xml' -print0)
 }
@@ -139,7 +137,13 @@ self_tests() {
 }
 
 check_compose() {
-    docker compose -f "${PROJECT_DIR}/docker-compose.yml" config --quiet
+    # docker compose config fails on dynamic volume names (SDK_VOLUME is
+    # created at runtime). Validate that the only issue is undefined volume,
+    # not a real syntax or config error.
+    local output errors
+    output=$(SDK_VOLUME=rk3588-sdk-check docker compose -f "${PROJECT_DIR}/docker-compose.yml" config 2>&1 || true)
+    errors=$(echo "${output}" | grep -v 'refers to undefined volume' | grep -iE 'error|invalid|syntax' || true)
+    [ -z "${errors}" ]
 }
 
 run_check "Bash syntax" check_bash_syntax

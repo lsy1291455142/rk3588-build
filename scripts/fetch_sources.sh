@@ -241,7 +241,7 @@ fetch_sdk_with_custom_manifest() {
 
     local -a init_opts=(
         -u "${CUSTOM_MANIFEST_URL}"
-        -m "${CUSTOM_MANIFEST_NAME:-default.xml}"
+        -m "${CUSTOM_MANIFEST_NAME:-}"
         -b "${BRANCH:-main}"
     )
     if [ "${DEPTH}" != "0" ]; then

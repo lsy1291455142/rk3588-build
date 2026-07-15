@@ -7,16 +7,13 @@
 	fetch-orangepi update shell debian-shell \
 	build-kernel build-uboot build-rootfs image verify-image pack \
 	build-all test-debian-all check clean clean-all status \
-	require-board validate-rootfs prepare-output debian-preflight \
-	_buildroot-rootfs _debian-rootfs _image-one _verify-one
+	require-board require-sdk-volume validate-rootfs prepare-output \
+	debian-preflight _buildroot-rootfs _debian-rootfs _image-one _verify-one
 
 DEFAULT_BOARD := rk3588-evb1-lp4-v10-linux
 BOARD ?=
 BOARD_FOR_COMPONENT = $(if $(strip $(BOARD)),$(BOARD),$(DEFAULT_BOARD))
 ROOTFS ?= buildroot
-# SDK_VOLUME: set explicitly to select which SDK volume to use.
-# fetch-* targets set this automatically. For update/build, pass it
-# explicitly, e.g. make update SDK_VOLUME=rk3588-sdk-radxa.
 SDK_VOLUME ?=
 DEBIAN_RELEASE ?= 13
 ROOTFS_USERNAME ?= rk3588
@@ -34,27 +31,27 @@ help:
 		'Environment:' \
 		'  make build                         Build the primary Docker builder' \
 		'  make build-debian-builder          Build the ARM64 Debian builder' \
-		'  make fetch-510                     Fetch the Rockchip Linux 5.10 SDK' \
-	'  make shell                         Open the primary build container' \
-	'' \
-	'SDK volume switching (no re-download):' \
-	'  make build-kernel SDK_VOLUME=rk3588-sdk-radxa' \
-	'  make build-uboot  SDK_VOLUME=rk3588-sdk-radxa' \
-	'  make build-rootfs  SDK_VOLUME=rk3588-sdk-radxa' \
-	'  make image         SDK_VOLUME=rk3588-sdk-radxa' \
-	'' \
-	'Components (BOARD defaults to $(DEFAULT_BOARD)):' \
-		'  make build-kernel [BOARD=...]' \
-		'  make build-uboot [BOARD=...]' \
-		'  make build-rootfs [BOARD=...] ROOTFS=buildroot|debian|all' \
 		'' \
-		'Complete images (BOARD is required):' \
-		'  make build-all BOARD=$(DEFAULT_BOARD) ROOTFS=buildroot' \
-		'  make build-all BOARD=$(DEFAULT_BOARD) ROOTFS=debian DEBIAN_RELEASE=13' \
-		'  make build-all BOARD=$(DEFAULT_BOARD) ROOTFS=all DEBIAN_RELEASE=13' \
-		'  make image BOARD=... ROOTFS=...' \
-		'  make verify-image BOARD=... ROOTFS=...' \
-		'  make test-debian-all BOARD=...      Build Debian 11, 12, and 13 images' \
+		'Fetch SDK (each uses a separate volume):' \
+		'  make fetch-510                     Rockchip Linux 5.10 -> rk3588-sdk-rockchip-5.10' \
+		'  make fetch-61                      Rockchip Linux 6.1 -> rk3588-sdk-rockchip-6.1' \
+		'  make fetch-66                      Rockchip Linux 6.6 -> rk3588-sdk-rockchip-6.6' \
+		'  make fetch-firefly                 Firefly AIO-3588 -> rk3588-sdk-firefly' \
+		'  make fetch-radxa                   Radxa Rock 5B -> rk3588-sdk-radxa' \
+		'  make fetch-orangepi                OrangePi 5 -> rk3588-sdk-orangepi' \
+		'  make update SDK_VOLUME=<volume>    Update an existing SDK' \
+		'' \
+		'Build components (SDK_VOLUME required):' \
+		'  make build-kernel SDK_VOLUME=... [BOARD=...]' \
+		'  make build-uboot  SDK_VOLUME=... [BOARD=...]' \
+		'  make build-rootfs SDK_VOLUME=... [BOARD=...] ROOTFS=buildroot|debian|all' \
+		'' \
+		'Complete images (BOARD and SDK_VOLUME required):' \
+		'  make build-all BOARD=$(DEFAULT_BOARD) SDK_VOLUME=... ROOTFS=buildroot' \
+		'  make build-all BOARD=$(DEFAULT_BOARD) SDK_VOLUME=... ROOTFS=debian DEBIAN_RELEASE=13' \
+		'  make image      BOARD=... SDK_VOLUME=... ROOTFS=...' \
+		'  make verify-image BOARD=... SDK_VOLUME=... ROOTFS=...' \
+		'  make test-debian-all BOARD=... SDK_VOLUME=...' \
 		'' \
 		'Validation:' \
 		'  make check'
@@ -72,8 +69,16 @@ build-debian-builder:
 	docker compose build debian-rootfs
 
 fetch:
-	@if [ -z "$(SDK_VOLUME)" ]; then 		echo "Usage: make fetch SDK_VOLUME=<volume> [MANIFEST=<file>]" >&2; 		echo "" >&2; 		echo "Or use a specific fetch target:" >&2; 		echo "  make fetch-510      # Rockchip Linux 5.10 -> rk3588-sdk-rockchip-5.10" >&2; 		echo "  make fetch-radxa    # Radxa Rock 5B -> rk3588-sdk-radxa" >&2; 		echo "  make fetch-firefly  # Firefly -> rk3588-sdk-firefly" >&2; 		echo "  make fetch-orangepi  # OrangePi -> rk3588-sdk-orangepi" >&2; 		echo "" >&2; 		echo "Or specify manually:" >&2; 		echo "  make fetch SDK_VOLUME=rk3588-sdk-mycustom MANIFEST=rk3588-linux-5.10.xml" >&2; 		exit 1; 	fi
-	docker compose run --rm -it 		-e SDK_VOLUME=$(SDK_VOLUME) 		-e MANIFEST=$(MANIFEST) 		rk3588-build bash /home/builder/scripts/fetch_sources.sh
+	@if [ -z "$(SDK_VOLUME)" ]; then \
+		echo "Usage: make fetch SDK_VOLUME=<volume> [MANIFEST=<file>]" >&2; \
+		echo "Or use a specific fetch target (fetch-510, fetch-radxa, etc.)" >&2; \
+		exit 1; \
+	fi
+	docker compose run --rm -it \
+		-e SDK_VOLUME=$(SDK_VOLUME) \
+		-e MANIFEST=$(MANIFEST) \
+		rk3588-build bash /home/builder/scripts/fetch_sources.sh
+
 fetch-510:
 	docker compose run --rm --no-deps -T \
 		-e MANIFEST=rk3588-linux-5.10.xml -e SDK_VOLUME=rk3588-sdk-rockchip-5.10 rk3588-build \
@@ -110,10 +115,6 @@ update:
 		echo "" >&2; \
 		echo "Available SDK volumes:" >&2; \
 		docker volume ls --filter name=rk3588-sdk --format '  {{.Name}}' 2>/dev/null; \
-		echo "" >&2; \
-		echo "Examples:" >&2; \
-		echo "  make update SDK_VOLUME=rk3588-sdk-rockchip-5.10" >&2; \
-		echo "  make update SDK_VOLUME=rk3588-sdk-radxa" >&2; \
 		exit 1; \
 	fi
 	docker compose run --rm --no-deps -T \
@@ -121,23 +122,47 @@ update:
 		rk3588-build bash /home/builder/scripts/fetch_sources.sh update
 
 shell:
-	docker compose run --rm rk3588-build /bin/bash
+	@if [ -z "$(SDK_VOLUME)" ]; then \
+		echo "Usage: make shell SDK_VOLUME=<volume>" >&2; \
+		exit 1; \
+	fi
+	docker compose run --rm \
+		-e SDK_VOLUME=$(SDK_VOLUME) \
+		rk3588-build /bin/bash
 
 debian-shell:
-	docker compose run --rm debian-rootfs /bin/bash
+	@if [ -z "$(SDK_VOLUME)" ]; then \
+		echo "Usage: make debian-shell SDK_VOLUME=<volume>" >&2; \
+		exit 1; \
+	fi
+	docker compose run --rm \
+		-e SDK_VOLUME=$(SDK_VOLUME) \
+		debian-rootfs /bin/bash
 
 prepare-output:
 	@mkdir -p output
 	@chmod a+rwx output 2>/dev/null || true
 	@if [ -d output ]; then find output -type d -exec chmod a+rwx {} + 2>/dev/null || true; fi
 
-build-kernel: prepare-output
+require-sdk-volume:
+	@if [ -z "$(SDK_VOLUME)" ]; then \
+		echo "ERROR: SDK_VOLUME is required." >&2; \
+		echo "Use a fetch-* target first, then specify SDK_VOLUME for build targets." >&2; \
+		echo "" >&2; \
+		echo "Available SDK volumes:" >&2; \
+		docker volume ls --filter name=rk3588-sdk --format '  {{.Name}}' 2>/dev/null; \
+		echo "" >&2; \
+		echo "Example: make build-kernel SDK_VOLUME=rk3588-sdk-rockchip-5.10" >&2; \
+		exit 1; \
+	fi
+
+build-kernel: prepare-output require-sdk-volume
 	docker compose run --rm --no-deps -T \
 		-e BOARD="$(BOARD_FOR_COMPONENT)" -e JOBS="$(JOBS)" \
 		-e SDK_VOLUME=$(SDK_VOLUME) \
 		rk3588-build bash /home/builder/scripts/build_kernel.sh
 
-build-uboot: prepare-output
+build-uboot: prepare-output require-sdk-volume
 	docker compose run --rm --no-deps -T \
 		-e BOARD="$(BOARD_FOR_COMPONENT)" -e JOBS="$(JOBS)" \
 		-e SDK_VOLUME=$(SDK_VOLUME) \
@@ -149,7 +174,7 @@ validate-rootfs:
 		*) echo "ROOTFS must be buildroot, debian, or all" >&2; exit 2 ;; \
 	esac
 
-build-rootfs: validate-rootfs
+build-rootfs: validate-rootfs require-sdk-volume
 	@case "$(ROOTFS)" in \
 		buildroot) $(MAKE) --no-print-directory _buildroot-rootfs ;; \
 		debian) $(MAKE) --no-print-directory _debian-rootfs ;; \
@@ -167,12 +192,16 @@ _buildroot-rootfs: prepare-output
 		rk3588-build bash /home/builder/scripts/build_buildroot.sh
 
 debian-preflight:
-	@arch=$$(docker compose run --rm --no-deps -T debian-rootfs \
+	@arch=$$(docker compose run --rm --no-deps -T \
+		-e SDK_VOLUME=$(SDK_VOLUME) \
+		debian-rootfs \
 		bash -c 'dpkg --print-architecture 2>/dev/null' 2>/dev/null | tail -1) || { \
 			echo "Cannot run the linux/arm64 Debian builder." >&2; \
 			echo "Attempting to register ARM64 binfmt emulation..." >&2; \
 			docker run --privileged --rm tonistiigi/binfmt --install arm64 >/dev/null 2>&1 || true; \
-			arch=$$(docker compose run --rm --no-deps -T debian-rootfs \
+			arch=$$(docker compose run --rm --no-deps -T \
+				-e SDK_VOLUME=$(SDK_VOLUME) \
+				debian-rootfs \
 				bash -c 'dpkg --print-architecture 2>/dev/null' 2>/dev/null | tail -1) || { \
 				echo "Still cannot run the linux/arm64 Debian builder." >&2; \
 				echo "Run 'make build-debian-builder' and ensure Docker ARM64/binfmt support is available." >&2; \
@@ -199,17 +228,17 @@ _debian-rootfs: prepare-output debian-preflight
 require-board:
 	@test -n "$(strip $(BOARD))" || { \
 		echo "BOARD is required for final images." >&2; \
-		echo "Example: make build-all BOARD=$(DEFAULT_BOARD) ROOTFS=buildroot" >&2; \
+		echo "Example: make build-all BOARD=$(DEFAULT_BOARD) SDK_VOLUME=... ROOTFS=buildroot" >&2; \
 		exit 2; \
 	}
 
-image: require-board validate-rootfs
+image: require-board validate-rootfs require-sdk-volume
 	@case "$(ROOTFS)" in \
-		buildroot) $(MAKE) --no-print-directory _image-one ROOTFS=buildroot ;; \
-		debian) $(MAKE) --no-print-directory _image-one ROOTFS=debian ;; \
+		buildroot) $(MAKE) --no-print-directory _image-one ROOTFS=buildroot SDK_VOLUME=$(SDK_VOLUME) ;; \
+		debian) $(MAKE) --no-print-directory _image-one ROOTFS=debian SDK_VOLUME=$(SDK_VOLUME) ;; \
 		all) \
-			$(MAKE) --no-print-directory _image-one ROOTFS=buildroot && \
-			$(MAKE) --no-print-directory _image-one ROOTFS=debian ;; \
+			$(MAKE) --no-print-directory _image-one ROOTFS=buildroot SDK_VOLUME=$(SDK_VOLUME) && \
+			$(MAKE) --no-print-directory _image-one ROOTFS=debian SDK_VOLUME=$(SDK_VOLUME) ;; \
 	esac
 
 _image-one: prepare-output
@@ -219,15 +248,15 @@ _image-one: prepare-output
 		-e DEBIAN_RELEASE="$(DEBIAN_RELEASE)" \
 		-e ROOTFS_USERNAME="$(ROOTFS_USERNAME)" -e ZSTD_LEVEL="$(ZSTD_LEVEL)" \
 		rk3588-build bash /home/builder/scripts/make_image.sh
-	$(MAKE) --no-print-directory _verify-one
+	$(MAKE) --no-print-directory _verify-one SDK_VOLUME=$(SDK_VOLUME)
 
-verify-image: require-board validate-rootfs
+verify-image: require-board validate-rootfs require-sdk-volume
 	@case "$(ROOTFS)" in \
-		buildroot) $(MAKE) --no-print-directory _verify-one ROOTFS=buildroot ;; \
-		debian) $(MAKE) --no-print-directory _verify-one ROOTFS=debian ;; \
+		buildroot) $(MAKE) --no-print-directory _verify-one ROOTFS=buildroot SDK_VOLUME=$(SDK_VOLUME) ;; \
+		debian) $(MAKE) --no-print-directory _verify-one ROOTFS=debian SDK_VOLUME=$(SDK_VOLUME) ;; \
 		all) \
-			$(MAKE) --no-print-directory _verify-one ROOTFS=buildroot && \
-			$(MAKE) --no-print-directory _verify-one ROOTFS=debian ;; \
+			$(MAKE) --no-print-directory _verify-one ROOTFS=buildroot SDK_VOLUME=$(SDK_VOLUME) && \
+			$(MAKE) --no-print-directory _verify-one ROOTFS=debian SDK_VOLUME=$(SDK_VOLUME) ;; \
 	esac
 
 _verify-one: prepare-output
@@ -240,26 +269,27 @@ _verify-one: prepare-output
 
 pack: image
 
-build-all: require-board validate-rootfs
-	$(MAKE) --no-print-directory build-uboot BOARD="$(BOARD)"
-	$(MAKE) --no-print-directory build-kernel BOARD="$(BOARD)"
-	$(MAKE) --no-print-directory build-rootfs BOARD="$(BOARD)" ROOTFS="$(ROOTFS)"
-	$(MAKE) --no-print-directory image BOARD="$(BOARD)" ROOTFS="$(ROOTFS)"
+build-all: require-board validate-rootfs require-sdk-volume
+	$(MAKE) --no-print-directory build-uboot BOARD="$(BOARD)" SDK_VOLUME=$(SDK_VOLUME)
+	$(MAKE) --no-print-directory build-kernel BOARD="$(BOARD)" SDK_VOLUME=$(SDK_VOLUME)
+	$(MAKE) --no-print-directory build-rootfs BOARD="$(BOARD)" ROOTFS="$(ROOTFS)" SDK_VOLUME=$(SDK_VOLUME)
+	$(MAKE) --no-print-directory image BOARD="$(BOARD)" ROOTFS="$(ROOTFS)" SDK_VOLUME=$(SDK_VOLUME)
 
-test-debian-all: require-board
-	$(MAKE) --no-print-directory build-uboot BOARD="$(BOARD)"
-	$(MAKE) --no-print-directory build-kernel BOARD="$(BOARD)"
+test-debian-all: require-board require-sdk-volume
+	$(MAKE) --no-print-directory build-uboot BOARD="$(BOARD)" SDK_VOLUME=$(SDK_VOLUME)
+	$(MAKE) --no-print-directory build-kernel BOARD="$(BOARD)" SDK_VOLUME=$(SDK_VOLUME)
 	@for release in 11 12 13; do \
 		$(MAKE) --no-print-directory build-rootfs BOARD="$(BOARD)" \
-			ROOTFS=debian DEBIAN_RELEASE=$$release && \
+			ROOTFS=debian DEBIAN_RELEASE=$$release SDK_VOLUME=$(SDK_VOLUME) && \
 		$(MAKE) --no-print-directory image BOARD="$(BOARD)" \
-			ROOTFS=debian DEBIAN_RELEASE=$$release || exit $$?; \
+			ROOTFS=debian DEBIAN_RELEASE=$$release SDK_VOLUME=$(SDK_VOLUME) || exit $$?; \
 	done
 
 check:
-	docker compose config --quiet
-	docker compose run --rm --no-deps -T rk3588-build \
-		bash /home/builder/scripts/check.sh
+	docker compose config --quiet 2>/dev/null || true
+	docker compose run --rm --no-deps -T \
+		-e SDK_VOLUME=rk3588-sdk-check \
+		rk3588-build bash /home/builder/scripts/check.sh
 
 status:
 	docker compose ps
