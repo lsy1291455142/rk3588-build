@@ -4,10 +4,11 @@ The image pipeline is driven by board profiles in `configs/boards/`.
 
 ## Board profiles
 
-The included example is:
+The included profiles are:
 
 ```text
 configs/boards/rk3588-evb1-lp4-v10-linux.conf
+configs/boards/rk3588s-rock-5c.conf
 ```
 
 It selects:

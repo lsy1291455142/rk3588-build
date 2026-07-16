@@ -134,8 +134,8 @@ cmp --silent "${DTB_IMAGE}" "${WORK_DIR}/${KERNEL_DTB}" ||
     die "FAT DTB does not match the board artifact"
 grep -Fqx "    FDT /${KERNEL_DTB}" "${WORK_DIR}/extlinux.conf" ||
     die "extlinux.conf does not select ${KERNEL_DTB}"
-grep -Fq "root=LABEL=rootfs rootwait rw" "${WORK_DIR}/extlinux.conf" ||
-    die "extlinux.conf does not boot root=LABEL=rootfs"
+grep -Fq "root=PARTLABEL=rootfs rootwait rw" "${WORK_DIR}/extlinux.conf" ||
+    die "extlinux.conf does not boot root=PARTLABEL=rootfs"
 grep -Fq "console=${CONSOLE}" "${WORK_DIR}/extlinux.conf" ||
     die "extlinux.conf does not configure ${CONSOLE}"
 
@@ -149,9 +149,16 @@ e2fsck -fn "${WORK_DIR}/rootfs.ext4" >/dev/null
     die "Embedded root filesystem label is not rootfs"
 
 KERNEL_RELEASE="$(cat "${KERNEL_RELEASE_FILE}")"
-debugfs -R "stat /lib/modules/${KERNEL_RELEASE}" \
-    "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -q 'Inode:' ||
-    die "Embedded rootfs lacks modules for ${KERNEL_RELEASE}"
+if [ "${ROOTFS}" = "buildroot" ]; then
+    MODULES_DIR="/lib/modules/${KERNEL_RELEASE}"
+else
+    MODULES_DIR="/usr/lib/modules/${KERNEL_RELEASE}"
+fi
+debugfs -R "stat ${MODULES_DIR}" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+    grep -q 'Inode:' || die "Embedded rootfs lacks modules for ${KERNEL_RELEASE}"
+debugfs -R "stat ${MODULES_DIR}" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+    grep -Eq 'User:[[:space:]]+0[[:space:]]+Group:[[:space:]]+0' ||
+    die "Embedded kernel modules are not owned by root"
 debugfs -R "cat /etc/passwd" "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
     grep -q "^${ROOTFS_USERNAME}:" ||
     die "Embedded rootfs lacks user ${ROOTFS_USERNAME}"
@@ -165,14 +172,61 @@ if [ "${ROOTFS}" = "buildroot" ]; then
         grep -Fq "resize2fs \"\$rootdev\"" ||
         die "Buildroot rootfs lacks the first-boot resize hook"
 else
+    debugfs -R "stat /lib" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+        grep -q 'Type: symlink' ||
+        die "Debian rootfs lost the /lib usrmerge symlink"
+    debugfs -R "stat /usr/lib/ld-linux-aarch64.so.1" \
+        "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -q 'Inode:' ||
+        die "Debian rootfs lacks the AArch64 ELF interpreter"
+    debugfs -R "stat /usr/lib/systemd/systemd" \
+        "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -q 'Inode:' ||
+        die "Debian rootfs lacks systemd init"
+    debugfs -R "cat /usr/local/sbin/rk3588-firstboot" \
+        "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+        grep -Fq "sgdisk -e \"\$rootdisk\"" ||
+        die "Debian rootfs lacks the first-boot GPT repair"
+    debugfs -R "cat /usr/local/sbin/rk3588-firstboot" \
+        "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+        grep -Fq "partnum=\"\$(cat \"\$sys_block/partition\")\"" ||
+        die "Debian rootfs does not derive the root partition from sysfs"
+    debugfs -R "cat /usr/local/sbin/rk3588-firstboot" \
+        "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+        grep -Fq "growpart \"\$rootdisk\" \"\$partnum\"" ||
+        die "Debian rootfs lacks the first-boot partition growth"
     debugfs -R "cat /usr/local/sbin/rk3588-firstboot" \
         "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
         grep -Fq "resize2fs \"\$rootdev\"" ||
-        die "Debian rootfs lacks the first-boot resize helper"
+        die "Debian rootfs lacks the first-boot filesystem growth"
     debugfs -R "cat /etc/systemd/system/rk3588-firstboot.service" \
         "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
         grep -Fq 'WantedBy=multi-user.target' ||
         die "Debian rootfs lacks the first-boot resize service"
+    if debugfs -R "cat /etc/systemd/system/rk3588-firstboot.service" \
+        "${WORK_DIR}/rootfs.ext4" 2>/dev/null | grep -Fq 'Before=ssh.service'; then
+        die "Debian first-boot resize must not block SSH startup"
+    fi
+    debugfs -R "cat /etc/systemd/system/rk3588-firstboot.service" \
+        "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+        grep -Fq 'TimeoutStartSec=2min' ||
+        die "Debian first-boot resize service lacks a startup timeout"
+    debugfs -R "cat /etc/systemd/system/rk3588-firstboot.service" \
+        "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+        grep -Fq 'ExecStart=-/usr/local/sbin/rk3588-firstboot' ||
+        die "Debian first-boot resize failure can degrade system startup"
+    debugfs -R "cat /etc/systemd/system/ssh.service.d/10-hostkeys.conf" \
+        "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+        grep -Fq 'ExecStartPre=/usr/bin/ssh-keygen -A' ||
+        die "Debian SSH service does not generate missing host keys"
+    CONSOLE_SPEED="${CONSOLE#*,}"
+    CONSOLE_SPEED="${CONSOLE_SPEED%%[!0-9]*}"
+    debugfs -R "cat /etc/systemd/system/serial-getty@${CONSOLE%%,*}.service.d/10-baud.conf" \
+        "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+        grep -Fq -- "--keep-baud ${CONSOLE_SPEED},115200" ||
+        die "Debian serial getty does not preserve the board console speed"
+    debugfs -R "stat /usr/sbin/sgdisk" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+        grep -q 'Inode:' || die "Debian rootfs lacks sgdisk"
+    debugfs -R "stat /usr/bin/growpart" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+        grep -q 'Inode:' || die "Debian rootfs lacks growpart"
 fi
 
 (

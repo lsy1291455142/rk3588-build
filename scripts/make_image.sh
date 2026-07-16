@@ -75,7 +75,7 @@ TIMEOUT 10
 LABEL rk3588
     LINUX /Image
     FDT /${KERNEL_DTB}
-    APPEND root=LABEL=rootfs rootwait rw console=${CONSOLE} ${EXTRA_KERNEL_ARGS:-}
+    APPEND root=PARTLABEL=rootfs rootwait rw console=${CONSOLE} ${EXTRA_KERNEL_ARGS:-}
 EOF
 
 log_step "Creating GPT image ${IMAGE_STEM}.img"

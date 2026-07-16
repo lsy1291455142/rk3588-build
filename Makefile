@@ -4,13 +4,14 @@
 
 .PHONY: help build build-nocache build-builder build-debian-builder \
 	fetch-custom fetch-510 fetch-61 fetch-66 fetch-firefly fetch-radxa \
-	fetch-orangepi update shell debian-shell \
+	fetch-rock5c fetch-orangepi update shell debian-shell \
 	use-rockchip-5.10 use-rockchip-6.1 use-rockchip-6.6 \
-	use-firefly use-radxa use-orangepi use-current \
+	use-firefly use-radxa use-rock5c use-orangepi use-current \
 	build-kernel build-uboot build-rootfs image verify-image pack \
 	build-all test-debian-all check clean clean-all status \
 	require-board require-sdk-volume validate-rootfs prepare-output \
-	debian-preflight _buildroot-rootfs _debian-rootfs _image-one _verify-one
+	debian-preflight _use_switch _buildroot-rootfs _debian-rootfs \
+	_image-one _verify-one
 
 DEFAULT_BOARD := rk3588-evb1-lp4-v10-linux
 BOARD ?=
@@ -40,6 +41,7 @@ help:
 		'  make fetch-66                      Rockchip Linux 6.6 -> rk3588-sdk-rockchip-6.6' \
 		'  make fetch-firefly                 Firefly AIO-3588 -> rk3588-sdk-firefly' \
 		'  make fetch-radxa                   Radxa Rock 5B -> rk3588-sdk-radxa' \
+		'  make fetch-rock5c                  Radxa Rock 5C -> rk3588-sdk-rock5c' \
 		'  make fetch-orangepi                OrangePi 5 -> rk3588-sdk-orangepi' \
 		'  make fetch-custom SDK_VOLUME=... MANIFEST=...   Custom local manifest' \
 		'  make update SDK_VOLUME=<volume>    Update an existing SDK' \
@@ -50,6 +52,7 @@ help:
 		'  make use-rockchip-6.6              -> rk3588-sdk-rockchip-6.6' \
 		'  make use-firefly                  -> rk3588-sdk-firefly' \
 		'  make use-radxa                    -> rk3588-sdk-radxa' \
+		'  make use-rock5c                   -> rk3588-sdk-rock5c' \
 		'  make use-orangepi                 -> rk3588-sdk-orangepi' \
 		'  make use-current                  Show current SDK_VOLUME' \
 		'' \
@@ -132,6 +135,13 @@ fetch-radxa:
 		-e MANIFEST=rk3588-radxa.xml -e SDK_VOLUME=rk3588-sdk-radxa rk3588-build \
 		bash /home/builder/scripts/fetch_sources.sh
 
+fetch-rock5c: SDK_VOLUME=rk3588-sdk-rock5c
+fetch-rock5c:
+	docker volume create $(SDK_VOLUME) >/dev/null
+	SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
+		-e MANIFEST=rk3588-rock5c.xml -e SDK_VOLUME=rk3588-sdk-rock5c rk3588-build \
+		bash /home/builder/scripts/fetch_sources.sh
+
 fetch-orangepi: SDK_VOLUME=rk3588-sdk-orangepi
 fetch-orangepi:
 	docker volume create $(SDK_VOLUME) >/dev/null
@@ -162,6 +172,8 @@ use-firefly: SWITCH_VOL=rk3588-sdk-firefly
 use-firefly: _use_switch
 use-radxa: SWITCH_VOL=rk3588-sdk-radxa
 use-radxa: _use_switch
+use-rock5c: SWITCH_VOL=rk3588-sdk-rock5c
+use-rock5c: _use_switch
 use-orangepi: SWITCH_VOL=rk3588-sdk-orangepi
 use-orangepi: _use_switch
 

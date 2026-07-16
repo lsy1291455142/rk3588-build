@@ -23,6 +23,9 @@ MODULES_TAR="${COMMON_OUTPUT}/modules.tar"
 KERNEL_RELEASE_FILE="${COMMON_OUTPUT}/kernel-release"
 ROOTFS_USERNAME="${ROOTFS_USERNAME:-rk3588}"
 ROOTFS_PASSWORD="${ROOTFS_PASSWORD:-rk3588}"
+CONSOLE_DEVICE="${CONSOLE%%,*}"
+CONSOLE_SPEED="${CONSOLE#*,}"
+CONSOLE_SPEED="${CONSOLE_SPEED%%[!0-9]*}"
 DEBIAN_MIRROR="${DEBIAN_MIRROR:-http://deb.debian.org/debian}"
 DEBIAN_SECURITY_MIRROR="${DEBIAN_SECURITY_MIRROR:-http://security.debian.org/debian-security}"
 DEBIAN_ALLOW_ARCHIVE_FALLBACK="${DEBIAN_ALLOW_ARCHIVE_FALLBACK:-yes}"
@@ -30,6 +33,7 @@ DEBIAN_ALLOW_ARCHIVE_FALLBACK="${DEBIAN_ALLOW_ARCHIVE_FALLBACK:-yes}"
 require_file "${MODULES_TAR}" "kernel modules archive; run build-kernel first"
 require_file "${KERNEL_RELEASE_FILE}" "kernel release; run build-kernel first"
 validate_rootfs_credentials
+[ -n "${CONSOLE_SPEED}" ] || die "Unable to derive console speed from ${CONSOLE}"
 
 if [ "${DEBIAN_RELEASE}" = "11" ]; then
     log_warn "Debian 11 LTS ends on 2026-08-31."
@@ -43,10 +47,12 @@ chmod 0777 "${VARIANT_OUTPUT}"
 
 PACKAGES=(
     ca-certificates
+    cloud-guest-utils
     curl
     dbus
     e2fsprogs
     ethtool
+    gdisk
     iproute2
     iputils-ping
     kmod
@@ -112,7 +118,9 @@ printf 'root:%s\n' "${ROOTFS_PASSWORD}" |
     chroot "${ROOT_DIR}" chpasswd
 chroot "${ROOT_DIR}" passwd -u root
 
-install -d "${ROOT_DIR}/etc/systemd/network" "${ROOT_DIR}/etc/ssh/sshd_config.d"
+install -d "${ROOT_DIR}/etc/systemd/network" \
+    "${ROOT_DIR}/etc/systemd/system/ssh.service.d" \
+    "${ROOT_DIR}/etc/ssh/sshd_config.d"
 cat >"${ROOT_DIR}/etc/systemd/network/20-wired.network" <<'EOF'
 [Match]
 Name=en* eth*
@@ -125,16 +133,36 @@ cat >"${ROOT_DIR}/etc/ssh/sshd_config.d/10-rk3588.conf" <<'EOF'
 PasswordAuthentication yes
 PermitRootLogin yes
 EOF
+cat >"${ROOT_DIR}/etc/systemd/system/ssh.service.d/10-hostkeys.conf" <<'EOF'
+[Service]
+ExecStartPre=
+ExecStartPre=/usr/bin/ssh-keygen -A
+ExecStartPre=/usr/sbin/sshd -t
+EOF
 
 rm -f "${ROOT_DIR}"/etc/ssh/ssh_host_* "${ROOT_DIR}/etc/machine-id"
 : >"${ROOT_DIR}/etc/machine-id"
 ln -snf /run/systemd/resolve/stub-resolv.conf "${ROOT_DIR}/etc/resolv.conf"
 
-tar --numeric-owner -xpf "${MODULES_TAR}" -C "${ROOT_DIR}"
+if [ ! -L "${ROOT_DIR}/lib" ] ||
+    [ "$(readlink "${ROOT_DIR}/lib")" != "usr/lib" ]; then
+    die "Debian usrmerge layout is missing /lib -> usr/lib"
+fi
+install -d "${ROOT_DIR}/usr/lib"
+tar --no-same-owner --strip-components=1 -xpf "${MODULES_TAR}" \
+    -C "${ROOT_DIR}/usr/lib"
 KERNEL_RELEASE="$(cat "${KERNEL_RELEASE_FILE}")"
 depmod -b "${ROOT_DIR}" "${KERNEL_RELEASE}"
+chroot "${ROOT_DIR}" /bin/true ||
+    die "Debian userspace is not executable after installing kernel modules"
 
-install -d "${ROOT_DIR}/usr/local/sbin" "${ROOT_DIR}/etc/systemd/system"
+install -d "${ROOT_DIR}/usr/local/sbin" "${ROOT_DIR}/etc/systemd/system" \
+    "${ROOT_DIR}/etc/systemd/system/serial-getty@${CONSOLE_DEVICE}.service.d"
+cat >"${ROOT_DIR}/etc/systemd/system/serial-getty@${CONSOLE_DEVICE}.service.d/10-baud.conf" <<EOF
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty -o '-- \\\\u' --noreset --noclear --keep-baud ${CONSOLE_SPEED},115200,57600,38400,9600 - \${TERM}
+EOF
 cat >"${ROOT_DIR}/usr/local/sbin/rk3588-firstboot" <<'EOF'
 #!/bin/sh
 set -eu
@@ -142,17 +170,50 @@ set -eu
 MARKER=/var/lib/rk3588-firstboot.done
 [ ! -e "$MARKER" ] || exit 0
 
-ssh-keygen -A
-
 rootdev="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
 rootdev="$(readlink -f "$rootdev" 2>/dev/null || true)"
 if [ -z "$rootdev" ] || [ ! -b "$rootdev" ]; then
-    rootdev="$(findfs LABEL=rootfs 2>/dev/null || true)"
+    rootdev="$(findfs PARTLABEL=rootfs 2>/dev/null || true)"
 fi
 if [ -z "$rootdev" ] || [ ! -b "$rootdev" ]; then
     echo "Unable to locate rootfs block device" >&2
     exit 1
 fi
+
+rootdev_name="${rootdev#/dev/}"
+sys_block="/sys/class/block/$rootdev_name"
+if [ ! -r "$sys_block/partition" ]; then
+    echo "Unable to locate partition metadata for $rootdev" >&2
+    exit 1
+fi
+partnum="$(cat "$sys_block/partition")"
+rootdisk_name="$(basename "$(dirname "$(readlink -f "$sys_block")")")"
+case "$partnum" in
+    ''|*[!0-9]*)
+        echo "Unable to determine root partition number for $rootdev" >&2
+        exit 1
+        ;;
+esac
+rootdisk="/dev/$rootdisk_name"
+if [ -z "$rootdisk_name" ] || [ ! -b "$rootdisk" ]; then
+    echo "Unable to determine parent disk for $rootdev" >&2
+    exit 1
+fi
+
+sgdisk -e "$rootdisk"
+if ! grow_output="$(growpart "$rootdisk" "$partnum" 2>&1)"; then
+    case "$grow_output" in
+        *NOCHANGE*) printf '%s\n' "$grow_output" ;;
+        *)
+            printf '%s\n' "$grow_output" >&2
+            exit 1
+            ;;
+    esac
+else
+    printf '%s\n' "$grow_output"
+fi
+partx -u --nr "$partnum" "$rootdisk"
+udevadm settle
 resize2fs "$rootdev"
 
 mkdir -p "$(dirname "$MARKER")"
@@ -163,15 +224,15 @@ chmod 0755 "${ROOT_DIR}/usr/local/sbin/rk3588-firstboot"
 
 cat >"${ROOT_DIR}/etc/systemd/system/rk3588-firstboot.service" <<'EOF'
 [Unit]
-Description=RK3588 first boot initialization
+Description=Expand RK3588 root filesystem on first boot
 After=local-fs.target
-Before=ssh.service
 ConditionPathExists=!/var/lib/rk3588-firstboot.done
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/sbin/rk3588-firstboot
+ExecStart=-/usr/local/sbin/rk3588-firstboot
 RemainAfterExit=yes
+TimeoutStartSec=2min
 
 [Install]
 WantedBy=multi-user.target
@@ -222,7 +283,17 @@ enable_unit systemd-networkd.service
 enable_unit systemd-resolved.service
 enable_unit ssh.service
 enable_unit rk3588-firstboot.service
-enable_unit "serial-getty@${CONSOLE%%,*}.service"
+enable_unit "serial-getty@${CONSOLE_DEVICE}.service"
+
+chroot "${ROOT_DIR}" systemd-analyze verify --man=no \
+    multi-user.target rk3588-firstboot.service \
+    "serial-getty@${CONSOLE_DEVICE}.service" ssh.service \
+    systemd-networkd.service systemd-resolved.service
+chroot "${ROOT_DIR}" ssh-keygen -A
+install -d -m 0755 "${ROOT_DIR}/run/sshd"
+chroot "${ROOT_DIR}" sshd -t
+rm -rf "${ROOT_DIR}/run/sshd"
+rm -f "${ROOT_DIR}"/etc/ssh/ssh_host_*
 
 rm -rf "${ROOT_DIR}/var/lib/apt/lists/"* \
     "${ROOT_DIR}/var/cache/apt/archives/"*.deb \
@@ -240,9 +311,21 @@ chmod 0644 "${ROOTFS_IMAGE}" "${ROOTFS_TAR}"
 
 [ "$(blkid -s LABEL -o value "${ROOTFS_IMAGE}")" = "rootfs" ] ||
     die "Debian rootfs label is not rootfs"
-debugfs -R "stat /lib/modules/${KERNEL_RELEASE}" "${ROOTFS_IMAGE}" 2>&1 |
+debugfs -R "stat /usr/lib/modules/${KERNEL_RELEASE}" "${ROOTFS_IMAGE}" 2>&1 |
     grep -q 'Inode:' ||
     die "Debian rootfs does not contain modules for ${KERNEL_RELEASE}"
+debugfs -R "stat /usr/lib/modules/${KERNEL_RELEASE}" "${ROOTFS_IMAGE}" 2>&1 |
+    grep -Eq 'User:[[:space:]]+0[[:space:]]+Group:[[:space:]]+0' ||
+    die "Debian kernel modules are not owned by root"
+debugfs -R "stat /lib" "${ROOTFS_IMAGE}" 2>&1 |
+    grep -q 'Type: symlink' ||
+    die "Debian rootfs lost the /lib usrmerge symlink"
+debugfs -R "stat /usr/lib/ld-linux-aarch64.so.1" "${ROOTFS_IMAGE}" 2>&1 |
+    grep -q 'Inode:' ||
+    die "Debian rootfs lacks the AArch64 ELF interpreter"
+debugfs -R "stat /usr/lib/systemd/systemd" "${ROOTFS_IMAGE}" 2>&1 |
+    grep -q 'Inode:' ||
+    die "Debian rootfs lacks systemd init"
 debugfs -R "cat /etc/shadow" "${ROOTFS_IMAGE}" 2>/dev/null |
     grep -Eq '^root:[^!*:][^:]*:' ||
     die "Debian root account is not enabled"

@@ -68,7 +68,8 @@ install -m 0644 "${KERNEL_IMAGE}" "${COMMON_OUTPUT}/Image"
 install -m 0644 "${KERNEL_DTB_PATH}" "${COMMON_OUTPUT}/${KERNEL_DTB}"
 install -m 0644 "${KERNEL_BUILD}/.config" "${COMMON_OUTPUT}/kernel.config"
 printf '%s\n' "${KERNEL_RELEASE}" >"${COMMON_OUTPUT}/kernel-release"
-tar --numeric-owner -C "${MODULES_STAGE}" -cpf "${COMMON_OUTPUT}/modules.tar" lib
+tar --numeric-owner --owner=0 --group=0 -C "${MODULES_STAGE}" \
+    -cpf "${COMMON_OUTPUT}/modules.tar" lib
 
 if [ -f "${KERNEL_BUILD}/System.map" ]; then
     install -m 0644 "${KERNEL_BUILD}/System.map" "${COMMON_OUTPUT}/System.map"
