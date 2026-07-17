@@ -53,17 +53,18 @@
 建议在 Git Bash 或 WSL 中运行 `make`。
 
 运行 `make help` 可以看到经过测试的完整命令。构建 ROCK 5C Debian 13 时，
-不需要手工创建 Docker volume，或在宿主机安装 QEMU 和交叉编译器。`BOARD` 和
-`SDK_VOLUME` 是分开设置的：既可命令行显式传入，也可分别用 `make use-volume-*` 和
-`make use-board-*` 写入 `.env`：
+不需要手工创建 Docker volume，或在宿主机安装 QEMU 和交叉编译器。`BOARD`、
+`SDK_VOLUME` 和 `ROOTFS` 是分开设置的：既可命令行显式传入，也可分别用
+`make use-volume-*`、`make use-board-*` 和 `make use-rootfs-*` 写入 `.env`：
 
 ```bash
 make build
 make fetch-rock5c
 make use-volume-rock5c
 make use-board-rock5c
-# 也可以: make use-volume && make use-board
-make build-all ROOTFS=debian DEBIAN_RELEASE=13
+make use-rootfs-debian
+# 也可以: make use-volume && make use-board && make use-rootfs
+make build-all DEBIAN_RELEASE=13
 make test-debian-qemu DEBIAN_RELEASE=13
 ```
 
@@ -77,10 +78,11 @@ make build-all \
   DEBIAN_RELEASE=13
 ```
 
-所有组件构建和最终镜像都要求显式 `BOARD`，不会再回落到默认 EVB 板型。
+所有组件构建都要求显式 `BOARD`，rootfs 和镜像相关目标还要求显式 `ROOTFS`。
+这两个选择都不会回落到默认值。
 
-Debian rootfs 在独立的 `linux/arm64` 容器中构建。`make build-rootfs ROOTFS=debian`
-和 `make build-all ROOTFS=debian` 会自动准备该 builder：x86_64 Docker 主机通过
+Debian rootfs 在独立的 `linux/arm64` 容器中构建。选择 `ROOTFS=debian` 后，
+`make build-rootfs` 和 `make build-all` 会自动准备该 builder：x86_64 Docker 主机通过
 `tonistiigi/binfmt` 注册 ARM64 QEMU 模拟，ARM64 Docker 主机直接原生运行。
 `make build-debian-builder` 仍可用于单独预构建或刷新 builder。`mmdebstrap`
 构建期间需要在容器内创建临时挂载，因此 `debian-rootfs` 服务以 privileged
@@ -166,23 +168,26 @@ make use-board-cokepi-model
 两套 profile 分别采用 SDK 中面向 HDMI 输出的 `rk3588-cpp-hdmi.dtb` 和
 `rk3588s-cpm-hdmi1.dtb`。应按实物型号选择，不能把 Plus 与 Model 混用。
 
-构建时通过 `SDK_VOLUME` 和 `BOARD` 指定 SDK 与板型。二者分开写入 `.env`，
+构建时通过 `SDK_VOLUME`、`BOARD` 和 `ROOTFS` 指定 SDK、板型与根文件系统。
+三者分开写入 `.env`，
 之后命令自动继承：
 
 ```bash
-# 分别写入 SDK volume 和 board
+# 分别写入 SDK volume、board 和 rootfs
 # 交互选择：
 make use-volume
 make use-board
+make use-rootfs
 # 或快捷目标：
 make use-volume-rock5c
 make use-board-rock5c
+make use-rootfs-debian
 make use-current
 
 # 用 Rock 5C SDK + Rock 5C board 构建
 make build-kernel
 make build-uboot
-make build-rootfs ROOTFS=debian
+make build-rootfs
 make image
 
 # 也可以临时覆盖
@@ -200,12 +205,9 @@ make update SDK_VOLUME=rk3588-sdk-radxa
 docker volume ls --filter name=rk3588
 ```
 
-`SDK_VOLUME` 与 `BOARD` 都必须通过 `.env`、对应的 `use-volume-*` / `use-board-*`
-或命令行显式设置。没有默认板型，也不会互相覆盖。
-
-`make image` 和 `make verify-image` 在命令行及 `.env` 都未设置 `ROOTFS` 时，
-会根据当前板型已有的 `rootfs.ext4` 自动选择 Buildroot 或 Debian。若两种 rootfs
-同时存在，则必须显式传入 `ROOTFS=buildroot` 或 `ROOTFS=debian`，避免打包错误系统。
+`SDK_VOLUME`、`BOARD` 与 `ROOTFS` 都必须通过 `.env`、对应的 `use-*` 目标或
+命令行显式设置。三者都没有构建默认值，也不会互相覆盖。未设置 `ROOTFS` 时，
+`make build-rootfs`、`make image`、`make verify-image` 和 `make build-all` 会直接报错。
 
 ## 输出目录
 
@@ -288,9 +290,10 @@ make update SDK_VOLUME=rk3588-sdk-radxa
 # 组件构建
 make use-volume-rockchip-5.10
 make use-board-evb1
+make use-rootfs-buildroot
 make build-kernel
 make build-uboot
-make build-rootfs ROOTFS=buildroot
+make build-rootfs
 
 # 切换 SDK 源
 make use-volume-rock5c
@@ -301,8 +304,9 @@ make build-uboot
 # 生成镜像
 make use-volume-rockchip-5.10
 make use-board-evb1
-make image ROOTFS=buildroot
-make verify-image ROOTFS=buildroot
+make use-rootfs-buildroot
+make image
+make verify-image
 make test-debian-qemu \
   BOARD=rk3588s-rock-5c \
   SDK_VOLUME=rk3588-sdk-rock5c \

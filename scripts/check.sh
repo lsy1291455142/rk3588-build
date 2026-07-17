@@ -182,9 +182,11 @@ check_help_contract() {
         'make verify-sdk-volume SDK_VOLUME=rk3588-sdk-local'
         'make verify-cokepi-sdk SDK_VOLUME=rk3588-sdk-cokepi-rkr9'
         'make fetch-rock5c'
+        'make use-rootfs'
+        'make use-rootfs-debian'
         'make build-all BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c ROOTFS=debian DEBIAN_RELEASE=13'
         'make test-debian-qemu BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c DEBIAN_RELEASE=13'
-        'No host QEMU or manual Docker volume setup is required. BOARD/SDK may come from make use-volume-*/use-board-* or CLI.'
+        'No host QEMU or manual Docker volume setup is required. BOARD/SDK/ROOTFS may come from use targets or CLI.'
     )
     for marker in "${markers[@]}"; do
         grep -Fq "${marker}" <<<"${help_output}" || return 1
@@ -217,33 +219,44 @@ check_debian_builder_contract() {
     fi
 }
 
-check_image_rootfs_selection() (
-    local selector="${PROJECT_DIR}/scripts/select_image_rootfs.sh"
-    local work_dir board=board-under-test release=13
+check_rootfs_configuration() (
+    local work_dir
     work_dir="$(mktemp -d)"
     trap 'rm -rf -- "${work_dir}"' EXIT
 
-    grep -Fq 'ROOTFS_WAS_SET' "${PROJECT_DIR}/Makefile" || exit 1
-    grep -Fq 'scripts/select_image_rootfs.sh' "${PROJECT_DIR}/Makefile" || exit 1
+    grep -Eq '^ROOTFS \?=$' "${PROJECT_DIR}/Makefile" || exit 1
+    grep -Eq '^require-rootfs:' "${PROJECT_DIR}/Makefile" || exit 1
+    grep -Eq '^use-rootfs:' "${PROJECT_DIR}/Makefile" || exit 1
+    grep -Eq '^use-rootfs-buildroot:' "${PROJECT_DIR}/Makefile" || exit 1
+    grep -Eq '^use-rootfs-debian:' "${PROJECT_DIR}/Makefile" || exit 1
+    grep -Eq '^use-rootfs-all:' "${PROJECT_DIR}/Makefile" || exit 1
+    grep -Fq "ROOTFS: \${ROOTFS:-}" "${PROJECT_DIR}/docker-compose.yml" || exit 1
 
-    mkdir -p \
-        "${work_dir}/${board}/buildroot" \
-        "${work_dir}/${board}/debian-${release}"
+    if grep -Eq 'ROOTFS:-buildroot|ROOTFS \?= buildroot' \
+        "${PROJECT_DIR}/Makefile" \
+        "${PROJECT_DIR}/docker-compose.yml" \
+        "${PROJECT_DIR}/scripts/lib/common.sh"; then
+        exit 1
+    fi
+    [ ! -e "${PROJECT_DIR}/scripts/select_image_rootfs.sh" ] || exit 1
 
-    touch "${work_dir}/${board}/debian-${release}/rootfs.ext4"
-    [ "$(bash "${selector}" "${work_dir}" "${board}" "${release}")" = debian ] || exit 1
+    expect_failure make -s -C "${PROJECT_DIR}" require-rootfs ROOTFS= || exit 1
+    expect_failure bash -c \
+        "source '${SCRIPT_DIR}/lib/common.sh'; unset ROOTFS; validate_rootfs_choice" || exit 1
 
-    rm -f "${work_dir}/${board}/debian-${release}/rootfs.ext4"
-    touch "${work_dir}/${board}/buildroot/rootfs.ext4"
-    [ "$(bash "${selector}" "${work_dir}" "${board}" "${release}")" = buildroot ] || exit 1
+    cp "${PROJECT_DIR}/Makefile" "${work_dir}/Makefile"
 
-    touch "${work_dir}/${board}/debian-${release}/rootfs.ext4"
-    expect_failure bash "${selector}" "${work_dir}" "${board}" "${release}" || exit 1
+    make -s -C "${work_dir}" use-rootfs-debian >/dev/null || exit 1
+    grep -Fqx 'ROOTFS=debian' "${work_dir}/.env" || exit 1
 
-    rm -f \
-        "${work_dir}/${board}/buildroot/rootfs.ext4" \
-        "${work_dir}/${board}/debian-${release}/rootfs.ext4"
-    expect_failure bash "${selector}" "${work_dir}" "${board}" "${release}"
+    make -s -C "${work_dir}" use-rootfs-buildroot >/dev/null || exit 1
+    grep -Fqx 'ROOTFS=buildroot' "${work_dir}/.env" || exit 1
+
+    make -s -C "${work_dir}" use-rootfs-all >/dev/null || exit 1
+    grep -Fqx 'ROOTFS=all' "${work_dir}/.env" || exit 1
+
+    printf '2\n' | make -s -C "${work_dir}" use-rootfs >/dev/null || exit 1
+    grep -Fqx 'ROOTFS=debian' "${work_dir}/.env"
 )
 
 check_qemu_smoke_contract() {
@@ -385,7 +398,7 @@ run_check "Buildroot external tree" check_buildroot_external
 run_check "U-Boot GPT/extlinux contract guard" check_uboot_boot_contract_guard
 run_check "make help complete Rock 5C workflow" check_help_contract
 run_check "Cross-host Debian builder contract" check_debian_builder_contract
-run_check "Image rootfs auto-selection" check_image_rootfs_selection
+run_check "Explicit rootfs configuration" check_rootfs_configuration
 run_check "QEMU Debian smoke-test contract" check_qemu_smoke_contract
 run_check "Failure-path self-tests" self_tests
 if command -v docker >/dev/null 2>&1; then

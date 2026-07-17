@@ -177,7 +177,7 @@ validate_board_source_revisions() {
 }
 
 validate_rootfs_choice() {
-    ROOTFS="${ROOTFS:-buildroot}"
+    [ -n "${ROOTFS:-}" ] || die "ROOTFS is required; expected buildroot or debian"
     case "${ROOTFS}" in
         buildroot|debian) ;;
         *) die "Unsupported ROOTFS=${ROOTFS}; expected buildroot or debian" ;;
@@ -185,7 +185,8 @@ validate_rootfs_choice() {
 }
 
 validate_rootfs_selection() {
-    ROOTFS="${ROOTFS:-buildroot}"
+    [ -n "${ROOTFS:-}" ] ||
+        die "ROOTFS is required; expected buildroot, debian, or all"
     case "${ROOTFS}" in
         buildroot|debian|all) ;;
         *) die "Unsupported ROOTFS=${ROOTFS}; expected buildroot, debian, or all" ;;

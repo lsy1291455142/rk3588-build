@@ -2,8 +2,6 @@
 
 -include .env
 
-ROOTFS_WAS_SET := $(if $(filter undefined,$(origin ROOTFS)),no,yes)
-
 .PHONY: help build build-nocache build-builder build-debian-builder \
 	register-arm64-binfmt \
 	import-local-sdk verify-sdk-volume verify-cokepi-sdk \
@@ -12,15 +10,17 @@ ROOTFS_WAS_SET := $(if $(filter undefined,$(origin ROOTFS)),no,yes)
 	use-volume use-volume-rockchip-5.10 use-volume-rockchip-6.1 use-volume-rockchip-6.6 \
 	use-volume-firefly use-volume-radxa use-volume-rock5c use-volume-orangepi \
 	use-board use-board-evb1 use-board-rock5c use-board-cokepi-plus \
-	use-board-cokepi-model use-current \
+	use-board-cokepi-model use-rootfs use-rootfs-buildroot use-rootfs-debian \
+	use-rootfs-all use-current \
 	build-kernel build-uboot build-rootfs image verify-image pack \
 	build-all test-debian-all test-debian-qemu check clean clean-all status \
-	require-board require-sdk-volume validate-rootfs prepare-output \
-	debian-preflight _use_sdk_switch _use_board_switch _buildroot-rootfs _debian-rootfs \
+	require-board require-rootfs require-sdk-volume validate-rootfs prepare-output \
+	debian-preflight _use_sdk_switch _use_board_switch _use_rootfs_switch \
+	_buildroot-rootfs _debian-rootfs \
 	_image-one _verify-one
 
 BOARD ?=
-ROOTFS ?= buildroot
+ROOTFS ?=
 SDK_VOLUME ?=
 DEBIAN_RELEASE ?= 13
 ROOTFS_USERNAME ?= rk3588
@@ -44,7 +44,7 @@ help:
 		'  make build-all BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c ROOTFS=debian DEBIAN_RELEASE=13' \
 		'  make test-debian-qemu BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c DEBIAN_RELEASE=13' \
 		'' \
-		'No host QEMU or manual Docker volume setup is required. BOARD/SDK may come from make use-volume-*/use-board-* or CLI.' \
+		'No host QEMU or manual Docker volume setup is required. BOARD/SDK/ROOTFS may come from use targets or CLI.' \
 		'' \
 		'Environment:' \
 		'  make build                         Build the primary Docker builder' \
@@ -82,19 +82,23 @@ help:
 		'  make use-board-rock5c             -> rk3588s-rock-5c' \
 		'  make use-board-cokepi-plus        -> rk3588-cokepi-plus-lp4-v10' \
 		'  make use-board-cokepi-model       -> rk3588s-cokepi-model-lp4-v10' \
-		'  make use-current                  Show current SDK_VOLUME and BOARD' \
 		'' \
-		'Build components (BOARD and SDK_VOLUME required):' \
+		'Switch active root filesystem (writes .env ROOTFS only):' \
+		'  make use-rootfs                  Interactive rootfs picker' \
+		'  make use-rootfs-buildroot         -> buildroot' \
+		'  make use-rootfs-debian            -> debian' \
+		'  make use-rootfs-all               -> all' \
+		'  make use-current                  Show current SDK_VOLUME, BOARD, and ROOTFS' \
+		'' \
+		'Build components (configured values may come from .env or CLI):' \
 		'  make build-kernel [BOARD=...] [SDK_VOLUME=...]' \
 		'  make build-uboot  [BOARD=...] [SDK_VOLUME=...]' \
-		'  make build-rootfs [BOARD=...] [SDK_VOLUME=...] ROOTFS=buildroot|debian|all' \
+		'  make build-rootfs [BOARD=...] [SDK_VOLUME=...] [ROOTFS=...]' \
 		'' \
-		'Complete images (BOARD and SDK_VOLUME required):' \
-		'  make build-all ROOTFS=buildroot' \
-		'  make build-all ROOTFS=debian DEBIAN_RELEASE=13' \
-		'  make image      BOARD=... SDK_VOLUME=... [ROOTFS=...]' \
-		'  make verify-image BOARD=... SDK_VOLUME=... [ROOTFS=...]' \
-		'  image/verify-image auto-select when exactly one rootfs output exists' \
+		'Complete images (BOARD, SDK_VOLUME, and ROOTFS required):' \
+		'  make build-all [DEBIAN_RELEASE=13]' \
+		'  make image' \
+		'  make verify-image' \
 		'  make test-debian-all BOARD=... SDK_VOLUME=...' \
 		'  make test-debian-qemu BOARD=... SDK_VOLUME=... DEBIAN_RELEASE=13' \
 		'' \
@@ -380,6 +384,48 @@ use-board-cokepi-plus: _use_board_switch
 use-board-cokepi-model: SWITCH_BOARD=rk3588s-cokepi-model-lp4-v10
 use-board-cokepi-model: _use_board_switch
 
+# ---- Switch active root filesystem (writes .env ROOTFS only) ----
+_use_rootfs_switch:
+	@case "$(SWITCH_ROOTFS)" in \
+		buildroot|debian|all) ;; \
+		*) echo "ERROR: unsupported rootfs: $(SWITCH_ROOTFS)" >&2; exit 1 ;; \
+	esac
+	touch .env
+	@if grep -q '^ROOTFS=' .env; then \
+		sed -i 's|^ROOTFS=.*|ROOTFS=$(SWITCH_ROOTFS)|' .env; \
+	else \
+		echo 'ROOTFS=$(SWITCH_ROOTFS)' >> .env; \
+	fi
+	@echo "Switched ROOTFS to: $(SWITCH_ROOTFS)"
+	@echo "SDK_VOLUME and BOARD are unchanged."
+
+use-rootfs:
+	@current="$$( [ -f .env ] && grep '^ROOTFS=' .env | cut -d= -f2- || true )"; \
+	echo "Available root filesystems:"; \
+	i=0; \
+	for rootfs in buildroot debian all; do \
+		i=$$((i+1)); \
+		mark=""; \
+		[ "$$rootfs" = "$$current" ] && mark=" (current)"; \
+		printf '  %d) %s%s\n' "$$i" "$$rootfs" "$$mark"; \
+	done; \
+	printf 'Select rootfs [1-3]: ' >&2; \
+	if ! { read -r choice <>/dev/tty; } 2>/dev/null; then read -r choice; fi; \
+	case "$$choice" in \
+		1|buildroot) selected=buildroot ;; \
+		2|debian) selected=debian ;; \
+		3|all) selected=all ;; \
+		*) echo "ERROR: invalid selection: $$choice" >&2; exit 1 ;; \
+	esac; \
+	$(MAKE) --no-print-directory _use_rootfs_switch SWITCH_ROOTFS="$$selected"
+
+use-rootfs-buildroot: SWITCH_ROOTFS=buildroot
+use-rootfs-buildroot: _use_rootfs_switch
+use-rootfs-debian: SWITCH_ROOTFS=debian
+use-rootfs-debian: _use_rootfs_switch
+use-rootfs-all: SWITCH_ROOTFS=all
+use-rootfs-all: _use_rootfs_switch
+
 use-current:
 	@if [ -f .env ] && grep -q '^SDK_VOLUME=' .env; then \
 		echo "Current SDK_VOLUME: $$(grep '^SDK_VOLUME=' .env | cut -d= -f2)"; \
@@ -390,6 +436,11 @@ use-current:
 		echo "Current BOARD: $$(grep '^BOARD=' .env | cut -d= -f2)"; \
 	else \
 		echo "BOARD not set. Run 'make use-board' or edit .env"; \
+	fi
+	@if [ -f .env ] && grep -q '^ROOTFS=' .env; then \
+		echo "Current ROOTFS: $$(grep '^ROOTFS=' .env | cut -d= -f2)"; \
+	else \
+		echo "ROOTFS not set. Run 'make use-rootfs' or edit .env"; \
 	fi
 
 update:
@@ -453,6 +504,17 @@ require-board:
 		exit 2; \
 	}
 
+require-rootfs:
+	@test -n "$(strip $(ROOTFS))" || { \
+		echo "ERROR: ROOTFS is required." >&2; \
+		echo "Run 'make use-rootfs', set ROOTFS in .env, or pass ROOTFS=... on the command line." >&2; \
+		echo "Available root filesystems:" >&2; \
+		echo "  buildroot" >&2; \
+		echo "  debian" >&2; \
+		echo "  all" >&2; \
+		exit 2; \
+	}
+
 build-kernel: prepare-output require-board require-sdk-volume
 	SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
 		-e BOARD="$(BOARD)" -e JOBS="$(JOBS)" \
@@ -471,7 +533,7 @@ validate-rootfs:
 		*) echo "ROOTFS must be buildroot, debian, or all" >&2; exit 2 ;; \
 	esac
 
-build-rootfs: validate-rootfs require-board require-sdk-volume
+build-rootfs: require-rootfs validate-rootfs require-board require-sdk-volume
 	@case "$(ROOTFS)" in \
 		buildroot) $(MAKE) --no-print-directory _buildroot-rootfs ;; \
 		debian) $(MAKE) --no-print-directory _debian-rootfs ;; \
@@ -517,14 +579,8 @@ _debian-rootfs: prepare-output debian-preflight
 		-e DEBIAN_ALLOW_ARCHIVE_FALLBACK="$(DEBIAN_ALLOW_ARCHIVE_FALLBACK)" \
 		debian-rootfs bash /home/builder/scripts/build_debian.sh
 
-image: require-board validate-rootfs require-sdk-volume
-	@rootfs="$(ROOTFS)"; \
-	if [ "$(ROOTFS_WAS_SET)" = "no" ]; then \
-		rootfs=$$(bash scripts/select_image_rootfs.sh \
-			output "$(BOARD)" "$(DEBIAN_RELEASE)") || exit $$?; \
-		echo "Auto-selected ROOTFS=$$rootfs from existing output."; \
-	fi; \
-	case "$$rootfs" in \
+image: require-rootfs require-board validate-rootfs require-sdk-volume
+	@case "$(ROOTFS)" in \
 		buildroot) $(MAKE) --no-print-directory _image-one ROOTFS=buildroot SDK_VOLUME=$(SDK_VOLUME) ;; \
 		debian) $(MAKE) --no-print-directory _image-one ROOTFS=debian SDK_VOLUME=$(SDK_VOLUME) ;; \
 		all) \
@@ -541,14 +597,8 @@ _image-one: prepare-output
 		rk3588-build bash /home/builder/scripts/make_image.sh
 	$(MAKE) --no-print-directory _verify-one SDK_VOLUME=$(SDK_VOLUME)
 
-verify-image: require-board validate-rootfs require-sdk-volume
-	@rootfs="$(ROOTFS)"; \
-	if [ "$(ROOTFS_WAS_SET)" = "no" ]; then \
-		rootfs=$$(bash scripts/select_image_rootfs.sh \
-			output "$(BOARD)" "$(DEBIAN_RELEASE)") || exit $$?; \
-		echo "Auto-selected ROOTFS=$$rootfs from existing output."; \
-	fi; \
-	case "$$rootfs" in \
+verify-image: require-rootfs require-board validate-rootfs require-sdk-volume
+	@case "$(ROOTFS)" in \
 		buildroot) $(MAKE) --no-print-directory _verify-one ROOTFS=buildroot SDK_VOLUME=$(SDK_VOLUME) ;; \
 		debian) $(MAKE) --no-print-directory _verify-one ROOTFS=debian SDK_VOLUME=$(SDK_VOLUME) ;; \
 		all) \
@@ -566,7 +616,7 @@ _verify-one: prepare-output
 
 pack: image
 
-build-all: require-board validate-rootfs require-sdk-volume
+build-all: require-rootfs require-board validate-rootfs require-sdk-volume
 	$(MAKE) --no-print-directory build-uboot BOARD="$(BOARD)" SDK_VOLUME=$(SDK_VOLUME)
 	$(MAKE) --no-print-directory build-kernel BOARD="$(BOARD)" SDK_VOLUME=$(SDK_VOLUME)
 	$(MAKE) --no-print-directory build-rootfs BOARD="$(BOARD)" ROOTFS="$(ROOTFS)" SDK_VOLUME=$(SDK_VOLUME)

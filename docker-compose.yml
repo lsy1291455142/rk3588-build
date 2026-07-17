@@ -7,7 +7,7 @@ services:
     image: rk3588-build:latest
     environment:
       BOARD: ${BOARD:-}
-      ROOTFS: ${ROOTFS:-buildroot}
+      ROOTFS: ${ROOTFS:-}
       DEBIAN_RELEASE: ${DEBIAN_RELEASE:-13}
       ROOTFS_USERNAME: ${ROOTFS_USERNAME:-rk3588}
       ROOTFS_PASSWORD: ${ROOTFS_PASSWORD:-rk3588}
