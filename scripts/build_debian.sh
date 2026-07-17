@@ -337,6 +337,7 @@ write_common_metadata "${VARIANT_OUTPUT}/rootfs-build-info.txt" \
     "source_manifest=${SOURCE_MANIFEST:-}" \
     "kernel_revision=$(git_revision "${SDK_DIR}/kernel")" \
     "rootfs=debian" \
+    "rootfs_arch=arm64" \
     "debian_release=${DEBIAN_RELEASE}" \
     "debian_codename=${DEBIAN_CODENAME}" \
     "kernel_release=${KERNEL_RELEASE}" \

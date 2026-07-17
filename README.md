@@ -59,7 +59,6 @@
 
 ```bash
 make build
-make build-debian-builder
 make fetch-rock5c
 make use-volume-rock5c
 make use-board-rock5c
@@ -80,9 +79,10 @@ make build-all \
 
 所有组件构建和最终镜像都要求显式 `BOARD`，不会再回落到默认 EVB 板型。
 
-Debian rootfs 在独立的 `linux/arm64` 容器中原生构建。x86_64 宿主机上
-`make build-debian-builder` 会自动通过 `tonistiigi/binfmt` 注册 ARM64 QEMU
-模拟。`mmdebstrap`
+Debian rootfs 在独立的 `linux/arm64` 容器中构建。`make build-rootfs ROOTFS=debian`
+和 `make build-all ROOTFS=debian` 会自动准备该 builder：x86_64 Docker 主机通过
+`tonistiigi/binfmt` 注册 ARM64 QEMU 模拟，ARM64 Docker 主机直接原生运行。
+`make build-debian-builder` 仍可用于单独预构建或刷新 builder。`mmdebstrap`
 构建期间需要在容器内创建临时挂载，因此 `debian-rootfs` 服务以 privileged
 模式运行。只应在可信代码和可信构建主机上执行 Debian rootfs 构建。
 
@@ -272,7 +272,7 @@ root password: rk3588
 ```bash
 make help
 make build
-make build-debian-builder
+make build-debian-builder  # 可选：提前构建/刷新 ARM64 Debian builder
 make check
 
 # 拉取 SDK

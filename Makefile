@@ -38,7 +38,6 @@ help:
 		'' \
 		'ROCK 5C Debian 13 complete build and simulated boot test:' \
 		'  make build' \
-		'  make build-debian-builder' \
 		'  make fetch-rock5c' \
 		'  make build-all BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c ROOTFS=debian DEBIAN_RELEASE=13' \
 		'  make test-debian-qemu BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c DEBIAN_RELEASE=13' \
@@ -47,7 +46,7 @@ help:
 		'' \
 		'Environment:' \
 		'  make build                         Build the primary Docker builder' \
-		'  make build-debian-builder          Build the ARM64 Debian builder' \
+		'  make build-debian-builder          Optionally prebuild the ARM64 Debian builder' \
 		'' \
 		'Import an already downloaded SDK (bind-backed volume, no source copy):' \
 		'  make import-local-sdk SDK_PATH=/absolute/path SDK_VOLUME=rk3588-sdk-local' \
@@ -109,7 +108,20 @@ build-builder:
 	SDK_VOLUME=rk3588-sdk-build docker compose build rk3588-build
 
 register-arm64-binfmt:
-	docker run --privileged --rm tonistiigi/binfmt --install arm64 >/dev/null
+	@docker_arch=$$(docker info --format '{{.Architecture}}' 2>/dev/null) || { \
+		echo "ERROR: Cannot determine the Docker daemon architecture." >&2; \
+		exit 1; \
+	}; \
+	case "$$docker_arch" in \
+		amd64|x86_64) \
+			echo "Registering ARM64 binfmt emulation on $$docker_arch Docker host..."; \
+			docker run --privileged --rm tonistiigi/binfmt --install arm64 >/dev/null ;; \
+		arm64|aarch64) \
+			echo "Docker host is $$docker_arch; ARM64 binfmt emulation is not required." ;; \
+		*) \
+			echo "ERROR: Unsupported Docker daemon architecture: $$docker_arch" >&2; \
+			exit 1 ;; \
+	esac
 
 build-debian-builder: register-arm64-binfmt
 	SDK_VOLUME=rk3588-sdk-build docker compose build debian-rootfs
@@ -473,27 +485,22 @@ _buildroot-rootfs: prepare-output
 		-e SDK_VOLUME=$(SDK_VOLUME) \
 		rk3588-build bash /home/builder/scripts/build_buildroot.sh
 
-debian-preflight:
-	@arch=$$(SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
+debian-preflight: build-debian-builder
+	@probe_output=$$(SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
+		--pull never \
 		-e SDK_VOLUME=$(SDK_VOLUME) \
-		debian-rootfs \
-		bash -c 'dpkg --print-architecture 2>/dev/null' 2>/dev/null | tail -1) || { \
-			echo "Cannot run the linux/arm64 Debian builder." >&2; \
-			echo "Attempting to register ARM64 binfmt emulation..." >&2; \
-			docker run --privileged --rm tonistiigi/binfmt --install arm64 >/dev/null 2>&1 || true; \
-			arch=$$(SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
-				-e SDK_VOLUME=$(SDK_VOLUME) \
-				debian-rootfs \
-				bash -c 'dpkg --print-architecture 2>/dev/null' 2>/dev/null | tail -1) || { \
-				echo "Still cannot run the linux/arm64 Debian builder." >&2; \
-				echo "Run 'make build-debian-builder' and ensure Docker ARM64/binfmt support is available." >&2; \
-				exit 1; \
-			}; \
+		--entrypoint /bin/sh debian-rootfs \
+		-c 'printf "RK3588_DEBIAN_ARCH=%s\n" "$$(dpkg --print-architecture)"') || { \
+			echo "ERROR: Cannot run the linux/arm64 Debian builder." >&2; \
+			exit 1; \
 		}; \
+	arch=$$(printf '%s\n' "$$probe_output" | \
+		sed -n 's/^RK3588_DEBIAN_ARCH=//p' | tail -1); \
 	test "$$arch" = "arm64" || { \
-		echo "Debian builder returned '$$arch', expected arm64." >&2; \
+		echo "ERROR: Debian builder architecture probe returned '$${arch:-no result}', expected arm64." >&2; \
 		exit 1; \
-	}
+	}; \
+	echo "Debian builder architecture: $$arch"
 
 _debian-rootfs: prepare-output debian-preflight
 	SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \

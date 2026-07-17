@@ -193,6 +193,30 @@ check_help_contract() {
     grep -Eq '^register-arm64-binfmt:' "${PROJECT_DIR}/Makefile" || return 1
 }
 
+check_debian_builder_contract() {
+    local makefile="${PROJECT_DIR}/Makefile"
+    local marker
+    local -a markers=(
+        "docker info --format '{{.Architecture}}'"
+        'amd64|x86_64)'
+        'arm64|aarch64)'
+        'debian-preflight: build-debian-builder'
+        '--pull never'
+        'RK3588_DEBIAN_ARCH='
+    )
+
+    for marker in "${markers[@]}"; do
+        grep -Fq -- "${marker}" "${makefile}" || return 1
+    done
+
+    grep -Fq 'rootfs_arch=arm64' \
+        "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
+
+    if grep -Fq 'dpkg --print-architecture 2>/dev/null' "${makefile}"; then
+        return 1
+    fi
+}
+
 check_qemu_smoke_contract() {
     local script="${PROJECT_DIR}/scripts/test_debian_qemu.sh"
     local driver="${PROJECT_DIR}/scripts/lib/qemu_smoke.py"
@@ -331,6 +355,7 @@ run_check "Kernel boot and QEMU configuration contract" check_kernel_contract
 run_check "Buildroot external tree" check_buildroot_external
 run_check "U-Boot GPT/extlinux contract guard" check_uboot_boot_contract_guard
 run_check "make help complete Rock 5C workflow" check_help_contract
+run_check "Cross-host Debian builder contract" check_debian_builder_contract
 run_check "QEMU Debian smoke-test contract" check_qemu_smoke_contract
 run_check "Failure-path self-tests" self_tests
 if command -v docker >/dev/null 2>&1; then
