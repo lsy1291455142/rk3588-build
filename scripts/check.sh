@@ -137,7 +137,7 @@ check_help_contract() {
         'make fetch-rock5c'
         'make build-all BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c ROOTFS=debian DEBIAN_RELEASE=13'
         'make test-debian-qemu BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c DEBIAN_RELEASE=13'
-        'No .env file, make use-*, host QEMU, or manual Docker volume setup is required.'
+        'No host QEMU or manual Docker volume setup is required. BOARD/SDK may come from make use-volume-*/use-board-* or CLI.'
     )
     for marker in "${markers[@]}"; do
         grep -Fq "${marker}" <<<"${help_output}" || return 1

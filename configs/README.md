@@ -19,8 +19,9 @@ It selects:
 - Serial console and extra kernel arguments.
 - Raw image size, partition geometry, and bootloader sectors.
 
-Copy the closest profile when adding hardware support. A final image build
-requires `BOARD=<profile-name>` and refuses to guess a board.
+Copy the closest profile when adding hardware support. All component and
+image builds require `BOARD=<profile-name>` from `.env`, `make use-board-*`,
+or the command line. There is no default board profile.
 
 The loader and U-Boot regions must remain before `BOOT_START_MIB`. The current
 layout reserves the first 16 MiB, writes the loader at sector 64, writes

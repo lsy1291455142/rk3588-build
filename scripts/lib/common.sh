@@ -67,7 +67,7 @@ is_positive_integer() {
 
 load_board_profile() {
     BOARD="${BOARD:-}"
-    [ -n "${BOARD}" ] || die "BOARD is required. Example: BOARD=rk3588-evb1-lp4-v10-linux"
+    [ -n "${BOARD}" ] || die "BOARD is required. Example: BOARD=rk3588s-rock-5c"
     validate_token "BOARD" "${BOARD}"
 
     BOARD_PROFILE="${CONFIG_DIR}/boards/${BOARD}.conf"
