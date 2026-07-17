@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 
 load_board_profile
+validate_board_source_revisions
 
 UBOOT_DIR="${SDK_DIR}/u-boot"
 RKBIN_DIR="${SDK_DIR}/rkbin"
@@ -160,6 +161,7 @@ for optional in trust.img u-boot.itb; do
 done
 
 write_common_metadata "${COMMON_OUTPUT}/uboot-build-info.txt" \
+    "source_manifest=${SOURCE_MANIFEST:-}" \
     "uboot_revision=$(git_revision "${UBOOT_DIR}")" \
     "rkbin_revision=$(git_revision "${RKBIN_DIR}")" \
     "uboot_defconfig=${UBOOT_DEFCONFIG}" \

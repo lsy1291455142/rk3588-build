@@ -59,6 +59,7 @@ services:
     volumes:
       - sdk:/home/builder/sdk
       - ./scripts:/home/builder/scripts:ro
+      - ./manifests:/home/builder/manifests:ro
       - ./configs:/home/builder/configs:ro
       - ./rootfs:/home/builder/rootfs:ro
       - ./output:/home/builder/output

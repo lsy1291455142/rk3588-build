@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 
 load_board_profile
+validate_board_source_revisions
 ROOTFS=debian
 resolve_debian_release
 require_cmd mmdebstrap dpkg chroot systemctl tar truncate mkfs.ext4 \
@@ -232,7 +233,7 @@ ConditionPathExists=!/var/lib/rk3588-firstboot.done
 Type=oneshot
 ExecStart=-/usr/local/sbin/rk3588-firstboot
 RemainAfterExit=yes
-TimeoutStartSec=2min
+TimeoutStartSec=10min
 
 [Install]
 WantedBy=multi-user.target
@@ -265,9 +266,11 @@ enable_unit() {
             unit_file=""
         done
     fi
-    # Most units want multi-user.target; socket units want sockets.target.
+    # Match the [Install] target used by the Debian unit.
     case "${unit}" in
         *.socket) target="sockets.target.wants" ;;
+        serial-getty@*.service) target="getty.target.wants" ;;
+        systemd-resolved.service) target="sysinit.target.wants" ;;
         *) target="multi-user.target.wants" ;;
     esac
     wants_dir="${ROOT_DIR}/etc/systemd/system/${target}"
@@ -331,6 +334,8 @@ debugfs -R "cat /etc/shadow" "${ROOTFS_IMAGE}" 2>/dev/null |
     die "Debian root account is not enabled"
 
 write_common_metadata "${VARIANT_OUTPUT}/rootfs-build-info.txt" \
+    "source_manifest=${SOURCE_MANIFEST:-}" \
+    "kernel_revision=$(git_revision "${SDK_DIR}/kernel")" \
     "rootfs=debian" \
     "debian_release=${DEBIAN_RELEASE}" \
     "debian_codename=${DEBIAN_CODENAME}" \

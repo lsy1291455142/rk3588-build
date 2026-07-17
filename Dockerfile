@@ -161,6 +161,7 @@ RUN apt-get update && \
         debian-archive-keyring \
         e2fsprogs \
         findutils \
+        git \
         gnupg \
         kmod \
         mmdebstrap \
@@ -175,6 +176,7 @@ RUN apt-get update && \
 RUN mkdir -p /home/builder/sdk /home/builder/output
 
 COPY scripts/ /home/builder/scripts/
+COPY manifests/ /home/builder/manifests/
 COPY configs/ /home/builder/configs/
 COPY rootfs/ /home/builder/rootfs/
 RUN find /home/builder/scripts /home/builder/rootfs -type f -name '*.sh' \

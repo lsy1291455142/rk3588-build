@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 
 load_board_profile
+validate_board_source_revisions
 validate_rootfs_choice
 if [ "${ROOTFS}" = "debian" ]; then
     resolve_debian_release
@@ -121,6 +122,11 @@ ZSTD_SHA256="$(sha256sum "${FINAL_ZSTD}" | awk '{print $1}')"
 ) >"${FINAL_SHA256}"
 
 write_common_metadata "${FINAL_METADATA}.tmp" \
+    "source_manifest=${SOURCE_MANIFEST:-}" \
+    "kernel_revision=$(git_revision "${SDK_DIR}/kernel")" \
+    "uboot_revision=$(git_revision "${SDK_DIR}/u-boot")" \
+    "rkbin_revision=$(git_revision "${SDK_DIR}/rkbin")" \
+    "buildroot_revision=$(git_revision "${SDK_DIR}/buildroot")" \
     "rootfs=${ROOTFS}" \
     "debian_release=${DEBIAN_RELEASE:-}" \
     "image=$(basename "${FINAL_IMAGE}")" \

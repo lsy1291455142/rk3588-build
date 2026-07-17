@@ -3,6 +3,7 @@
 -include .env
 
 .PHONY: help build build-nocache build-builder build-debian-builder \
+	register-arm64-binfmt \
 	fetch-custom fetch-510 fetch-61 fetch-66 fetch-firefly fetch-radxa \
 	fetch-rock5c fetch-orangepi update shell debian-shell \
 	use-rockchip-5.10 use-rockchip-6.1 use-rockchip-6.6 \
@@ -80,7 +81,10 @@ build-nocache:
 build-builder:
 	SDK_VOLUME=rk3588-sdk-build docker compose build rk3588-build
 
-build-debian-builder:
+register-arm64-binfmt:
+	docker run --privileged --rm tonistiigi/binfmt --install arm64 >/dev/null
+
+build-debian-builder: register-arm64-binfmt
 	SDK_VOLUME=rk3588-sdk-build docker compose build debian-rootfs
 
 fetch-custom:
@@ -139,6 +143,7 @@ fetch-rock5c: SDK_VOLUME=rk3588-sdk-rock5c
 fetch-rock5c:
 	docker volume create $(SDK_VOLUME) >/dev/null
 	SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
+		-e BOARD=rk3588s-rock-5c \
 		-e MANIFEST=rk3588-rock5c.xml -e SDK_VOLUME=rk3588-sdk-rock5c rk3588-build \
 		bash /home/builder/scripts/fetch_sources.sh
 

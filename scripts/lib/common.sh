@@ -129,6 +129,45 @@ validate_board_profile() {
         die "IMAGE_SIZE_MIB is too small for the configured boot partition"
     [ "${ROOTFS_SIZE_MIB}" -le "${available_root_mib}" ] ||
         die "ROOTFS_SIZE_MIB exceeds the root partition capacity"
+
+    if [ -n "${SOURCE_MANIFEST:-}" ]; then
+        require_file "${PROJECT_DIR}/manifests/${SOURCE_MANIFEST}" \
+            "source manifest for ${BOARD}"
+        for field in EXPECTED_KERNEL_REVISION EXPECTED_UBOOT_REVISION \
+            EXPECTED_RKBIN_REVISION EXPECTED_BUILDROOT_REVISION; do
+            value="${!field:-}"
+            [[ "${value}" =~ ^[0-9a-f]{40}$ ]] ||
+                die "${field} must be a full Git commit SHA in ${BOARD_PROFILE}"
+        done
+    fi
+}
+
+validate_git_revision() {
+    local repo="$1"
+    local expected="$2"
+    local description="$3"
+    local actual
+
+    require_cmd git
+    require_dir "${repo}" "${description} source"
+    actual="$(git -c safe.directory="${repo}" -C "${repo}" \
+        rev-parse HEAD 2>/dev/null || true)"
+    [ -n "${actual}" ] || die "Unable to read ${description} Git revision: ${repo}"
+    [ "${actual}" = "${expected}" ] ||
+        die "${description} revision mismatch: expected ${expected}, got ${actual}"
+}
+
+validate_board_source_revisions() {
+    [ -n "${SOURCE_MANIFEST:-}" ] || return 0
+
+    validate_git_revision "${SDK_DIR}/kernel" \
+        "${EXPECTED_KERNEL_REVISION}" "kernel"
+    validate_git_revision "${SDK_DIR}/u-boot" \
+        "${EXPECTED_UBOOT_REVISION}" "U-Boot"
+    validate_git_revision "${SDK_DIR}/rkbin" \
+        "${EXPECTED_RKBIN_REVISION}" "rkbin"
+    validate_git_revision "${SDK_DIR}/buildroot" \
+        "${EXPECTED_BUILDROOT_REVISION}" "Buildroot"
 }
 
 validate_rootfs_choice() {
@@ -238,7 +277,15 @@ safe_reset_dir() {
 
 git_revision() {
     local repo="$1"
-    git -C "${repo}" rev-parse HEAD 2>/dev/null || printf 'unknown\n'
+    git -c safe.directory="${repo}" -C "${repo}" \
+        rev-parse HEAD 2>/dev/null || printf 'unknown\n'
+}
+
+metadata_value() {
+    local metadata_file="$1"
+    local key="$2"
+    awk -F= -v wanted="${key}" '$1 == wanted {sub(/^[^=]*=/, ""); print; exit}' \
+        "${metadata_file}"
 }
 
 write_common_metadata() {

@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 
 load_board_profile
+validate_board_source_revisions
 ROOTFS=buildroot
 require_cmd make openssl tar blkid debugfs e2fsck realpath
 

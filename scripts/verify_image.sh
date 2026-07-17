@@ -8,6 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 
 load_board_profile
+validate_board_source_revisions
 validate_rootfs_choice
 if [ "${ROOTFS}" = "debian" ]; then
     resolve_debian_release
@@ -27,6 +28,11 @@ LOADER_IMAGE="${COMMON_OUTPUT}/loader.bin"
 UBOOT_IMAGE="${COMMON_OUTPUT}/uboot.img"
 ROOTFS_IMAGE="${VARIANT_OUTPUT}/rootfs.ext4"
 KERNEL_RELEASE_FILE="${COMMON_OUTPUT}/kernel-release"
+KERNEL_CONFIG="${COMMON_OUTPUT}/kernel.config"
+KERNEL_BUILD_INFO="${COMMON_OUTPUT}/kernel-build-info.txt"
+UBOOT_BUILD_INFO="${COMMON_OUTPUT}/uboot-build-info.txt"
+ROOTFS_BUILD_INFO="${VARIANT_OUTPUT}/rootfs-build-info.txt"
+IMAGE_BUILD_INFO="${VARIANT_OUTPUT}/image-build-info.txt"
 ROOTFS_USERNAME="${ROOTFS_USERNAME:-rk3588}"
 
 require_file "${IMAGE_PATH}" "raw disk image"
@@ -37,6 +43,37 @@ require_file "${LOADER_IMAGE}" "loader.bin"
 require_file "${UBOOT_IMAGE}" "uboot.img"
 require_file "${ROOTFS_IMAGE}" "rootfs.ext4"
 require_file "${KERNEL_RELEASE_FILE}" "kernel release"
+require_file "${KERNEL_CONFIG}" "kernel configuration"
+require_file "${KERNEL_BUILD_INFO}" "kernel build metadata"
+require_file "${UBOOT_BUILD_INFO}" "U-Boot build metadata"
+require_file "${ROOTFS_BUILD_INFO}" "rootfs build metadata"
+require_file "${IMAGE_BUILD_INFO}" "image build metadata"
+
+if [ -n "${SOURCE_MANIFEST:-}" ]; then
+    [ "$(metadata_value "${KERNEL_BUILD_INFO}" source_manifest)" = "${SOURCE_MANIFEST}" ] ||
+        die "Kernel metadata does not identify ${SOURCE_MANIFEST}"
+    [ "$(metadata_value "${KERNEL_BUILD_INFO}" kernel_revision)" = \
+        "${EXPECTED_KERNEL_REVISION}" ] || die "Kernel metadata revision mismatch"
+    [ "$(metadata_value "${UBOOT_BUILD_INFO}" uboot_revision)" = \
+        "${EXPECTED_UBOOT_REVISION}" ] || die "U-Boot metadata revision mismatch"
+    [ "$(metadata_value "${UBOOT_BUILD_INFO}" rkbin_revision)" = \
+        "${EXPECTED_RKBIN_REVISION}" ] || die "rkbin metadata revision mismatch"
+    [ "$(metadata_value "${IMAGE_BUILD_INFO}" buildroot_revision)" = \
+        "${EXPECTED_BUILDROOT_REVISION}" ] || die "Buildroot metadata revision mismatch"
+fi
+
+for required_config in \
+    CONFIG_AUTOFS_FS=y CONFIG_CGROUPS=y CONFIG_DEVTMPFS=y \
+    CONFIG_DEVTMPFS_MOUNT=y CONFIG_EXT4_FS=y CONFIG_FHANDLE=y \
+    CONFIG_HW_RANDOM_VIRTIO=y CONFIG_MEMCG=y CONFIG_MMC_BLOCK=y \
+    CONFIG_NAMESPACES=y CONFIG_RTC_DRV_PL031=y CONFIG_SECCOMP=y \
+    CONFIG_SERIAL_AMBA_PL011=y CONFIG_SERIAL_AMBA_PL011_CONSOLE=y \
+    CONFIG_TMPFS=y CONFIG_TMPFS_POSIX_ACL=y CONFIG_TMPFS_XATTR=y \
+    CONFIG_UNIX=y CONFIG_VIRTIO=y CONFIG_VIRTIO_BLK=y \
+    CONFIG_VIRTIO_MMIO=y CONFIG_VIRTIO_NET=y; do
+    grep -qx "${required_config}" "${KERNEL_CONFIG}" ||
+        die "Kernel artifact lacks required configuration ${required_config}"
+done
 
 WORK_DIR="$(mktemp -d "${VARIANT_OUTPUT}/.image-verify.XXXXXX")"
 trap 'rm -rf -- "${WORK_DIR}"' EXIT
@@ -152,6 +189,9 @@ KERNEL_RELEASE="$(cat "${KERNEL_RELEASE_FILE}")"
 if [ "${ROOTFS}" = "buildroot" ]; then
     MODULES_DIR="/lib/modules/${KERNEL_RELEASE}"
 else
+    debugfs -R "cat /etc/debian_version" "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+        grep -Eq "^${DEBIAN_RELEASE}([.]|$)" ||
+        die "Debian rootfs is not Debian ${DEBIAN_RELEASE}"
     MODULES_DIR="/usr/lib/modules/${KERNEL_RELEASE}"
 fi
 debugfs -R "stat ${MODULES_DIR}" "${WORK_DIR}/rootfs.ext4" 2>&1 |
@@ -207,7 +247,7 @@ else
     fi
     debugfs -R "cat /etc/systemd/system/rk3588-firstboot.service" \
         "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-        grep -Fq 'TimeoutStartSec=2min' ||
+        grep -Fq 'TimeoutStartSec=10min' ||
         die "Debian first-boot resize service lacks a startup timeout"
     debugfs -R "cat /etc/systemd/system/rk3588-firstboot.service" \
         "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
@@ -227,6 +267,15 @@ else
         grep -q 'Inode:' || die "Debian rootfs lacks sgdisk"
     debugfs -R "stat /usr/bin/growpart" "${WORK_DIR}/rootfs.ext4" 2>&1 |
         grep -q 'Inode:' || die "Debian rootfs lacks growpart"
+    for enabled_path in \
+        /etc/systemd/system/multi-user.target.wants/systemd-networkd.service \
+        /etc/systemd/system/sysinit.target.wants/systemd-resolved.service \
+        /etc/systemd/system/multi-user.target.wants/ssh.service \
+        /etc/systemd/system/multi-user.target.wants/rk3588-firstboot.service \
+        "/etc/systemd/system/getty.target.wants/serial-getty@${CONSOLE%%,*}.service"; do
+        debugfs -R "stat ${enabled_path}" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+            grep -q 'Inode:' || die "Debian rootfs does not enable ${enabled_path##*/}"
+    done
 fi
 
 (

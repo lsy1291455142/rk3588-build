@@ -6,7 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 
 load_board_profile
-require_cmd make tar git realpath
+validate_board_source_revisions
+require_cmd make tar git install realpath
 
 KERNEL_DIR="${SDK_DIR}/kernel"
 KERNEL_FRAGMENT="${CONFIG_DIR}/kernel/rootfs-base.config"
@@ -40,7 +41,41 @@ make "${make_args[@]}" "${KERNEL_DEFCONFIG}"
 )
 make "${make_args[@]}" olddefconfig
 
-for required_config in CONFIG_DEVTMPFS=y CONFIG_EXT4_FS=y CONFIG_MMC_BLOCK=y; do
+# Rockchip's Bifrost driver embeds this firmware with an assembler .incbin
+# path relative to the build directory, which needs mirroring for O= builds.
+MALI_CSF_FIRMWARE="drivers/gpu/arm/bifrost/mali_csffw.bin"
+if grep -qx 'CONFIG_MALI_CSF_INCLUDE_FW=y' "${KERNEL_BUILD}/.config"; then
+    require_file "${KERNEL_DIR}/${MALI_CSF_FIRMWARE}" \
+        "Mali CSF firmware required by CONFIG_MALI_CSF_INCLUDE_FW"
+    install -D -m 0644 "${KERNEL_DIR}/${MALI_CSF_FIRMWARE}" \
+        "${KERNEL_BUILD}/${MALI_CSF_FIRMWARE}"
+fi
+
+required_configs=(
+    CONFIG_AUTOFS_FS=y
+    CONFIG_CGROUPS=y
+    CONFIG_DEVTMPFS=y
+    CONFIG_DEVTMPFS_MOUNT=y
+    CONFIG_EXT4_FS=y
+    CONFIG_FHANDLE=y
+    CONFIG_HW_RANDOM_VIRTIO=y
+    CONFIG_MEMCG=y
+    CONFIG_MMC_BLOCK=y
+    CONFIG_NAMESPACES=y
+    CONFIG_RTC_DRV_PL031=y
+    CONFIG_SECCOMP=y
+    CONFIG_SERIAL_AMBA_PL011=y
+    CONFIG_SERIAL_AMBA_PL011_CONSOLE=y
+    CONFIG_TMPFS=y
+    CONFIG_TMPFS_POSIX_ACL=y
+    CONFIG_TMPFS_XATTR=y
+    CONFIG_UNIX=y
+    CONFIG_VIRTIO=y
+    CONFIG_VIRTIO_BLK=y
+    CONFIG_VIRTIO_MMIO=y
+    CONFIG_VIRTIO_NET=y
+)
+for required_config in "${required_configs[@]}"; do
     grep -qx "${required_config}" "${KERNEL_BUILD}/.config" ||
         die "Kernel configuration did not retain ${required_config}"
 done
@@ -76,6 +111,7 @@ if [ -f "${KERNEL_BUILD}/System.map" ]; then
 fi
 
 write_common_metadata "${COMMON_OUTPUT}/kernel-build-info.txt" \
+    "source_manifest=${SOURCE_MANIFEST:-}" \
     "kernel_revision=$(git_revision "${KERNEL_DIR}")" \
     "kernel_release=${KERNEL_RELEASE}" \
     "kernel_defconfig=${KERNEL_DEFCONFIG}" \

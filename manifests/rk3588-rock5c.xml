@@ -10,14 +10,17 @@
   <remote name="buildroot" fetch="https://gitlab.com/buildroot.org" />
 
   <default remote="radxa"
-           revision="main"
            sync-j="4" />
 
   <!-- ===== Radxa Rock 5C BSP ===== -->
-  <project name="kernel" path="kernel" remote="radxa" revision="linux-6.1-stan-rkr5.1" />
-  <project name="u-boot" path="u-boot" remote="radxa" revision="next-dev-v2026.01" />
-  <project name="rkbin"  path="rkbin"  remote="rockchip" revision="master" />
+  <project name="kernel" path="kernel" remote="radxa"
+           revision="567401fe17185f0f4a65866158b775a364feb2d3" />
+  <project name="u-boot" path="u-boot" remote="radxa"
+           revision="4218b05a597f458947f0f4706063b3bb8196e07c" />
+  <project name="rkbin" path="rkbin" remote="rockchip"
+           revision="ecb4fcbe954edf38b3ae037d5de6d9f5bccf81f4" />
   <project name="buildroot" path="buildroot"
-           remote="buildroot" revision="refs/tags/2025.02.15" />
+           remote="buildroot"
+           revision="c49ae7216786d3cb62a8e8de5556007b4b539233" />
 
 </manifest>

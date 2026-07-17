@@ -266,6 +266,14 @@ main() {
     done
 
     if ${ok}; then
+        if [ -n "${BOARD:-}" ]; then
+            export PROJECT_DIR="${PROJECT_DIR:-/home/builder}"
+            # shellcheck source=lib/common.sh
+            source "/home/builder/scripts/lib/common.sh"
+            load_board_profile
+            validate_board_source_revisions
+            log_info "板级锁定源码版本校验通过: ${BOARD}"
+        fi
         echo ""
         log_info "🎉 RK3588 SDK 拉取成功!"
         echo ""
