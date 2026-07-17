@@ -49,42 +49,32 @@
 宿主机需要 Docker Engine/Desktop、Docker Compose v2 和 GNU Make。Windows
 建议在 Git Bash 或 WSL 中运行 `make`。
 
-```bash
-cp .env.example .env
+运行 `make help` 可以看到经过测试的完整命令。构建 ROCK 5C Debian 13 时，
+不需要创建 `.env`、执行 `make use-rock5c`、手工创建 Docker volume，或在宿主机
+安装 QEMU 和交叉编译器：
 
+```bash
 make build
 make build-debian-builder
-
-# 1. 拉取 SDK（每个 BSP 使用独立 volume，互不干扰）
-make fetch-510            # Rockchip Linux 5.10
-# make fetch-radxa        # Radxa Rock 5B BSP
-# make fetch-rock5c       # Radxa Rock 5C BSP
-# make fetch-firefly      # Firefly AIO-3588 BSP
-# make fetch-orangepi     # OrangePi 5 BSP
-
-# 2. 构建 Buildroot 完整镜像
+make fetch-rock5c
 make build-all \
-  BOARD=rk3588-evb1-lp4-v10-linux \
-  ROOTFS=buildroot
-
-# 3. 构建 Debian 13 完整镜像
-make build-all \
-  BOARD=rk3588-evb1-lp4-v10-linux \
+  BOARD=rk3588s-rock-5c \
+  SDK_VOLUME=rk3588-sdk-rock5c \
   ROOTFS=debian \
   DEBIAN_RELEASE=13
-
-# 4. 同时生成 Buildroot 和 Debian 13
-make build-all \
-  BOARD=rk3588-evb1-lp4-v10-linux \
-  ROOTFS=all \
+make test-debian-qemu \
+  BOARD=rk3588s-rock-5c \
+  SDK_VOLUME=rk3588-sdk-rock5c \
   DEBIAN_RELEASE=13
 ```
 
-组件构建允许省略 `BOARD`，此时使用内置 EVB 示例配置。`image`、`pack` 和
-`build-all` 必须显式提供 `BOARD`，防止把错误 DTB 或 bootloader 写入镜像。
+`SDK_VOLUME` 和 `BOARD` 是命令中的显式目标选择，不是额外环境配置。组件构建
+允许省略 `BOARD`，此时使用内置 EVB 示例配置。`image`、`pack` 和 `build-all`
+必须显式提供 `BOARD`，防止把错误 DTB 或 bootloader 写入镜像。
 
 Debian rootfs 在独立的 `linux/arm64` 容器中原生构建。x86_64 宿主机上
-`make` 会自动通过 `tonistiigi/binfmt` 注册 ARM64 QEMU 模拟。`mmdebstrap`
+`make build-debian-builder` 会自动通过 `tonistiigi/binfmt` 注册 ARM64 QEMU
+模拟。`mmdebstrap`
 构建期间需要在容器内创建临时挂载，因此 `debian-rootfs` 服务以 privileged
 模式运行。只应在可信代码和可信构建主机上执行 Debian rootfs 构建。
 
@@ -176,7 +166,13 @@ output/<board>/
 
 每次 `make image` 都会自动运行离线校验，包括 GPT 几何、bootloader 固定偏移、
 FAT 中的 Kernel/DTB/extlinux、ext4 一致性、rootfs 标签、内核模块版本、开发
-账户、root 登录状态和首次启动扩容钩子。
+账户、root 登录状态、首次启动扩容钩子、锁定源码 revision 和 QEMU 所需内核
+配置。
+
+`make test-debian-qemu` 使用构建出的同一个 Kernel 和完整 raw GPT 镜像，在
+ARM64 `virt` 机器上验证 Debian 13 能到达串口登录、systemd 无失败单元、首次
+扩容成功、网络和 SSH 可用。QEMU 不能模拟 RK3588 的 DDR、PMIC、MMC 控制器
+和真实 loader/U-Boot，因此开发板串口启动仍是最终硬件验收。
 
 ## 镜像布局
 
@@ -230,6 +226,10 @@ make build-uboot  BOARD=rk3588s-rock-5c
 # 生成镜像
 make image BOARD=rk3588-evb1-lp4-v10-linux ROOTFS=buildroot
 make verify-image BOARD=rk3588-evb1-lp4-v10-linux ROOTFS=buildroot
+make test-debian-qemu \
+  BOARD=rk3588s-rock-5c \
+  SDK_VOLUME=rk3588-sdk-rock5c \
+  DEBIAN_RELEASE=13
 
 # 一次性构建 Debian 11/12/13
 make test-debian-all BOARD=rk3588-evb1-lp4-v10-linux
