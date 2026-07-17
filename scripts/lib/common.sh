@@ -86,6 +86,7 @@ validate_board_profile() {
         UBOOT_DEFCONFIG
         UBOOT_BOARD
         UBOOT_BUILD_SYSTEM
+        UBOOT_PYTHON
         BOOTLOADER_LAYOUT
         LOADER_GLOBS
         UBOOT_IMAGE_NAMES
@@ -105,6 +106,11 @@ validate_board_profile() {
     done
 
     [[ "${KERNEL_DTB}" = *.dtb ]] || die "KERNEL_DTB must name one .dtb file"
+
+    case "${UBOOT_PYTHON}" in
+        python2|python3) ;;
+        *) die "Unsupported UBOOT_PYTHON=${UBOOT_PYTHON}; expected python2 or python3" ;;
+    esac
 
     for field in IMAGE_SIZE_MIB BOOT_START_MIB BOOT_SIZE_MIB ROOTFS_SIZE_MIB \
         LOADER_SECTOR UBOOT_SECTOR; do

@@ -24,6 +24,7 @@
 
 - Kernel `Image`、指定板级 DTB、内核模块
 - Rockchip loader 和 `uboot.img`
+- 同一 builder 同时提供 Python 2/3，并按 BOARD profile 选择 U-Boot 解释器
 - U-Boot GPT/extlinux 启动能力与签名策略构建时校验
 - Buildroot `2025.02.15`
 - Debian 11/bullseye、12/bookworm、13/trixie，默认 Debian 13
@@ -344,10 +345,14 @@ buildroot/    官方 Buildroot 固定版本
 板级差异集中在 `configs/boards/`。新增板卡时至少要确认：
 
 - `KERNEL_DTB` 与实际硬件一致
-- U-Boot `make.sh` 参数和 loader 文件匹配
+- U-Boot `make.sh` 参数、`UBOOT_PYTHON` 和 loader 文件匹配
 - 串口设备与波特率正确
 - SD/eMMC 控制器在 Kernel 和 DTB 中启用
 - loader、U-Boot、boot 分区的偏移没有重叠
+
+`UBOOT_PYTHON` 必须在 BOARD profile 中显式设置为 `python2` 或 `python3`。
+builder 全局保持 `python -> python3`；U-Boot 构建只在当前进程内让裸 `python`
+指向所选版本，因此旧 BSP 与新 BSP 可以复用同一个镜像。
 
 ## 许可证
 

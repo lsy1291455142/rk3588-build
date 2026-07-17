@@ -85,6 +85,7 @@ check_rock5c_source_contract() {
         'EXPECTED_UBOOT_REVISION="4218b05a597f458947f0f4706063b3bb8196e07c"'
         'EXPECTED_RKBIN_REVISION="ecb4fcbe954edf38b3ae037d5de6d9f5bccf81f4"'
         'EXPECTED_BUILDROOT_REVISION="c49ae7216786d3cb62a8e8de5556007b4b539233"'
+        'UBOOT_PYTHON="python3"'
     )
     for expected in "${markers[@]}"; do
         grep -Fqx "${expected}" "${profile}" || return 1
@@ -113,6 +114,7 @@ check_cokepi_board_contract() {
         'UBOOT_DEFCONFIG="rk3588_defconfig"'
         'UBOOT_BOARD="rk3588"'
         'UBOOT_BUILD_SYSTEM="rockchip-make-sh"'
+        'UBOOT_PYTHON="python2"'
     )
 
     grep -Fqx 'KERNEL_DTB="rk3588-cpp-hdmi.dtb"' "${plus_profile}" || return 1
@@ -264,6 +266,9 @@ check_uboot_boot_contract_guard() {
         'run distro_bootcmd;'
         extlinux/extlinux.conf
         'bash ./make.sh "${UBOOT_BOARD}" "CROSS_COMPILE=${CROSS_COMPILE}"'
+        'export PYTHON="${UBOOT_PYTHON}"'
+        'export PATH="${UBOOT_PYTHON_SHIM_DIR}:${PATH}"'
+        'uboot_python=${UBOOT_PYTHON}'
         boot_flow=rockchip-gpt-extlinux-v1
     )
 
@@ -275,7 +280,8 @@ check_uboot_boot_contract_guard() {
     grep -Fq 'ARG PYELFTOOLS_PY2_VERSION=0.27' "${dockerfile}" || return 1
     grep -Fq "python2 -c 'from elftools.elf.elffile import ELFFile'" \
         "${dockerfile}" || return 1
-    grep -Fq "python2 -c 'from elftools.elf.elffile import ELFFile'" \
+    grep -Fq 'python-is-python3' "${dockerfile}" || return 1
+    grep -Fq "\"\${UBOOT_PYTHON}\" -c 'from elftools.elf.elffile import ELFFile'" \
         "${script}" || return 1
 }
 

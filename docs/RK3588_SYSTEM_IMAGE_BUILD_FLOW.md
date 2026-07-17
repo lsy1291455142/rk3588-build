@@ -196,6 +196,7 @@ KERNEL_DEFCONFIG
 KERNEL_DTB
 UBOOT_DEFCONFIG
 UBOOT_BOARD
+UBOOT_PYTHON
 LOADER_GLOBS
 UBOOT_IMAGE_NAMES
 CONSOLE
@@ -206,6 +207,10 @@ ROOTFS_SIZE_MIB
 LOADER_SECTOR
 UBOOT_SECTOR
 ```
+
+`UBOOT_PYTHON` 取值只能是 `python2` 或 `python3`。构建镜像同时安装两个版本，
+但全局 `python` 保持为 Python 3；U-Boot 构建脚本根据 BOARD profile，仅在当前
+构建进程中为裸 `python` 创建临时指向，避免不同 SDK 互相影响。
 
 如果 DTB、DRAM 初始化文件或存储控制器配置与硬件不匹配，即使镜像结构验证
 通过，板卡也可能无法启动。离线校验只能证明镜像内部一致，不能替代串口启动

@@ -15,11 +15,20 @@ JOBS_RESOLVED="$(resolve_jobs)"
 CROSS_COMPILE="${CROSS_COMPILE-aarch64-linux-gnu-}"
 UBOOT_CC="${CROSS_COMPILE}gcc"
 
-require_cmd bash find sort stat git realpath grep python2 "${UBOOT_CC}"
+require_cmd bash find sort stat git realpath grep ln mktemp "${UBOOT_PYTHON}" "${UBOOT_CC}"
 UBOOT_CC_PATH="$(command -v "${UBOOT_CC}")"
+UBOOT_PYTHON_PATH="$(command -v "${UBOOT_PYTHON}")"
+UBOOT_PYTHON_VERSION="$("${UBOOT_PYTHON}" -c \
+    'import platform; print(platform.python_version())')"
 
-python2 -c 'from elftools.elf.elffile import ELFFile' >/dev/null 2>&1 ||
-    die "Python 2 pyelftools is required by the Rockchip FIT generator; rebuild the builder image"
+"${UBOOT_PYTHON}" -c 'from elftools.elf.elffile import ELFFile' >/dev/null 2>&1 ||
+    die "${UBOOT_PYTHON} pyelftools is required by the Rockchip FIT generator; rebuild the builder image"
+
+# Some BSPs invoke bare `python`, while others use PYTHON or an explicit
+# python2/python3 shebang. Scope the bare command to this U-Boot build only.
+UBOOT_PYTHON_SHIM_DIR="$(mktemp -d "${TMPDIR:-/tmp}/rk3588-uboot-python.XXXXXX")"
+trap 'rm -rf -- "${UBOOT_PYTHON_SHIM_DIR}"' EXIT
+ln -s "${UBOOT_PYTHON_PATH}" "${UBOOT_PYTHON_SHIM_DIR}/python"
 
 require_dir "${UBOOT_DIR}" "U-Boot source"
 require_dir "${RKBIN_DIR}" "rkbin source"
@@ -105,10 +114,13 @@ validate_extlinux_boot_contract() {
 
 log_step "Building Rockchip boot chain for ${BOARD}"
 log_info "U-Boot compiler: ${UBOOT_CC_PATH}"
+log_info "U-Boot Python: ${UBOOT_PYTHON_PATH} (${UBOOT_PYTHON_VERSION})"
 (
     cd "${UBOOT_DIR}"
     export RKBIN="${RKBIN_DIR}"
     export MAKEFLAGS="-j${JOBS_RESOLVED}"
+    export PYTHON="${UBOOT_PYTHON}"
+    export PATH="${UBOOT_PYTHON_SHIM_DIR}:${PATH}"
     # Rockchip make.sh only selects an external toolchain through this argument.
     bash ./make.sh "${UBOOT_BOARD}" "CROSS_COMPILE=${CROSS_COMPILE}"
 )
@@ -173,6 +185,9 @@ write_common_metadata "${COMMON_OUTPUT}/uboot-build-info.txt" \
     "loader_sector=${LOADER_SECTOR}" \
     "uboot_source=$(basename "${UBOOT_IMAGE_PATH}")" \
     "uboot_sector=${UBOOT_SECTOR}" \
+    "uboot_python=${UBOOT_PYTHON}" \
+    "uboot_python_path=${UBOOT_PYTHON_PATH}" \
+    "uboot_python_version=${UBOOT_PYTHON_VERSION}" \
     "cross_compile=${CROSS_COMPILE}" \
     "compiler_path=${UBOOT_CC_PATH}" \
     "boot_flow=rockchip-gpt-extlinux-v1" \
