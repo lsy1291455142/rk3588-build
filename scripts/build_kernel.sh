@@ -7,12 +7,13 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 load_board_profile
 validate_board_source_revisions
-require_cmd make tar git install realpath
+require_cmd make tar git install realpath ln
 
 KERNEL_DIR="${SDK_DIR}/kernel"
 KERNEL_FRAGMENT="${CONFIG_DIR}/kernel/rootfs-base.config"
 COMMON_OUTPUT="$(board_common_output_dir)"
 KERNEL_BUILD="$(board_build_dir kernel)"
+KERNEL_SOURCE="$(board_build_dir kernel-source)"
 MODULES_STAGE="${KERNEL_BUILD}/modules-stage"
 JOBS_RESOLVED="$(resolve_jobs)"
 CROSS_COMPILE="${CROSS_COMPILE-aarch64-linux-gnu-}"
@@ -22,23 +23,55 @@ require_file "${KERNEL_DIR}/arch/arm64/configs/${KERNEL_DEFCONFIG}" "kernel defc
 require_file "${KERNEL_FRAGMENT}" "kernel rootfs config fragment"
 require_file "${KERNEL_DIR}/scripts/kconfig/merge_config.sh" "kernel merge_config.sh"
 
-mkdir -p "${KERNEL_BUILD}" "${COMMON_OUTPUT}"
+link_source_children() {
+    local source="$1"
+    local destination="$2"
+    local path name excluded
+    shift 2
 
-cleanup_kernel_scmversion() {
-    if [ "${KERNEL_SCMVERSION_OWNED:-0}" = "1" ]; then
-        rm -f "${KERNEL_SCMVERSION_FILE}"
-    fi
+    mkdir -p "${destination}"
+    shopt -s dotglob nullglob
+    for path in "${source}"/*; do
+        name="${path##*/}"
+        for excluded in "$@"; do
+            if [ "${name}" = "${excluded}" ]; then
+                continue 2
+            fi
+        done
+        ln -s "${path}" "${destination}/${name}"
+    done
+    shopt -u dotglob nullglob
 }
+
+prepare_kernel_source_view() {
+    safe_reset_dir "${KERNEL_SOURCE}" "${BUILD_BASE_DIR}/${BOARD}"
+
+    # Some vendor kernels track generated ARM64 headers in Git. Kbuild rejects
+    # any O= build when these paths exist, while mrproper would delete vendor
+    # source files. Hide only Kbuild's three dirty-tree markers in a symlink
+    # view and keep the imported SDK untouched.
+    link_source_children "${KERNEL_DIR}" "${KERNEL_SOURCE}" \
+        .config include arch
+    link_source_children "${KERNEL_DIR}/include" "${KERNEL_SOURCE}/include" \
+        config
+    link_source_children "${KERNEL_DIR}/arch" "${KERNEL_SOURCE}/arch" \
+        arm64
+    link_source_children "${KERNEL_DIR}/arch/arm64" \
+        "${KERNEL_SOURCE}/arch/arm64" include
+    link_source_children "${KERNEL_DIR}/arch/arm64/include" \
+        "${KERNEL_SOURCE}/arch/arm64/include" generated
+}
+
+prepare_kernel_source_view
+mkdir -p "${KERNEL_BUILD}" "${COMMON_OUTPUT}"
 
 # Kernel scripts/setlocalversion probes git for CONFIG_LOCALVERSION_AUTO.
 # With O= builds the build directory is not a git worktree, so plain git
 # discovery walks up to the Docker volume mount and prints:
 #   fatal: not a git repository (or any parent up to mount point /home/builder)
-# Pre-seed .scmversion from our controlled revision helper so the kernel
-# never needs to run git during the build, and cap discovery at SDK_DIR.
-KERNEL_SCMVERSION_FILE="${KERNEL_DIR}/.scmversion"
-KERNEL_SCMVERSION_OWNED=0
-trap cleanup_kernel_scmversion EXIT
+# Pre-seed .scmversion in the source view so the kernel never needs to run git
+# during the build, without creating files in the imported SDK source.
+KERNEL_SCMVERSION_FILE="${KERNEL_SOURCE}/.scmversion"
 
 if [ ! -e "${KERNEL_SCMVERSION_FILE}" ]; then
     kernel_rev="$(git_revision "${KERNEL_DIR}" | tr -d '\r\n')"
@@ -47,7 +80,6 @@ if [ ! -e "${KERNEL_SCMVERSION_FILE}" ]; then
     else
         : >"${KERNEL_SCMVERSION_FILE}"
     fi
-    KERNEL_SCMVERSION_OWNED=1
 fi
 
 # Prevent accidental git discovery from crossing the SDK volume mount.
@@ -66,7 +98,7 @@ if [ -n "${kernel_git_dir}" ]; then
 fi
 
 make_args=(
-    -C "${KERNEL_DIR}"
+    -C "${KERNEL_SOURCE}"
     "O=${KERNEL_BUILD}"
     "ARCH=arm64"
     "CROSS_COMPILE=${CROSS_COMPILE}"
@@ -78,7 +110,7 @@ make_args=(
 log_step "Configuring kernel for ${BOARD}"
 make "${make_args[@]}" "${KERNEL_DEFCONFIG}"
 (
-    cd "${KERNEL_DIR}"
+    cd "${KERNEL_SOURCE}"
     ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE}" \
         scripts/kconfig/merge_config.sh -m -O "${KERNEL_BUILD}" \
         "${KERNEL_BUILD}/.config" "${KERNEL_FRAGMENT}"
@@ -160,6 +192,7 @@ write_common_metadata "${COMMON_OUTPUT}/kernel-build-info.txt" \
     "kernel_release=${KERNEL_RELEASE}" \
     "kernel_defconfig=${KERNEL_DEFCONFIG}" \
     "kernel_dtb=${KERNEL_DTB}" \
+    "kernel_source_view=symlink-clean-v1" \
     "cross_compile=${CROSS_COMPILE}" \
     "jobs=${JOBS_RESOLVED}"
 

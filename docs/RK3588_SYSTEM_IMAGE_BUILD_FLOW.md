@@ -40,6 +40,8 @@ make fetch-510
 
 `scripts/build_kernel.sh` 执行以下工作：
 
+- 创建不复制源码的 symlink source view，隐藏厂商仓库中被跟踪的 Kbuild 生成目录；
+- 不对导入的 `SDK/kernel` 执行 `mrproper`，避免删除或修改厂商源码；
 - 加载 `configs/boards/<board>.conf`
 - 应用 BSP Kernel defconfig
 - 合并 `configs/kernel/rootfs-base.config`

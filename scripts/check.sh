@@ -156,6 +156,14 @@ check_kernel_contract() {
         "${PROJECT_DIR}/scripts/build_kernel.sh"
     grep -Fq 'KERNEL_SCMVERSION_FILE' \
         "${PROJECT_DIR}/scripts/build_kernel.sh"
+    grep -Fq 'prepare_kernel_source_view' \
+        "${PROJECT_DIR}/scripts/build_kernel.sh"
+    grep -Fq 'kernel_source_view=symlink-clean-v1' \
+        "${PROJECT_DIR}/scripts/build_kernel.sh"
+    if grep -Eq 'make[^[:cntrl:]]*mrproper' \
+        "${PROJECT_DIR}/scripts/build_kernel.sh"; then
+        return 1
+    fi
     grep -Fq 'GIT_CEILING_DIRECTORIES' \
         "${PROJECT_DIR}/scripts/build_kernel.sh"
     grep -Fq '"LOCALVERSION="' \
