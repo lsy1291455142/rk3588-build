@@ -183,7 +183,7 @@ make use-current
 make build-kernel
 make build-uboot
 make build-rootfs ROOTFS=debian
-make image ROOTFS=debian
+make image
 
 # 也可以临时覆盖
 make build-kernel BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c
@@ -202,6 +202,10 @@ docker volume ls --filter name=rk3588
 
 `SDK_VOLUME` 与 `BOARD` 都必须通过 `.env`、对应的 `use-volume-*` / `use-board-*`
 或命令行显式设置。没有默认板型，也不会互相覆盖。
+
+`make image` 和 `make verify-image` 在命令行及 `.env` 都未设置 `ROOTFS` 时，
+会根据当前板型已有的 `rootfs.ext4` 自动选择 Buildroot 或 Debian。若两种 rootfs
+同时存在，则必须显式传入 `ROOTFS=buildroot` 或 `ROOTFS=debian`，避免打包错误系统。
 
 ## 输出目录
 

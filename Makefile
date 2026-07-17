@@ -2,6 +2,8 @@
 
 -include .env
 
+ROOTFS_WAS_SET := $(if $(filter undefined,$(origin ROOTFS)),no,yes)
+
 .PHONY: help build build-nocache build-builder build-debian-builder \
 	register-arm64-binfmt \
 	import-local-sdk verify-sdk-volume verify-cokepi-sdk \
@@ -90,8 +92,9 @@ help:
 		'Complete images (BOARD and SDK_VOLUME required):' \
 		'  make build-all ROOTFS=buildroot' \
 		'  make build-all ROOTFS=debian DEBIAN_RELEASE=13' \
-		'  make image      BOARD=... SDK_VOLUME=... ROOTFS=...' \
-		'  make verify-image BOARD=... SDK_VOLUME=... ROOTFS=...' \
+		'  make image      BOARD=... SDK_VOLUME=... [ROOTFS=...]' \
+		'  make verify-image BOARD=... SDK_VOLUME=... [ROOTFS=...]' \
+		'  image/verify-image auto-select when exactly one rootfs output exists' \
 		'  make test-debian-all BOARD=... SDK_VOLUME=...' \
 		'  make test-debian-qemu BOARD=... SDK_VOLUME=... DEBIAN_RELEASE=13' \
 		'' \
@@ -515,7 +518,13 @@ _debian-rootfs: prepare-output debian-preflight
 		debian-rootfs bash /home/builder/scripts/build_debian.sh
 
 image: require-board validate-rootfs require-sdk-volume
-	@case "$(ROOTFS)" in \
+	@rootfs="$(ROOTFS)"; \
+	if [ "$(ROOTFS_WAS_SET)" = "no" ]; then \
+		rootfs=$$(bash scripts/select_image_rootfs.sh \
+			output "$(BOARD)" "$(DEBIAN_RELEASE)") || exit $$?; \
+		echo "Auto-selected ROOTFS=$$rootfs from existing output."; \
+	fi; \
+	case "$$rootfs" in \
 		buildroot) $(MAKE) --no-print-directory _image-one ROOTFS=buildroot SDK_VOLUME=$(SDK_VOLUME) ;; \
 		debian) $(MAKE) --no-print-directory _image-one ROOTFS=debian SDK_VOLUME=$(SDK_VOLUME) ;; \
 		all) \
@@ -533,7 +542,13 @@ _image-one: prepare-output
 	$(MAKE) --no-print-directory _verify-one SDK_VOLUME=$(SDK_VOLUME)
 
 verify-image: require-board validate-rootfs require-sdk-volume
-	@case "$(ROOTFS)" in \
+	@rootfs="$(ROOTFS)"; \
+	if [ "$(ROOTFS_WAS_SET)" = "no" ]; then \
+		rootfs=$$(bash scripts/select_image_rootfs.sh \
+			output "$(BOARD)" "$(DEBIAN_RELEASE)") || exit $$?; \
+		echo "Auto-selected ROOTFS=$$rootfs from existing output."; \
+	fi; \
+	case "$$rootfs" in \
 		buildroot) $(MAKE) --no-print-directory _verify-one ROOTFS=buildroot SDK_VOLUME=$(SDK_VOLUME) ;; \
 		debian) $(MAKE) --no-print-directory _verify-one ROOTFS=debian SDK_VOLUME=$(SDK_VOLUME) ;; \
 		all) \

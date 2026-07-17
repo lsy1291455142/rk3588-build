@@ -217,6 +217,35 @@ check_debian_builder_contract() {
     fi
 }
 
+check_image_rootfs_selection() (
+    local selector="${PROJECT_DIR}/scripts/select_image_rootfs.sh"
+    local work_dir board=board-under-test release=13
+    work_dir="$(mktemp -d)"
+    trap 'rm -rf -- "${work_dir}"' EXIT
+
+    grep -Fq 'ROOTFS_WAS_SET' "${PROJECT_DIR}/Makefile" || exit 1
+    grep -Fq 'scripts/select_image_rootfs.sh' "${PROJECT_DIR}/Makefile" || exit 1
+
+    mkdir -p \
+        "${work_dir}/${board}/buildroot" \
+        "${work_dir}/${board}/debian-${release}"
+
+    touch "${work_dir}/${board}/debian-${release}/rootfs.ext4"
+    [ "$(bash "${selector}" "${work_dir}" "${board}" "${release}")" = debian ] || exit 1
+
+    rm -f "${work_dir}/${board}/debian-${release}/rootfs.ext4"
+    touch "${work_dir}/${board}/buildroot/rootfs.ext4"
+    [ "$(bash "${selector}" "${work_dir}" "${board}" "${release}")" = buildroot ] || exit 1
+
+    touch "${work_dir}/${board}/debian-${release}/rootfs.ext4"
+    expect_failure bash "${selector}" "${work_dir}" "${board}" "${release}" || exit 1
+
+    rm -f \
+        "${work_dir}/${board}/buildroot/rootfs.ext4" \
+        "${work_dir}/${board}/debian-${release}/rootfs.ext4"
+    expect_failure bash "${selector}" "${work_dir}" "${board}" "${release}"
+)
+
 check_qemu_smoke_contract() {
     local script="${PROJECT_DIR}/scripts/test_debian_qemu.sh"
     local driver="${PROJECT_DIR}/scripts/lib/qemu_smoke.py"
@@ -356,6 +385,7 @@ run_check "Buildroot external tree" check_buildroot_external
 run_check "U-Boot GPT/extlinux contract guard" check_uboot_boot_contract_guard
 run_check "make help complete Rock 5C workflow" check_help_contract
 run_check "Cross-host Debian builder contract" check_debian_builder_contract
+run_check "Image rootfs auto-selection" check_image_rootfs_selection
 run_check "QEMU Debian smoke-test contract" check_qemu_smoke_contract
 run_check "Failure-path self-tests" self_tests
 if command -v docker >/dev/null 2>&1; then
