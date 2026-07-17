@@ -20,7 +20,7 @@ VARIANT_OUTPUT="$(variant_output_dir)"
 IMAGE_STEM="$(image_stem)"
 KERNEL_IMAGE="${COMMON_OUTPUT}/Image"
 DTB_IMAGE="${COMMON_OUTPUT}/${KERNEL_DTB}"
-LOADER_IMAGE="${COMMON_OUTPUT}/loader.bin"
+IDBLOCK_IMAGE="${COMMON_OUTPUT}/idblock.img"
 UBOOT_IMAGE="${COMMON_OUTPUT}/uboot.img"
 ROOTFS_IMAGE="${VARIANT_OUTPUT}/rootfs.ext4"
 KERNEL_RELEASE_FILE="${COMMON_OUTPUT}/kernel-release"
@@ -28,7 +28,7 @@ ZSTD_LEVEL="${ZSTD_LEVEL:-6}"
 
 require_file "${KERNEL_IMAGE}" "kernel Image; run build-kernel first"
 require_file "${DTB_IMAGE}" "board DTB; run build-kernel first"
-require_file "${LOADER_IMAGE}" "Rockchip loader; run build-uboot first"
+require_file "${IDBLOCK_IMAGE}" "Rockchip RKNS IDBlock; run build-uboot first"
 require_file "${UBOOT_IMAGE}" "U-Boot image; run build-uboot first"
 require_file "${ROOTFS_IMAGE}" "root filesystem; run build-rootfs first"
 require_file "${KERNEL_RELEASE_FILE}" "kernel release"
@@ -58,13 +58,15 @@ ROOT_FIRST_SECTOR=$((BOOT_LAST_SECTOR + 1))
 ROOT_LAST_SECTOR=$((IMAGE_SECTORS - 34))
 ROOT_PARTITION_BYTES=$(((ROOT_LAST_SECTOR - ROOT_FIRST_SECTOR + 1) * 512))
 ROOTFS_BYTES="$(stat -c '%s' "${ROOTFS_IMAGE}")"
-LOADER_BYTES="$(stat -c '%s' "${LOADER_IMAGE}")"
+IDBLOCK_BYTES="$(stat -c '%s' "${IDBLOCK_IMAGE}")"
 UBOOT_BYTES="$(stat -c '%s' "${UBOOT_IMAGE}")"
 
 [ "${ROOTFS_BYTES}" -le "${ROOT_PARTITION_BYTES}" ] ||
     die "rootfs.ext4 exceeds root partition (${ROOTFS_BYTES} > ${ROOT_PARTITION_BYTES})"
-[ "${LOADER_BYTES}" -le "$(((UBOOT_SECTOR - LOADER_SECTOR) * 512))" ] ||
-    die "loader.bin exceeds the reserved loader area"
+[ "$(dd if="${IDBLOCK_IMAGE}" bs=1 count=4 status=none)" = "RKNS" ] ||
+    die "idblock.img is not a Rockchip RKNS IDBlock"
+[ "${IDBLOCK_BYTES}" -le "$(((UBOOT_SECTOR - IDBLOCK_SECTOR) * 512))" ] ||
+    die "idblock.img exceeds the reserved IDBlock area"
 [ "${UBOOT_BYTES}" -le "$(((BOOT_FIRST_SECTOR - UBOOT_SECTOR) * 512))" ] ||
     die "uboot.img exceeds the reserved U-Boot area"
 
@@ -96,7 +98,7 @@ mcopy -i "${BOOT_IMAGE}" "${DTB_IMAGE}" "::/${KERNEL_DTB}"
 mcopy -i "${BOOT_IMAGE}" "${EXTLINUX_CONF}" ::/extlinux/extlinux.conf
 
 log_step "Writing boot chain and filesystems"
-dd if="${LOADER_IMAGE}" of="${DISK_IMAGE}" bs=512 seek="${LOADER_SECTOR}" \
+dd if="${IDBLOCK_IMAGE}" of="${DISK_IMAGE}" bs=512 seek="${IDBLOCK_SECTOR}" \
     conv=notrunc status=none
 dd if="${UBOOT_IMAGE}" of="${DISK_IMAGE}" bs=512 seek="${UBOOT_SECTOR}" \
     conv=notrunc status=none
@@ -136,8 +138,9 @@ write_common_metadata "${FINAL_METADATA}.tmp" \
     "compressed_sha256=${ZSTD_SHA256}" \
     "boot_partition=1:${BOOT_FIRST_SECTOR}:${BOOT_LAST_SECTOR}:fat32:BOOT" \
     "root_partition=2:${ROOT_FIRST_SECTOR}:${ROOT_LAST_SECTOR}:ext4:rootfs" \
-    "loader_sector=${LOADER_SECTOR}" \
-    "loader_sha256=$(sha256sum "${LOADER_IMAGE}" | awk '{print $1}')" \
+    "idblock_sector=${IDBLOCK_SECTOR}" \
+    "idblock_format=RKNS" \
+    "idblock_sha256=$(sha256sum "${IDBLOCK_IMAGE}" | awk '{print $1}')" \
     "uboot_sector=${UBOOT_SECTOR}" \
     "uboot_sha256=$(sha256sum "${UBOOT_IMAGE}" | awk '{print $1}')" \
     "kernel_release=$(cat "${KERNEL_RELEASE_FILE}")" \

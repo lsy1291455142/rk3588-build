@@ -15,7 +15,8 @@ JOBS_RESOLVED="$(resolve_jobs)"
 CROSS_COMPILE="${CROSS_COMPILE-aarch64-linux-gnu-}"
 UBOOT_CC="${CROSS_COMPILE}gcc"
 
-require_cmd bash find sort stat git realpath grep ln mktemp "${UBOOT_PYTHON}" "${UBOOT_CC}"
+require_cmd bash dd find sort stat git realpath grep ln mktemp \
+    "${UBOOT_PYTHON}" "${UBOOT_CC}"
 UBOOT_CC_PATH="$(command -v "${UBOOT_CC}")"
 UBOOT_PYTHON_PATH="$(command -v "${UBOOT_PYTHON}")"
 UBOOT_PYTHON_VERSION="$("${UBOOT_PYTHON}" -c \
@@ -37,7 +38,7 @@ require_file "${UBOOT_DIR}/make.sh" "Rockchip U-Boot make.sh"
 
 [ "${UBOOT_BUILD_SYSTEM}" = "rockchip-make-sh" ] ||
     die "Unsupported UBOOT_BUILD_SYSTEM=${UBOOT_BUILD_SYSTEM}"
-[ "${BOOTLOADER_LAYOUT}" = "rockchip-gpt-extlinux-v1" ] ||
+[ "${BOOTLOADER_LAYOUT}" = "rockchip-gpt-idblock-extlinux-v1" ] ||
     die "Unsupported BOOTLOADER_LAYOUT=${BOOTLOADER_LAYOUT}"
 
 # On ARM64 hosts, Rockchip's prebuilt x86-64 rkbin tools (boot_merger,
@@ -123,6 +124,10 @@ log_info "U-Boot Python: ${UBOOT_PYTHON_PATH} (${UBOOT_PYTHON_VERSION})"
     export PATH="${UBOOT_PYTHON_SHIM_DIR}:${PATH}"
     # Rockchip make.sh only selects an external toolchain through this argument.
     bash ./make.sh "${UBOOT_BOARD}" "CROSS_COMPILE=${CROSS_COMPILE}"
+
+    log_step "Packing the Rockchip RKNS IDBlock"
+    rm -f idblock.bin
+    bash ./make.sh --idblock "CROSS_COMPILE=${CROSS_COMPILE}"
 )
 
 log_step "Validating the GPT/extlinux boot contract"
@@ -148,25 +153,39 @@ find_newest_match() {
     return 1
 }
 
-LOADER_PATH="$(find_newest_match "${LOADER_GLOBS}" || true)"
+LOADER_PATH="$(find_newest_match "${DOWNLOAD_LOADER_GLOBS}" || true)"
 UBOOT_IMAGE_PATH="$(find_newest_match "${UBOOT_IMAGE_NAMES}" || true)"
+IDBLOCK_PATH="${UBOOT_DIR}/idblock.bin"
 
 [ -n "${LOADER_PATH}" ] ||
-    die "Rockchip make.sh completed but no loader matched: ${LOADER_GLOBS}"
+    die "Rockchip make.sh completed but no download loader matched: ${DOWNLOAD_LOADER_GLOBS}"
 [ -n "${UBOOT_IMAGE_PATH}" ] ||
     die "Rockchip make.sh completed but no uboot image matched: ${UBOOT_IMAGE_NAMES}"
+require_file "${IDBLOCK_PATH}" "Rockchip RKNS IDBlock"
+
+read_image_magic() {
+    dd if="$1" bs=1 count=4 status=none
+}
+
+[ "$(read_image_magic "${LOADER_PATH}")" = "LDR " ] ||
+    die "Download loader is not an LDR container: ${LOADER_PATH}"
+[ "$(read_image_magic "${IDBLOCK_PATH}")" = "RKNS" ] ||
+    die "Disk IDBlock is not an RKNS image: ${IDBLOCK_PATH}"
 
 LOADER_SIZE="$(stat -c '%s' "${LOADER_PATH}")"
+IDBLOCK_SIZE="$(stat -c '%s' "${IDBLOCK_PATH}")"
 UBOOT_SIZE="$(stat -c '%s' "${UBOOT_IMAGE_PATH}")"
-LOADER_CAPACITY=$(((UBOOT_SECTOR - LOADER_SECTOR) * 512))
+IDBLOCK_CAPACITY=$(((UBOOT_SECTOR - IDBLOCK_SECTOR) * 512))
 UBOOT_CAPACITY=$(((BOOT_START_MIB * 2048 - UBOOT_SECTOR) * 512))
 
-[ "${LOADER_SIZE}" -le "${LOADER_CAPACITY}" ] ||
-    die "Loader exceeds its reserved area (${LOADER_SIZE} > ${LOADER_CAPACITY})"
+[ "${IDBLOCK_SIZE}" -le "${IDBLOCK_CAPACITY}" ] ||
+    die "IDBlock exceeds its reserved area (${IDBLOCK_SIZE} > ${IDBLOCK_CAPACITY})"
 [ "${UBOOT_SIZE}" -le "${UBOOT_CAPACITY}" ] ||
     die "uboot.img exceeds its reserved area (${UBOOT_SIZE} > ${UBOOT_CAPACITY})"
 
-install -m 0644 "${LOADER_PATH}" "${COMMON_OUTPUT}/loader.bin"
+rm -f "${COMMON_OUTPUT}/loader.bin"
+install -m 0644 "${LOADER_PATH}" "${COMMON_OUTPUT}/download-loader.bin"
+install -m 0644 "${IDBLOCK_PATH}" "${COMMON_OUTPUT}/idblock.img"
 install -m 0644 "${UBOOT_IMAGE_PATH}" "${COMMON_OUTPUT}/uboot.img"
 
 for optional in trust.img u-boot.itb; do
@@ -181,8 +200,13 @@ write_common_metadata "${COMMON_OUTPUT}/uboot-build-info.txt" \
     "rkbin_revision=$(git_revision "${RKBIN_DIR}")" \
     "uboot_defconfig=${UBOOT_DEFCONFIG}" \
     "uboot_board=${UBOOT_BOARD}" \
-    "loader_source=$(basename "${LOADER_PATH}")" \
-    "loader_sector=${LOADER_SECTOR}" \
+    "download_loader_source=$(basename "${LOADER_PATH}")" \
+    "download_loader_size=${LOADER_SIZE}" \
+    "download_loader_format=LDR" \
+    "idblock_source=$(basename "${IDBLOCK_PATH}")" \
+    "idblock_size=${IDBLOCK_SIZE}" \
+    "idblock_sector=${IDBLOCK_SECTOR}" \
+    "idblock_format=RKNS" \
     "uboot_source=$(basename "${UBOOT_IMAGE_PATH}")" \
     "uboot_sector=${UBOOT_SECTOR}" \
     "uboot_python=${UBOOT_PYTHON}" \
@@ -190,7 +214,7 @@ write_common_metadata "${COMMON_OUTPUT}/uboot-build-info.txt" \
     "uboot_python_version=${UBOOT_PYTHON_VERSION}" \
     "cross_compile=${CROSS_COMPILE}" \
     "compiler_path=${UBOOT_CC_PATH}" \
-    "boot_flow=rockchip-gpt-extlinux-v1" \
+    "boot_flow=rockchip-gpt-idblock-extlinux-v1" \
     "boot_flow_validation=config-and-u-boot-bin" \
     "jobs=${JOBS_RESOLVED}"
 

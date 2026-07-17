@@ -79,6 +79,14 @@ load_board_profile() {
 }
 
 validate_board_profile() {
+    # Preserve external profiles while assigning unambiguous names to the two
+    # different Rockchip loader formats.
+    DOWNLOAD_LOADER_GLOBS="${DOWNLOAD_LOADER_GLOBS:-${LOADER_GLOBS:-}}"
+    IDBLOCK_SECTOR="${IDBLOCK_SECTOR:-${LOADER_SECTOR:-}}"
+    if [ "${BOOTLOADER_LAYOUT:-}" = "rockchip-gpt-extlinux-v1" ]; then
+        BOOTLOADER_LAYOUT="rockchip-gpt-idblock-extlinux-v1"
+    fi
+
     local required_fields=(
         BOARD_DESCRIPTION
         KERNEL_DEFCONFIG
@@ -88,14 +96,14 @@ validate_board_profile() {
         UBOOT_BUILD_SYSTEM
         UBOOT_PYTHON
         BOOTLOADER_LAYOUT
-        LOADER_GLOBS
+        DOWNLOAD_LOADER_GLOBS
         UBOOT_IMAGE_NAMES
         CONSOLE
         IMAGE_SIZE_MIB
         BOOT_START_MIB
         BOOT_SIZE_MIB
         ROOTFS_SIZE_MIB
-        LOADER_SECTOR
+        IDBLOCK_SECTOR
         UBOOT_SECTOR
     )
     local field value
@@ -113,7 +121,7 @@ validate_board_profile() {
     esac
 
     for field in IMAGE_SIZE_MIB BOOT_START_MIB BOOT_SIZE_MIB ROOTFS_SIZE_MIB \
-        LOADER_SECTOR UBOOT_SECTOR; do
+        IDBLOCK_SECTOR UBOOT_SECTOR; do
         value="${!field}"
         is_positive_integer "${value}" ||
             die "${field} must be a positive integer in ${BOARD_PROFILE}"
@@ -123,10 +131,10 @@ validate_board_profile() {
     local root_start_mib=$((BOOT_START_MIB + BOOT_SIZE_MIB))
     local available_root_mib=$((IMAGE_SIZE_MIB - root_start_mib - 1))
 
-    [ "${LOADER_SECTOR}" -lt "${UBOOT_SECTOR}" ] ||
-        die "LOADER_SECTOR must be before UBOOT_SECTOR"
-    [ "${LOADER_SECTOR}" -ge 34 ] ||
-        die "LOADER_SECTOR overlaps the primary GPT"
+    [ "${IDBLOCK_SECTOR}" -lt "${UBOOT_SECTOR}" ] ||
+        die "IDBLOCK_SECTOR must be before UBOOT_SECTOR"
+    [ "${IDBLOCK_SECTOR}" -ge 34 ] ||
+        die "IDBLOCK_SECTOR overlaps the primary GPT"
     [ "${UBOOT_SECTOR}" -lt "${boot_start_sector}" ] ||
         die "UBOOT_SECTOR must be before the boot partition"
     [ "${BOOT_START_MIB}" -ge 16 ] ||

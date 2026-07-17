@@ -219,7 +219,8 @@ output/<board>/
 │   ├── kernel-release
 │   ├── kernel.config
 │   ├── modules.tar
-│   ├── loader.bin
+│   ├── download-loader.bin
+│   ├── idblock.img
 │   ├── uboot.img
 │   └── *-build-info.txt
 ├── buildroot/
@@ -237,6 +238,10 @@ output/<board>/
     ├── <board>-debian-13.sha256
     └── image-build-info.txt
 ```
+
+`download-loader.bin` 是带 `LDR ` 头的 USB 下载容器，可用于
+`rkdeveloptool db`。`idblock.img` 是带 `RKNS` 头的 SD/eMMC 启动块；整盘 raw
+IMG 只会把 `idblock.img` 写入 sector 64，不会把下载容器原样写入磁盘。
 
 每次 `make image` 都会自动运行离线校验，包括 GPT 几何、bootloader 固定偏移、
 FAT 中的 Kernel/DTB/extlinux、ext4 一致性、rootfs 标签、内核模块版本、开发

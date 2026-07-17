@@ -310,7 +310,7 @@ check_board_profiles() {
         (
             BOARD="${board}"
             load_board_profile
-            [ "${BOOTLOADER_LAYOUT}" = "rockchip-gpt-extlinux-v1" ]
+            [ "${BOOTLOADER_LAYOUT}" = "rockchip-gpt-idblock-extlinux-v1" ]
         ) || return 1
     done < <(find "${CONFIG_DIR}/boards" -maxdepth 1 -type f \
         -name '*.conf' -print0)
@@ -356,7 +356,10 @@ check_uboot_boot_contract_guard() {
         'export PYTHON="${UBOOT_PYTHON}"'
         'export PATH="${UBOOT_PYTHON_SHIM_DIR}:${PATH}"'
         'uboot_python=${UBOOT_PYTHON}'
-        boot_flow=rockchip-gpt-extlinux-v1
+        'bash ./make.sh --idblock "CROSS_COMPILE=${CROSS_COMPILE}"'
+        'download_loader_format=LDR'
+        'idblock_format=RKNS'
+        boot_flow=rockchip-gpt-idblock-extlinux-v1
     )
 
     for marker in "${markers[@]}"; do

@@ -24,7 +24,8 @@ IMAGE_PATH="${IMAGE_PATH:-${VARIANT_OUTPUT}/${IMAGE_STEM}.img}"
 SHA256_PATH="${VARIANT_OUTPUT}/${IMAGE_STEM}.sha256"
 KERNEL_IMAGE="${COMMON_OUTPUT}/Image"
 DTB_IMAGE="${COMMON_OUTPUT}/${KERNEL_DTB}"
-LOADER_IMAGE="${COMMON_OUTPUT}/loader.bin"
+DOWNLOAD_LOADER_IMAGE="${COMMON_OUTPUT}/download-loader.bin"
+IDBLOCK_IMAGE="${COMMON_OUTPUT}/idblock.img"
 UBOOT_IMAGE="${COMMON_OUTPUT}/uboot.img"
 ROOTFS_IMAGE="${VARIANT_OUTPUT}/rootfs.ext4"
 KERNEL_RELEASE_FILE="${COMMON_OUTPUT}/kernel-release"
@@ -39,7 +40,8 @@ require_file "${IMAGE_PATH}" "raw disk image"
 require_file "${SHA256_PATH}" "image checksum file"
 require_file "${KERNEL_IMAGE}" "kernel Image"
 require_file "${DTB_IMAGE}" "board DTB"
-require_file "${LOADER_IMAGE}" "loader.bin"
+require_file "${DOWNLOAD_LOADER_IMAGE}" "download-loader.bin"
+require_file "${IDBLOCK_IMAGE}" "idblock.img"
 require_file "${UBOOT_IMAGE}" "uboot.img"
 require_file "${ROOTFS_IMAGE}" "rootfs.ext4"
 require_file "${KERNEL_RELEASE_FILE}" "kernel release"
@@ -172,7 +174,21 @@ compare_embedded_file() {
         die "Embedded data does not match $(basename "${expected}")"
 }
 
-compare_embedded_file "${LOADER_IMAGE}" "${LOADER_SECTOR}" "${WORK_DIR}/loader.bin"
+read_image_magic() {
+    dd if="$1" bs=1 count=4 status=none
+}
+
+[ "$(read_image_magic "${DOWNLOAD_LOADER_IMAGE}")" = "LDR " ] ||
+    die "download-loader.bin is not an LDR container"
+[ "$(read_image_magic "${IDBLOCK_IMAGE}")" = "RKNS" ] ||
+    die "idblock.img is not an RKNS image"
+[ "$(metadata_value "${UBOOT_BUILD_INFO}" idblock_format)" = "RKNS" ] ||
+    die "U-Boot metadata does not record an RKNS IDBlock"
+[ "$(metadata_value "${IMAGE_BUILD_INFO}" idblock_format)" = "RKNS" ] ||
+    die "Image metadata does not record an RKNS IDBlock"
+compare_embedded_file "${IDBLOCK_IMAGE}" "${IDBLOCK_SECTOR}" "${WORK_DIR}/idblock.img"
+[ "$(read_image_magic "${WORK_DIR}/idblock.img")" = "RKNS" ] ||
+    die "Raw image does not contain an RKNS IDBlock at sector ${IDBLOCK_SECTOR}"
 compare_embedded_file "${UBOOT_IMAGE}" "${UBOOT_SECTOR}" "${WORK_DIR}/uboot.img"
 
 BOOT_OFFSET=$((BOOT_FIRST_EXPECTED * 512))
