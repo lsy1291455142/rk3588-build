@@ -3,6 +3,9 @@ FROM ubuntu:22.04 AS rk3588-build
 LABEL maintainer="rk3588-build"
 LABEL description="RK3588 BSP, Buildroot, and raw image build environment"
 
+ARG PYTHON2_VERSION=2.7.18
+ARG PYELFTOOLS_PY2_VERSION=0.27
+
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Shanghai
 ENV ARCH=arm64
@@ -85,6 +88,7 @@ RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
         uuid-dev \
         wget \
         xz-utils \
+        zlib1g-dev \
         zstd && \
     rm -rf /var/lib/apt/lists/*
 
@@ -112,6 +116,31 @@ RUN curl -fsSL -o /usr/local/bin/repo \
         jsonschema \
         pycryptodome \
         pyelftools
+
+# Rockchip's legacy U-Boot make.sh and FIT generator require Python 2 syntax.
+RUN set -eux; \
+    curl -fsSL -o /tmp/python2.tgz \
+        "https://www.python.org/ftp/python/${PYTHON2_VERSION}/Python-${PYTHON2_VERSION}.tgz"; \
+    echo "da3080e3b488f648a3d7a4560ddee895284c3380b11d6de75edb986526b9a814  /tmp/python2.tgz" | \
+        sha256sum -c -; \
+    tar -xzf /tmp/python2.tgz -C /tmp; \
+    cd "/tmp/Python-${PYTHON2_VERSION}"; \
+    ./configure --prefix=/usr/local; \
+    make -j"$(nproc)"; \
+    make altinstall; \
+    ln -s /usr/local/bin/python2.7 /usr/local/bin/python2; \
+    curl -fsSL -o /tmp/pyelftools-py2.tgz \
+        "https://github.com/eliben/pyelftools/archive/refs/tags/v${PYELFTOOLS_PY2_VERSION}.tar.gz"; \
+    echo "2958edd7c32909f1d541b8122797fee903db700d02d168b2789aa6b667fc4a30  /tmp/pyelftools-py2.tgz" | \
+        sha256sum -c -; \
+    tar -xzf /tmp/pyelftools-py2.tgz -C /tmp; \
+    mkdir -p /usr/local/lib/python2.7/site-packages; \
+    cp -a "/tmp/pyelftools-${PYELFTOOLS_PY2_VERSION}/elftools" \
+        /usr/local/lib/python2.7/site-packages/; \
+    python2 -c 'from elftools.elf.elffile import ELFFile'; \
+    rm -rf /tmp/python2.tgz /tmp/pyelftools-py2.tgz \
+        "/tmp/Python-${PYTHON2_VERSION}" \
+        "/tmp/pyelftools-${PYELFTOOLS_PY2_VERSION}"
 
 # Build newer e2fsprogs (1.47.2) to support ext4 features from Debian trixie
 RUN cd /tmp && \

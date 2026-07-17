@@ -247,6 +247,7 @@ check_buildroot_external() {
 
 check_uboot_boot_contract_guard() {
     local script="${PROJECT_DIR}/scripts/build_uboot.sh"
+    local dockerfile="${PROJECT_DIR}/Dockerfile"
     local marker
     # These markers must match literal shell expressions.
     # shellcheck disable=SC2016
@@ -269,6 +270,13 @@ check_uboot_boot_contract_guard() {
     for marker in "${markers[@]}"; do
         grep -Fq "${marker}" "${script}" || return 1
     done
+
+    grep -Fq 'ARG PYTHON2_VERSION=2.7.18' "${dockerfile}" || return 1
+    grep -Fq 'ARG PYELFTOOLS_PY2_VERSION=0.27' "${dockerfile}" || return 1
+    grep -Fq "python2 -c 'from elftools.elf.elffile import ELFFile'" \
+        "${dockerfile}" || return 1
+    grep -Fq "python2 -c 'from elftools.elf.elffile import ELFFile'" \
+        "${script}" || return 1
 }
 
 expect_failure() {

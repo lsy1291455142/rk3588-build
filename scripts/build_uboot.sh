@@ -15,8 +15,11 @@ JOBS_RESOLVED="$(resolve_jobs)"
 CROSS_COMPILE="${CROSS_COMPILE-aarch64-linux-gnu-}"
 UBOOT_CC="${CROSS_COMPILE}gcc"
 
-require_cmd bash find sort stat git realpath grep "${UBOOT_CC}"
+require_cmd bash find sort stat git realpath grep python2 "${UBOOT_CC}"
 UBOOT_CC_PATH="$(command -v "${UBOOT_CC}")"
+
+python2 -c 'from elftools.elf.elffile import ELFFile' >/dev/null 2>&1 ||
+    die "Python 2 pyelftools is required by the Rockchip FIT generator; rebuild the builder image"
 
 require_dir "${UBOOT_DIR}" "U-Boot source"
 require_dir "${RKBIN_DIR}" "rkbin source"
