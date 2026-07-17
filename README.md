@@ -118,6 +118,29 @@ make fetch-custom \
 没有交互式 SDK 选择。每次拉取必须通过明确的 `fetch-*` target 或
 `fetch-custom` 指定 manifest 和 volume，避免源码混用。
 
+### 导入已经下载的本地 SDK
+
+如果宿主机上已经有完整 SDK，不要先复制到普通 Docker volume。大型 BSP 通常
+占用 20 GB 以上，复制会额外占用同等磁盘空间。项目可以创建一个由宿主机目录
+支撑的命名 volume，Compose 仍然通过统一的 `SDK_VOLUME` 接口使用它：
+
+```bash
+make build
+make import-local-sdk \
+  SDK_PATH=/absolute/path/to/rk3588-sdk \
+  SDK_VOLUME=rk3588-sdk-cokepi
+make verify-sdk-volume SDK_VOLUME=rk3588-sdk-cokepi
+```
+
+导入命令要求 SDK 根目录直接包含 `kernel/`、`u-boot/`、`rkbin/` 和
+`buildroot/`，并自动把 `SDK_VOLUME` 写入 `.env`。源码不会复制；容器中的
+`/home/builder/sdk` 直接映射到宿主机目录，构建缓存目录 `.rk3588-build/` 也会
+写在该 SDK 根目录下。删除 Docker volume 不会删除宿主机 SDK，但移动或删除
+宿主机目录会使 volume 失效。Docker daemon 必须能够访问传入的绝对路径。
+
+本地 SDK volume 只解决源码接入。新开发板仍需在 `configs/boards/` 增加与硬件
+匹配的 profile，明确指定内核 DTB 和 U-Boot 配置，然后再设置 `BOARD`。
+
 构建时通过 `SDK_VOLUME` 和 `BOARD` 指定 SDK 与板型。二者分开写入 `.env`，
 之后命令自动继承：
 

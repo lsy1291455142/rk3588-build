@@ -4,6 +4,7 @@
 
 .PHONY: help build build-nocache build-builder build-debian-builder \
 	register-arm64-binfmt \
+	import-local-sdk verify-sdk-volume \
 	fetch-custom fetch-510 fetch-61 fetch-66 fetch-firefly fetch-radxa \
 	fetch-rock5c fetch-orangepi update shell debian-shell \
 	use-volume use-volume-rockchip-5.10 use-volume-rockchip-6.1 use-volume-rockchip-6.6 \
@@ -46,6 +47,10 @@ help:
 		'Environment:' \
 		'  make build                         Build the primary Docker builder' \
 		'  make build-debian-builder          Build the ARM64 Debian builder' \
+		'' \
+		'Import an already downloaded SDK (bind-backed volume, no source copy):' \
+		'  make import-local-sdk SDK_PATH=/absolute/path SDK_VOLUME=rk3588-sdk-local' \
+		'  make verify-sdk-volume SDK_VOLUME=rk3588-sdk-local' \
 		'' \
 		'Fetch SDK (each uses a separate volume):' \
 		'  make fetch-510                     Rockchip Linux 5.10 -> rk3588-sdk-rockchip-5.10' \
@@ -104,6 +109,29 @@ register-arm64-binfmt:
 
 build-debian-builder: register-arm64-binfmt
 	SDK_VOLUME=rk3588-sdk-build docker compose build debian-rootfs
+
+import-local-sdk:
+	@SDK_PATH="$(SDK_PATH)" SDK_VOLUME="$(SDK_VOLUME)" \
+		bash scripts/import_local_sdk.sh
+	@$(MAKE) --no-print-directory _use_sdk_switch SWITCH_VOL="$(SDK_VOLUME)"
+
+verify-sdk-volume: require-sdk-volume
+	@docker image inspect rk3588-build:latest >/dev/null 2>&1 || { \
+		echo "ERROR: rk3588-build:latest is missing; run 'make build' first." >&2; \
+		exit 1; \
+	}
+	@docker run --rm --user 1000:1000 \
+		--mount type=volume,src="$(SDK_VOLUME)",dst=/home/builder/sdk \
+		--entrypoint /bin/bash rk3588-build:latest -Eeuo pipefail -c \
+		'for component in kernel u-boot rkbin buildroot; do \
+			test -d "/home/builder/sdk/$$component" || { \
+				echo "Missing SDK component: $$component" >&2; exit 1; \
+			}; \
+		done; \
+		test -w /home/builder/sdk || { \
+			echo "SDK root is not writable by the builder user (uid 1000)" >&2; exit 1; \
+		}; \
+		printf "SDK volume %s is ready at /home/builder/sdk\n" "$(SDK_VOLUME)"'
 
 fetch-custom:
 	@if [ -z "$(SDK_VOLUME)" ]; then \

@@ -142,6 +142,8 @@ check_help_contract() {
     local -a markers=(
         'make build'
         'make build-debian-builder'
+        'make import-local-sdk SDK_PATH=/absolute/path SDK_VOLUME=rk3588-sdk-local'
+        'make verify-sdk-volume SDK_VOLUME=rk3588-sdk-local'
         'make fetch-rock5c'
         'make build-all BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c ROOTFS=debian DEBIAN_RELEASE=13'
         'make test-debian-qemu BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c DEBIAN_RELEASE=13'
