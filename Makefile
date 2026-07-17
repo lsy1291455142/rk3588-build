@@ -4,12 +4,13 @@
 
 .PHONY: help build build-nocache build-builder build-debian-builder \
 	register-arm64-binfmt \
-	import-local-sdk verify-sdk-volume \
+	import-local-sdk verify-sdk-volume verify-cokepi-sdk \
 	fetch-custom fetch-510 fetch-61 fetch-66 fetch-firefly fetch-radxa \
 	fetch-rock5c fetch-orangepi update shell debian-shell \
 	use-volume use-volume-rockchip-5.10 use-volume-rockchip-6.1 use-volume-rockchip-6.6 \
 	use-volume-firefly use-volume-radxa use-volume-rock5c use-volume-orangepi \
-	use-board use-board-evb1 use-board-rock5c use-current \
+	use-board use-board-evb1 use-board-rock5c use-board-cokepi-plus \
+	use-board-cokepi-model use-current \
 	build-kernel build-uboot build-rootfs image verify-image pack \
 	build-all test-debian-all test-debian-qemu check clean clean-all status \
 	require-board require-sdk-volume validate-rootfs prepare-output \
@@ -51,6 +52,7 @@ help:
 		'Import an already downloaded SDK (bind-backed volume, no source copy):' \
 		'  make import-local-sdk SDK_PATH=/absolute/path SDK_VOLUME=rk3588-sdk-local' \
 		'  make verify-sdk-volume SDK_VOLUME=rk3588-sdk-local' \
+		'  make verify-cokepi-sdk SDK_VOLUME=rk3588-sdk-cokepi-rkr9' \
 		'' \
 		'Fetch SDK (each uses a separate volume):' \
 		'  make fetch-510                     Rockchip Linux 5.10 -> rk3588-sdk-rockchip-5.10' \
@@ -77,6 +79,8 @@ help:
 		'  make use-board                    Interactive board picker' \
 		'  make use-board-evb1               -> rk3588-evb1-lp4-v10-linux' \
 		'  make use-board-rock5c             -> rk3588s-rock-5c' \
+		'  make use-board-cokepi-plus        -> rk3588-cokepi-plus-lp4-v10' \
+		'  make use-board-cokepi-model       -> rk3588s-cokepi-model-lp4-v10' \
 		'  make use-current                  Show current SDK_VOLUME and BOARD' \
 		'' \
 		'Build components (BOARD and SDK_VOLUME required):' \
@@ -132,6 +136,33 @@ verify-sdk-volume: require-sdk-volume
 			echo "SDK root is not writable by the builder user (uid 1000)" >&2; exit 1; \
 		}; \
 		printf "SDK volume %s is ready at /home/builder/sdk\n" "$(SDK_VOLUME)"'
+
+verify-cokepi-sdk: verify-sdk-volume
+	@docker run --rm --user 1000:1000 \
+		--mount type=volume,src="$(SDK_VOLUME)",dst=/home/builder/sdk \
+		--entrypoint /bin/bash rk3588-build:latest -Eeuo pipefail -c \
+		'files=( \
+			device/rockchip/.chips/rk3588/rockchip_rk3588_cokepi_lp4_defconfig \
+			device/rockchip/.chips/rk3588/rockchip_rk3588s_cokepi_lp4_defconfig \
+			kernel/arch/arm64/configs/cokepi_main_defconfig \
+			kernel/arch/arm64/boot/dts/rockchip/rk3588-cpp-hdmi.dts \
+			kernel/arch/arm64/boot/dts/rockchip/rk3588s-cpm-hdmi1.dts \
+			u-boot/configs/rk3588_defconfig \
+		); \
+		for file in "$${files[@]}"; do \
+			test -f "/home/builder/sdk/$$file" || { \
+				echo "Missing CokePi SDK file: $$file" >&2; exit 1; \
+			}; \
+		done; \
+		grep -Fq '\''RK_KERNEL_CFG="cokepi_main_defconfig"'\'' \
+			/home/builder/sdk/device/rockchip/.chips/rk3588/rockchip_rk3588_cokepi_lp4_defconfig; \
+		grep -Fq '\''RK_KERNEL_CFG="cokepi_main_defconfig"'\'' \
+			/home/builder/sdk/device/rockchip/.chips/rk3588/rockchip_rk3588s_cokepi_lp4_defconfig; \
+		grep -Fq '\''model = "Rockchip RK3588 CokePi Plus LP4 V10 Board";'\'' \
+			/home/builder/sdk/kernel/arch/arm64/boot/dts/rockchip/rk3588-cpp-hdmi.dts; \
+		grep -Fq '\''model = "Rockchip RK3588S CokePi Model LP4 V10 Board";'\'' \
+			/home/builder/sdk/kernel/arch/arm64/boot/dts/rockchip/rk3588s-cpm-hdmi1.dts; \
+		printf "CokePi Plus and CokePi Model HDMI definitions are ready in %s\n" "$(SDK_VOLUME)"'
 
 fetch-custom:
 	@if [ -z "$(SDK_VOLUME)" ]; then \
@@ -329,6 +360,10 @@ use-board-evb1: SWITCH_BOARD=rk3588-evb1-lp4-v10-linux
 use-board-evb1: _use_board_switch
 use-board-rock5c: SWITCH_BOARD=rk3588s-rock-5c
 use-board-rock5c: _use_board_switch
+use-board-cokepi-plus: SWITCH_BOARD=rk3588-cokepi-plus-lp4-v10
+use-board-cokepi-plus: _use_board_switch
+use-board-cokepi-model: SWITCH_BOARD=rk3588s-cokepi-model-lp4-v10
+use-board-cokepi-model: _use_board_switch
 
 use-current:
 	@if [ -f .env ] && grep -q '^SDK_VOLUME=' .env; then \

@@ -8,8 +8,14 @@ The included profiles are:
 
 ```text
 configs/boards/rk3588-evb1-lp4-v10-linux.conf
+configs/boards/rk3588-cokepi-plus-lp4-v10.conf
 configs/boards/rk3588s-rock-5c.conf
+configs/boards/rk3588s-cokepi-model-lp4-v10.conf
 ```
+
+The CokePi SDK provides separate official defaults for CokePi Plus (RK3588)
+and CokePi Model (RK3588S). Select the profile matching the printed board
+model; these project profiles select the SDK's HDMI DTB variants.
 
 It selects:
 

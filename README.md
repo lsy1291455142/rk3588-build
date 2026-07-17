@@ -39,7 +39,9 @@
 | `BOARD` | 开发板 | 配套 SDK |
 |---|---|---|
 | `rk3588-evb1-lp4-v10-linux` | Rockchip RK3588 EVB1 LP4 V1.0 | `rk3588-sdk-rockchip-5.10` |
+| `rk3588-cokepi-plus-lp4-v10` | CokePi Plus LP4 V1.0 (RK3588) | `rk3588-sdk-cokepi-rkr9`（本地导入） |
 | `rk3588s-rock-5c` | Radxa ROCK 5C | `rk3588-sdk-rock5c` |
+| `rk3588s-cokepi-model-lp4-v10` | CokePi Model LP4 V1.0 (RK3588S) | `rk3588-sdk-cokepi-rkr9`（本地导入） |
 
 其他开发板可以拉取源码，但在生成最终镜像前必须增加匹配的
 `configs/boards/<board>.conf`，并确认 DTB、U-Boot 和存储布局。
@@ -140,6 +142,28 @@ make verify-sdk-volume SDK_VOLUME=rk3588-sdk-cokepi
 
 本地 SDK volume 只解决源码接入。新开发板仍需在 `configs/boards/` 增加与硬件
 匹配的 profile，明确指定内核 DTB 和 U-Boot 配置，然后再设置 `BOARD`。
+
+当前本机的 CokePi RKR9 SDK 可以直接导入并验证：
+
+```bash
+make import-local-sdk \
+  SDK_PATH=/root/downloads/rk3588_linux-5.10-cokepi-rkr9/rk3588_linux-5.10-cokepi-rkr9 \
+  SDK_VOLUME=rk3588-sdk-cokepi-rkr9
+make verify-cokepi-sdk SDK_VOLUME=rk3588-sdk-cokepi-rkr9
+```
+
+根据开发板丝印二选一，命令只修改 `BOARD`，不会修改已经导入的 SDK volume：
+
+```bash
+# RK3588 CokePi Plus
+make use-board-cokepi-plus
+
+# RK3588S CokePi Model
+make use-board-cokepi-model
+```
+
+两套 profile 分别采用 SDK 中面向 HDMI 输出的 `rk3588-cpp-hdmi.dtb` 和
+`rk3588s-cpm-hdmi1.dtb`。应按实物型号选择，不能把 Plus 与 Model 混用。
 
 构建时通过 `SDK_VOLUME` 和 `BOARD` 指定 SDK 与板型。二者分开写入 `.env`，
 之后命令自动继承：

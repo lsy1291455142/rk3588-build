@@ -104,6 +104,32 @@ check_rock5c_source_contract() {
         "${PROJECT_DIR}/scripts/lib/common.sh"
 }
 
+check_cokepi_board_contract() {
+    local plus_profile="${CONFIG_DIR}/boards/rk3588-cokepi-plus-lp4-v10.conf"
+    local model_profile="${CONFIG_DIR}/boards/rk3588s-cokepi-model-lp4-v10.conf"
+    local profile marker
+    local -a shared_markers=(
+        'KERNEL_DEFCONFIG="cokepi_main_defconfig"'
+        'UBOOT_DEFCONFIG="rk3588_defconfig"'
+        'UBOOT_BOARD="rk3588"'
+        'UBOOT_BUILD_SYSTEM="rockchip-make-sh"'
+    )
+
+    grep -Fqx 'KERNEL_DTB="rk3588-cpp-hdmi.dtb"' "${plus_profile}" || return 1
+    grep -Fqx 'KERNEL_DTB="rk3588s-cpm-hdmi1.dtb"' "${model_profile}" || return 1
+    for profile in "${plus_profile}" "${model_profile}"; do
+        for marker in "${shared_markers[@]}"; do
+            grep -Fqx "${marker}" "${profile}" || return 1
+        done
+    done
+
+    grep -Eq '^verify-cokepi-sdk: verify-sdk-volume$' "${PROJECT_DIR}/Makefile" || return 1
+    grep -Fq 'use-board-cokepi-plus: SWITCH_BOARD=rk3588-cokepi-plus-lp4-v10' \
+        "${PROJECT_DIR}/Makefile" || return 1
+    grep -Fq 'use-board-cokepi-model: SWITCH_BOARD=rk3588s-cokepi-model-lp4-v10' \
+        "${PROJECT_DIR}/Makefile"
+}
+
 check_kernel_contract() {
     local config="${CONFIG_DIR}/kernel/rootfs-base.config"
     local option
@@ -144,6 +170,7 @@ check_help_contract() {
         'make build-debian-builder'
         'make import-local-sdk SDK_PATH=/absolute/path SDK_VOLUME=rk3588-sdk-local'
         'make verify-sdk-volume SDK_VOLUME=rk3588-sdk-local'
+        'make verify-cokepi-sdk SDK_VOLUME=rk3588-sdk-cokepi-rkr9'
         'make fetch-rock5c'
         'make build-all BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c ROOTFS=debian DEBIAN_RELEASE=13'
         'make test-debian-qemu BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c DEBIAN_RELEASE=13'
@@ -277,6 +304,7 @@ fi
 run_check "Manifest XML and pinned source projects" check_manifests
 run_check "Board profiles" check_board_profiles
 run_check "Rock 5C pinned source contract" check_rock5c_source_contract
+run_check "CokePi board profiles and SDK contract" check_cokepi_board_contract
 run_check "Kernel boot and QEMU configuration contract" check_kernel_contract
 run_check "Buildroot external tree" check_buildroot_external
 run_check "U-Boot GPT/extlinux contract guard" check_uboot_boot_contract_guard
