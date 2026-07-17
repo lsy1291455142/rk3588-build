@@ -126,6 +126,14 @@ check_kernel_contract() {
         "${PROJECT_DIR}/scripts/build_kernel.sh"
     grep -Fq 'drivers/gpu/arm/bifrost/mali_csffw.bin' \
         "${PROJECT_DIR}/scripts/build_kernel.sh"
+    grep -Fq 'KERNEL_SCMVERSION_FILE' \
+        "${PROJECT_DIR}/scripts/build_kernel.sh"
+    grep -Fq 'GIT_CEILING_DIRECTORIES' \
+        "${PROJECT_DIR}/scripts/build_kernel.sh"
+    grep -Fq '"LOCALVERSION="' \
+        "${PROJECT_DIR}/scripts/build_kernel.sh"
+    grep -Fq 'GIT_WORK_TREE' \
+        "${PROJECT_DIR}/scripts/build_kernel.sh"
 }
 
 check_help_contract() {

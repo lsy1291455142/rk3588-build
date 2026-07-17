@@ -24,11 +24,55 @@ require_file "${KERNEL_DIR}/scripts/kconfig/merge_config.sh" "kernel merge_confi
 
 mkdir -p "${KERNEL_BUILD}" "${COMMON_OUTPUT}"
 
+cleanup_kernel_scmversion() {
+    if [ "${KERNEL_SCMVERSION_OWNED:-0}" = "1" ]; then
+        rm -f "${KERNEL_SCMVERSION_FILE}"
+    fi
+}
+
+# Kernel scripts/setlocalversion probes git for CONFIG_LOCALVERSION_AUTO.
+# With O= builds the build directory is not a git worktree, so plain git
+# discovery walks up to the Docker volume mount and prints:
+#   fatal: not a git repository (or any parent up to mount point /home/builder)
+# Pre-seed .scmversion from our controlled revision helper so the kernel
+# never needs to run git during the build, and cap discovery at SDK_DIR.
+KERNEL_SCMVERSION_FILE="${KERNEL_DIR}/.scmversion"
+KERNEL_SCMVERSION_OWNED=0
+trap cleanup_kernel_scmversion EXIT
+
+if [ ! -e "${KERNEL_SCMVERSION_FILE}" ]; then
+    kernel_rev="$(git_revision "${KERNEL_DIR}" | tr -d '\r\n')"
+    if [[ "${kernel_rev}" =~ ^[0-9a-fA-F]{12,}$ ]]; then
+        printf -- '-g%s\n' "${kernel_rev:0:12}" >"${KERNEL_SCMVERSION_FILE}"
+    else
+        : >"${KERNEL_SCMVERSION_FILE}"
+    fi
+    KERNEL_SCMVERSION_OWNED=1
+fi
+
+# Prevent accidental git discovery from crossing the SDK volume mount.
+export GIT_CEILING_DIRECTORIES="${SDK_DIR}${GIT_CEILING_DIRECTORIES:+:${GIT_CEILING_DIRECTORIES}}"
+
+# Several Rockchip driver Makefiles (for example drivers/video/rockchip/mpp)
+# run bare "git log" while make is executing from the O= build directory.
+# Point git at the kernel worktree so those probes work without noise.
+kernel_git_dir="$(
+    git -c safe.directory="${KERNEL_DIR}" -C "${KERNEL_DIR}" \
+        rev-parse --absolute-git-dir 2>/dev/null || true
+)"
+if [ -n "${kernel_git_dir}" ]; then
+    export GIT_DIR="${kernel_git_dir}"
+    export GIT_WORK_TREE="${KERNEL_DIR}"
+fi
+
 make_args=(
     -C "${KERNEL_DIR}"
     "O=${KERNEL_BUILD}"
     "ARCH=arm64"
     "CROSS_COMPILE=${CROSS_COMPILE}"
+    # Mark LOCALVERSION as set (empty) so setlocalversion will not fall back
+    # to a short git probe when CONFIG_LOCALVERSION_AUTO is disabled.
+    "LOCALVERSION="
 )
 
 log_step "Configuring kernel for ${BOARD}"
