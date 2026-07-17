@@ -115,6 +115,7 @@ check_cokepi_board_contract() {
         'UBOOT_BOARD="rk3588"'
         'UBOOT_BUILD_SYSTEM="rockchip-make-sh"'
         'UBOOT_PYTHON="python2"'
+        'EXTRA_KERNEL_ARGS="earlycon=uart8250,mmio32,0xfeb50000 consoleblank=0 irqchip.gicv3_pseudo_nmi=0 rcupdate.rcu_expedited=1 rcu_nocbs=all"'
     )
 
     grep -Fqx 'KERNEL_DTB="rk3588-cpp-hdmi.dtb"' "${plus_profile}" || return 1
@@ -170,6 +171,18 @@ check_kernel_contract() {
         "${PROJECT_DIR}/scripts/build_kernel.sh"
     grep -Fq 'GIT_WORK_TREE' \
         "${PROJECT_DIR}/scripts/build_kernel.sh"
+    # These checks intentionally match literal shell expressions.
+    # shellcheck disable=SC2016
+    grep -Fq 'fdtput -d "${KERNEL_DTB_PATH}" /chosen bootargs' \
+        "${PROJECT_DIR}/scripts/build_kernel.sh"
+    grep -Fq 'dtb_bootargs=extlinux-only-v1' \
+        "${PROJECT_DIR}/scripts/build_kernel.sh"
+    # shellcheck disable=SC2016
+    grep -Fq 'verify_extlinux_dtb "${DTB_IMAGE}"' \
+        "${PROJECT_DIR}/scripts/verify_image.sh"
+    # shellcheck disable=SC2016
+    grep -Fq 'verify_extlinux_dtb "${WORK_DIR}/${KERNEL_DTB}"' \
+        "${PROJECT_DIR}/scripts/verify_image.sh"
 }
 
 check_help_contract() {

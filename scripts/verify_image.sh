@@ -15,7 +15,7 @@ if [ "${ROOTFS}" = "debian" ]; then
 fi
 
 require_cmd sgdisk stat dd cmp mdir mcopy grep awk sed sha256sum \
-    blkid e2fsck debugfs realpath
+    blkid e2fsck debugfs realpath fdtget
 
 COMMON_OUTPUT="$(board_common_output_dir)"
 VARIANT_OUTPUT="$(variant_output_dir)"
@@ -48,6 +48,22 @@ require_file "${KERNEL_BUILD_INFO}" "kernel build metadata"
 require_file "${UBOOT_BUILD_INFO}" "U-Boot build metadata"
 require_file "${ROOTFS_BUILD_INFO}" "rootfs build metadata"
 require_file "${IMAGE_BUILD_INFO}" "image build metadata"
+
+verify_extlinux_dtb() {
+    local dtb="$1"
+    local description="$2"
+
+    fdtget -l "${dtb}" / >/dev/null ||
+        die "${description} is not a valid DTB: ${dtb}"
+    if fdtget -t s "${dtb}" /chosen bootargs >/dev/null 2>&1; then
+        die "${description} defines /chosen/bootargs and can override extlinux"
+    fi
+}
+
+verify_extlinux_dtb "${DTB_IMAGE}" "Board DTB artifact"
+[ "$(metadata_value "${KERNEL_BUILD_INFO}" dtb_bootargs)" = \
+    "extlinux-only-v1" ] ||
+    die "Kernel metadata does not record the extlinux-only DTB contract"
 
 if [ -n "${SOURCE_MANIFEST:-}" ]; then
     [ "$(metadata_value "${KERNEL_BUILD_INFO}" source_manifest)" = "${SOURCE_MANIFEST}" ] ||
@@ -169,6 +185,7 @@ cmp --silent "${KERNEL_IMAGE}" "${WORK_DIR}/Image" ||
     die "FAT Image does not match the kernel artifact"
 cmp --silent "${DTB_IMAGE}" "${WORK_DIR}/${KERNEL_DTB}" ||
     die "FAT DTB does not match the board artifact"
+verify_extlinux_dtb "${WORK_DIR}/${KERNEL_DTB}" "FAT DTB"
 grep -Fqx "    FDT /${KERNEL_DTB}" "${WORK_DIR}/extlinux.conf" ||
     die "extlinux.conf does not select ${KERNEL_DTB}"
 grep -Fq "root=PARTLABEL=rootfs rootwait rw" "${WORK_DIR}/extlinux.conf" ||

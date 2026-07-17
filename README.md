@@ -241,7 +241,8 @@ output/<board>/
 每次 `make image` 都会自动运行离线校验，包括 GPT 几何、bootloader 固定偏移、
 FAT 中的 Kernel/DTB/extlinux、ext4 一致性、rootfs 标签、内核模块版本、开发
 账户、root 登录状态、首次启动扩容钩子、锁定源码 revision 和 QEMU 所需内核
-配置。
+配置。打包 DTB 的 `/chosen/bootargs` 会在内核产物阶段删除并被校验，避免厂商
+DTB 中固定的 `root=PARTUUID=...` 覆盖 extlinux 的 `root=PARTLABEL=rootfs`。
 
 `make test-debian-qemu` 使用构建出的同一个 Kernel 和完整 raw GPT 镜像，在
 ARM64 `virt` 机器上验证 Debian 13 能到达串口登录、systemd 无失败单元、首次

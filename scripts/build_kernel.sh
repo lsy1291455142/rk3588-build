@@ -7,7 +7,7 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 load_board_profile
 validate_board_source_revisions
-require_cmd make tar git install realpath ln
+require_cmd make tar git install realpath ln fdtget fdtput
 
 KERNEL_DIR="${SDK_DIR}/kernel"
 KERNEL_FRAGMENT="${CONFIG_DIR}/kernel/rootfs-base.config"
@@ -175,6 +175,19 @@ KERNEL_DTB_PATH="${KERNEL_BUILD}/arch/arm64/boot/dts/rockchip/${KERNEL_DTB}"
 require_file "${KERNEL_IMAGE}" "kernel Image"
 require_file "${KERNEL_DTB_PATH}" "board DTB"
 
+# Rockchip U-Boot merges /chosen/bootargs from the DTB after extlinux APPEND
+# and replaces duplicate keys such as root=. Keep extlinux authoritative so
+# the packaged image always boots the rootfs partition selected by its label.
+fdtget -l "${KERNEL_DTB_PATH}" / >/dev/null ||
+    die "Built board DTB is invalid: ${KERNEL_DTB_PATH}"
+if fdtget -t s "${KERNEL_DTB_PATH}" /chosen bootargs >/dev/null 2>&1; then
+    log_info "Removing /chosen/bootargs from packaged ${KERNEL_DTB}"
+    fdtput -d "${KERNEL_DTB_PATH}" /chosen bootargs
+fi
+if fdtget -t s "${KERNEL_DTB_PATH}" /chosen bootargs >/dev/null 2>&1; then
+    die "Packaged DTB still defines /chosen/bootargs: ${KERNEL_DTB_PATH}"
+fi
+
 install -m 0644 "${KERNEL_IMAGE}" "${COMMON_OUTPUT}/Image"
 install -m 0644 "${KERNEL_DTB_PATH}" "${COMMON_OUTPUT}/${KERNEL_DTB}"
 install -m 0644 "${KERNEL_BUILD}/.config" "${COMMON_OUTPUT}/kernel.config"
@@ -192,6 +205,7 @@ write_common_metadata "${COMMON_OUTPUT}/kernel-build-info.txt" \
     "kernel_release=${KERNEL_RELEASE}" \
     "kernel_defconfig=${KERNEL_DEFCONFIG}" \
     "kernel_dtb=${KERNEL_DTB}" \
+    "dtb_bootargs=extlinux-only-v1" \
     "kernel_source_view=symlink-clean-v1" \
     "cross_compile=${CROSS_COMPILE}" \
     "jobs=${JOBS_RESOLVED}"
