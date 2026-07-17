@@ -9,7 +9,7 @@
 	use-rockchip-5.10 use-rockchip-6.1 use-rockchip-6.6 \
 	use-firefly use-radxa use-rock5c use-orangepi use-current \
 	build-kernel build-uboot build-rootfs image verify-image pack \
-	build-all test-debian-all check clean clean-all status \
+	build-all test-debian-all test-debian-qemu check clean clean-all status \
 	require-board require-sdk-volume validate-rootfs prepare-output \
 	debian-preflight _use_switch _buildroot-rootfs _debian-rootfs \
 	_image-one _verify-one
@@ -27,10 +27,22 @@ DEBIAN_SECURITY_MIRROR ?= http://security.debian.org/debian-security
 DEBIAN_ALLOW_ARCHIVE_FALLBACK ?= yes
 JOBS ?= 0
 ZSTD_LEVEL ?= 6
+QEMU_TIMEOUT ?= 600
+QEMU_MEMORY_MIB ?= 1024
+QEMU_CPUS ?= 2
 
 help:
 	@printf '%s\n' \
 		'RK3588 full system image build' \
+		'' \
+		'ROCK 5C Debian 13 complete build and simulated boot test:' \
+		'  make build' \
+		'  make build-debian-builder' \
+		'  make fetch-rock5c' \
+		'  make build-all BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c ROOTFS=debian DEBIAN_RELEASE=13' \
+		'  make test-debian-qemu BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c DEBIAN_RELEASE=13' \
+		'' \
+		'No .env file, make use-*, host QEMU, or manual Docker volume setup is required.' \
 		'' \
 		'Environment:' \
 		'  make build                         Build the primary Docker builder' \
@@ -68,6 +80,7 @@ help:
 		'  make image      BOARD=... SDK_VOLUME=... ROOTFS=...' \
 		'  make verify-image BOARD=... SDK_VOLUME=... ROOTFS=...' \
 		'  make test-debian-all BOARD=... SDK_VOLUME=...' \
+		'  make test-debian-qemu BOARD=... SDK_VOLUME=... DEBIAN_RELEASE=13' \
 		'' \
 		'Validation:' \
 		'  make check'
@@ -364,6 +377,18 @@ test-debian-all: require-board require-sdk-volume
 		$(MAKE) --no-print-directory image BOARD="$(BOARD)" \
 			ROOTFS=debian DEBIAN_RELEASE=$$release SDK_VOLUME=$(SDK_VOLUME) || exit $$?; \
 	done
+
+test-debian-qemu: require-board require-sdk-volume
+	SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
+		-e BOARD="$(BOARD)" -e ROOTFS=debian \
+		-e SDK_VOLUME=$(SDK_VOLUME) \
+		-e DEBIAN_RELEASE="$(DEBIAN_RELEASE)" \
+		-e ROOTFS_USERNAME="$(ROOTFS_USERNAME)" \
+		-e ROOTFS_PASSWORD="$(ROOTFS_PASSWORD)" \
+		-e QEMU_TIMEOUT="$(QEMU_TIMEOUT)" \
+		-e QEMU_MEMORY_MIB="$(QEMU_MEMORY_MIB)" \
+		-e QEMU_CPUS="$(QEMU_CPUS)" \
+		rk3588-build bash /home/builder/scripts/test_debian_qemu.sh
 
 check:
 	docker volume create rk3588-sdk-check >/dev/null

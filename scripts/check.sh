@@ -60,9 +60,121 @@ check_manifests() {
         fi
 
         grep -q 'remote name="buildroot"' "${manifest}" || return 1
-        grep -q 'revision="refs/tags/2025.02.15"' "${manifest}" || return 1
+        if [ "$(basename "${manifest}")" = "rk3588-rock5c.xml" ]; then
+            grep -q 'revision="567401fe17185f0f4a65866158b775a364feb2d3"' \
+                "${manifest}" || return 1
+            grep -q 'revision="4218b05a597f458947f0f4706063b3bb8196e07c"' \
+                "${manifest}" || return 1
+            grep -q 'revision="ecb4fcbe954edf38b3ae037d5de6d9f5bccf81f4"' \
+                "${manifest}" || return 1
+            grep -q 'revision="c49ae7216786d3cb62a8e8de5556007b4b539233"' \
+                "${manifest}" || return 1
+        else
+            grep -q 'revision="refs/tags/2025.02.15"' "${manifest}" || return 1
+        fi
     done < <(find "${PROJECT_DIR}/manifests" -maxdepth 1 -type f \
         -name '*.xml' -print0)
+}
+
+check_rock5c_source_contract() {
+    local profile="${CONFIG_DIR}/boards/rk3588s-rock-5c.conf"
+    local expected
+    local -a markers=(
+        'SOURCE_MANIFEST="rk3588-rock5c.xml"'
+        'EXPECTED_KERNEL_REVISION="567401fe17185f0f4a65866158b775a364feb2d3"'
+        'EXPECTED_UBOOT_REVISION="4218b05a597f458947f0f4706063b3bb8196e07c"'
+        'EXPECTED_RKBIN_REVISION="ecb4fcbe954edf38b3ae037d5de6d9f5bccf81f4"'
+        'EXPECTED_BUILDROOT_REVISION="c49ae7216786d3cb62a8e8de5556007b4b539233"'
+    )
+    for expected in "${markers[@]}"; do
+        grep -Fqx "${expected}" "${profile}" || return 1
+    done
+
+    awk '
+        /^  debian-rootfs:/ { in_service = 1; next }
+        in_service && /^  [a-zA-Z0-9_-]+:/ { exit }
+        in_service && /\.\/manifests:\/home\/builder\/manifests:ro/ { found = 1 }
+        END { exit(found ? 0 : 1) }
+    ' "${PROJECT_DIR}/docker-compose.yml" || return 1
+    grep -Fq 'COPY manifests/ /home/builder/manifests/' \
+        "${PROJECT_DIR}/Dockerfile" || return 1
+    grep -Eq '^[[:space:]]+git[[:space:]]' \
+        "${PROJECT_DIR}/Dockerfile" || return 1
+    grep -Fq "git -c safe.directory=\"\${repo}\"" \
+        "${PROJECT_DIR}/scripts/lib/common.sh"
+}
+
+check_kernel_contract() {
+    local config="${CONFIG_DIR}/kernel/rootfs-base.config"
+    local option
+    local -a required=(
+        CONFIG_FHANDLE=y
+        CONFIG_SERIAL_AMBA_PL011=y
+        CONFIG_SERIAL_AMBA_PL011_CONSOLE=y
+        CONFIG_VIRTIO=y
+        CONFIG_VIRTIO_MMIO=y
+        CONFIG_VIRTIO_BLK=y
+        CONFIG_VIRTIO_NET=y
+        CONFIG_HW_RANDOM_VIRTIO=y
+        CONFIG_RTC_DRV_PL031=y
+    )
+    for option in "${required[@]}"; do
+        grep -Fqx "${option}" "${config}" || return 1
+    done
+    grep -Fq 'required_configs=(' "${PROJECT_DIR}/scripts/build_kernel.sh"
+    grep -Fq "CONFIG_MALI_CSF_INCLUDE_FW=y" \
+        "${PROJECT_DIR}/scripts/build_kernel.sh"
+    grep -Fq 'drivers/gpu/arm/bifrost/mali_csffw.bin' \
+        "${PROJECT_DIR}/scripts/build_kernel.sh"
+}
+
+check_help_contract() {
+    local help_output marker
+    help_output="$(make -s -C "${PROJECT_DIR}" help)"
+    local -a markers=(
+        'make build'
+        'make build-debian-builder'
+        'make fetch-rock5c'
+        'make build-all BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c ROOTFS=debian DEBIAN_RELEASE=13'
+        'make test-debian-qemu BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c DEBIAN_RELEASE=13'
+        'No .env file, make use-*, host QEMU, or manual Docker volume setup is required.'
+    )
+    for marker in "${markers[@]}"; do
+        grep -Fq "${marker}" <<<"${help_output}" || return 1
+    done
+    grep -Eq '^test-debian-qemu:' "${PROJECT_DIR}/Makefile" || return 1
+    grep -Eq '^register-arm64-binfmt:' "${PROJECT_DIR}/Makefile" || return 1
+}
+
+check_qemu_smoke_contract() {
+    local script="${PROJECT_DIR}/scripts/test_debian_qemu.sh"
+    local driver="${PROJECT_DIR}/scripts/lib/qemu_smoke.py"
+    local marker
+    local -a markers=(
+        qemu-system-aarch64
+        PARTLABEL=rootfs
+        QEMU_INITCALL_BLACKLIST
+        rockchip_drm_init
+        rockchip_cpufreq_driver_init
+        rga_init
+        regulatory_init_db
+        BOOT_ERROR_PATTERNS
+        SERIAL_LOGIN_MARKER
+        logfile_read
+        unit_health
+        systemd.default_device_timeout_sec=300s
+        systemd.default_timeout_start_sec=300s
+        serial-getty@ttyFIQ0.service
+        rk3588-firstboot.done
+        systemctl
+        ssh_password_login
+    )
+    [ -f "${script}" ] && [ -f "${driver}" ] || return 1
+    for marker in "${markers[@]}"; do
+        grep -Fq "${marker}" "${script}" "${driver}" || return 1
+    done
+    grep -Fq 'qemu-system-arm' "${PROJECT_DIR}/Dockerfile" || return 1
+    grep -Fq 'python3-pexpect' "${PROJECT_DIR}/Dockerfile" || return 1
 }
 
 check_board_profiles() {
@@ -152,10 +264,14 @@ if command -v shellcheck >/dev/null 2>&1; then
 else
     log_warn "shellcheck not installed; skipping lint"
 fi
-run_check "Manifest XML and pinned Buildroot project" check_manifests
+run_check "Manifest XML and pinned source projects" check_manifests
 run_check "Board profiles" check_board_profiles
+run_check "Rock 5C pinned source contract" check_rock5c_source_contract
+run_check "Kernel boot and QEMU configuration contract" check_kernel_contract
 run_check "Buildroot external tree" check_buildroot_external
 run_check "U-Boot GPT/extlinux contract guard" check_uboot_boot_contract_guard
+run_check "make help complete Rock 5C workflow" check_help_contract
+run_check "QEMU Debian smoke-test contract" check_qemu_smoke_contract
 run_check "Failure-path self-tests" self_tests
 if command -v docker >/dev/null 2>&1; then
     run_check "Docker Compose configuration" check_compose

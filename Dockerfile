@@ -66,6 +66,7 @@ RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
         patch \
         perl \
         pkg-config \
+        python3-pexpect \
         python-is-python3 \
         python3 \
         python3-dev \
@@ -77,6 +78,7 @@ RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
         shellcheck \
         swig \
         tar \
+        qemu-system-arm \
         u-boot-tools \
         unzip \
         util-linux \
@@ -134,6 +136,7 @@ COPY --chown=builder:builder scripts/ /home/builder/scripts/
 COPY --chown=builder:builder manifests/ /home/builder/manifests/
 COPY --chown=builder:builder configs/ /home/builder/configs/
 COPY --chown=builder:builder rootfs/ /home/builder/rootfs/
+COPY --chown=builder:builder Makefile Dockerfile docker-compose.yml /home/builder/
 RUN find /home/builder/scripts /home/builder/rootfs -type f -name '*.sh' \
         -exec chmod 0755 {} +
 
