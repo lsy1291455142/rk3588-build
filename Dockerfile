@@ -1,4 +1,4 @@
-FROM ubuntu:22.04 AS rk3588-build
+FROM ubuntu:26.04 AS rk3588-build
 
 LABEL maintainer="rk3588-build"
 LABEL description="RK3588 BSP, Buildroot, and raw image build environment"
