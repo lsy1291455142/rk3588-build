@@ -20,6 +20,17 @@ updates:
     commit-message:
       prefix: "docker"
       include: "scope"
+    # Builder images are intentionally pinned to validated distro releases.
+    # Ubuntu 22.04 provides the Python 2.7 build path and i386 compat stack used
+    # by CokePi/Rockchip tooling; major base-image bumps need a dedicated port.
+    ignore:
+      - dependency-name: "ubuntu"
+        update-types:
+          - "version-update:semver-major"
+      # Allow debian patch/minor refresh, but do not auto-jump major codenames.
+      - dependency-name: "debian"
+        update-types:
+          - "version-update:semver-major"
 
   # Future .github/workflows/* action versions (checkout, upload-artifact, etc.)
   - package-ecosystem: github-actions
