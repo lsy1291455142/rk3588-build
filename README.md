@@ -11,6 +11,71 @@
 > * **免费额度**：GitHub 个人账户每月赠送 **120 核时**（默认 2 核机器可运行 60 小时）与 **15 GB 存储**空间。
 > * **省流建议**：不使用时容器会自动暂停（不计运行时间）。为了避免持续占用 15 GB 存储额度，编译/测试完成后建议及时去 [GitHub Codespaces 管理页](https://github.com/codespaces) 删除不用的实例。
 
+## 预构建 builder 镜像（GHCR）
+
+CI 只会构建并推送 **`rk3588-build`** 构建环境镜像，不会推送 `debian-rootfs`，也不会把 CokePi/Rockchip SDK 或板级 `.img` 打进容器仓库。
+
+镜像地址：
+
+```text
+ghcr.io/lsy1291455142/rk3588-build:latest
+ghcr.io/lsy1291455142/rk3588-build:main
+ghcr.io/lsy1291455142/rk3588-build:sha-<short-sha>
+```
+
+触发条件：
+
+- `main` 上与 builder 相关的变更自动构建并 push
+- PR 只构建、不 push
+- 手动：`Actions` → `docker-rk3588-build` → `Run workflow`
+
+### 首次拉取
+
+若仓库或 package 是私有的，先登录：
+
+```bash
+echo "$GHCR_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
+```
+
+`GHCR_TOKEN` 需要至少 `read:packages`；推送由 CI 使用 `GITHUB_TOKEN` 完成。
+
+```bash
+docker pull ghcr.io/lsy1291455142/rk3588-build:latest
+docker tag ghcr.io/lsy1291455142/rk3588-build:latest rk3588-build:latest
+```
+
+本仓库的 `Makefile` / Compose 默认使用本地镜像名 `rk3588-build:latest`，因此拉取后请打上面这个本地 tag，或继续用 `make build` 本地构建。
+
+### 配合本地 CokePi SDK 使用
+
+```bash
+# 1) 准备本地 tag
+docker pull ghcr.io/lsy1291455142/rk3588-build:latest
+docker tag ghcr.io/lsy1291455142/rk3588-build:latest rk3588-build:latest
+
+# 2) 导入本机已解压的 CokePi SDK（不复制源码）
+make import-local-sdk \
+  SDK_PATH=/absolute/path/to/rk3588_linux-5.10-cokepi-rkr9 \
+  SDK_VOLUME=rk3588-sdk-cokepi-rkr9
+make verify-cokepi-sdk SDK_VOLUME=rk3588-sdk-cokepi-rkr9
+
+# 3) 选择板型并构建
+make use-board-cokepi-model   # 或 make use-board-cokepi-plus
+make use-rootfs-debian
+make build-all \
+  BOARD=rk3588s-cokepi-model-lp4-v10 \
+  SDK_VOLUME=rk3588-sdk-cokepi-rkr9 \
+  ROOTFS=debian \
+  DEBIAN_RELEASE=13
+```
+
+说明：
+
+- 推送到 GHCR 的是 **工具链容器**，不是可烧录系统镜像
+- SDK 始终外挂；CokePi 继续走 `import-local-sdk`
+- 镜像内 COPY 了构建时的 `scripts/configs/manifests/rootfs`；用本仓库 `docker compose` 时，这些目录仍会被当前工作区 bind mount 覆盖
+- 需要 Debian rootfs 构建时，仍要在本机执行 `make build-debian-builder`（该镜像不由本 CI 推送）
+
 ## 宿主机架构支持
 
 | 宿主机架构 | U-Boot/Kernel | Buildroot rootfs | Debian rootfs | 说明 |
