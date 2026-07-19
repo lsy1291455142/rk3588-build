@@ -1,66 +1,140 @@
 # RK3588 Linux BSP Docker Build Environment
 
-本项目提供一个基于 Docker 的 RK3588 BSP 编译与构建环境，支持一键生成可直接烧录至 SD 卡或 eMMC 的完整 GPT 格式系统镜像。构建流程不仅输出 U-Boot、内核 `Image` 和设备树（DTB），还会完整集成 Buildroot 或 Debian 根文件系统、`extlinux` 引导配置，并自动完成镜像打包、压缩与校验。
+基于 Docker 的 RK3588 BSP 构建环境。在容器中完成 loader、U-Boot、内核、设备树、模块与 rootfs 的编译，并打包为可直接写入 SD / eMMC 的 GPT raw 镜像。
 
-新手建议先阅读：[RK3588 开发板完整系统镜像构建流程](docs/RK3588_SYSTEM_IMAGE_BUILD_FLOW.md)。
+本仓库管理的是**构建流程与板级配置**，不是厂商 BSP 本体。SDK 通过独立 Docker volume 接入；CokePi 等无法公开拉取的 SDK 使用本地导入。
+
+构建阶段说明见 [完整系统镜像构建流程](docs/RK3588_SYSTEM_IMAGE_BUILD_FLOW.md)。板级字段说明见 [configs/README.md](configs/README.md)。
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/lsy1291455142/rk3588-build)
 
-> [!TIP]
-> **一键云端构建**：本项目已完整支持 GitHub Codespaces。点击上方按钮可直接在云端打开预配置好 Docker-in-Docker 和编译工具链的开发环境，无需在本地配置 Docker 和运行环境。
-> * **免费额度**：GitHub 个人账户每月赠送 **120 核时**（默认 2 核机器可运行 60 小时）与 **15 GB 存储**空间。
-> * **省流建议**：不使用时容器会自动暂停（不计运行时间）。为了避免持续占用 15 GB 存储额度，编译/测试完成后建议及时去 [GitHub Codespaces 管理页](https://github.com/codespaces) 删除不用的实例。
+### GitHub Codespaces
 
-## 预构建 builder 镜像（GHCR）
+本项目支持在 GitHub Codespaces 中直接打开，预配置 Docker-in-Docker 与编译工具链，无需在本地安装 Docker 与交叉编译环境。点击上方徽章即可创建实例。
 
-CI 只会构建并推送 **`rk3588-build`** 构建环境镜像，不会推送 `debian-rootfs`，也不会把 CokePi/Rockchip SDK 或板级 `.img` 打进容器仓库。
+- 个人账户通常每月有一定核时与存储额度（以 GitHub 当前政策为准）
+- 空闲实例会自动暂停；长期不用建议在 [Codespaces 管理页](https://github.com/codespaces) 删除，避免持续占用存储
 
-镜像地址：
+---
 
-```text
-ghcr.io/lsy1291455142/rk3588-build:latest
-ghcr.io/lsy1291455142/rk3588-build:main
-ghcr.io/lsy1291455142/rk3588-build:sha-<short-sha>
-```
+## 能得到什么 / 不包含什么
 
-触发条件：
+| 会产出 | 不包含 |
+|---|---|
+| Kernel `Image`、指定 DTB、`modules.tar` | 桌面环境 |
+| Rockchip loader（`idblock.img` / `download-loader.bin`）、`uboot.img` | Mali / MPP / RKNPU 用户态 |
+| Buildroot 或 Debian rootfs | Rockchip `update.img` |
+| FAT32 boot + extlinux、ext4 rootfs | SPI NAND 布局 |
+| 4 GiB GPT raw image、`.img.zst`、SHA256、离线校验 | 真实硬件 bring-up 保证 |
 
-- `main` 上与 builder 相关的变更自动构建并 push
-- PR 只构建、不 push
-- 手动：`Actions` → `docker-rk3588-build` → `Run workflow`
+离线校验只证明镜像结构与内容一致；串口启动与板级功能仍需在硬件上确认。
 
-### 首次拉取
+---
 
-若仓库或 package 是私有的，先登录：
+## 环境要求
+
+- Docker Engine / Desktop
+- Docker Compose v2
+- GNU Make
+
+Windows 建议在 Git Bash 或 WSL 中执行 `make`。宿主机无需预先安装交叉编译器或 QEMU。
+
+| 宿主机 | Kernel / U-Boot | Buildroot | Debian rootfs |
+|---|---|---|---|
+| x86_64 | 交叉编译 | 交叉编译 | ARM64 容器 + QEMU binfmt |
+| ARM64 | 交叉或原生 | 交叉编译 | 原生 ARM64 |
+
+`make` 会按宿主机架构自动处理 binfmt 与兼容库；x86_64 会安装 i386 依赖以运行部分 rkbin 工具，ARM64 会安装 `qemu-user-static` 以运行其中的 x86 预编译工具。
+
+---
+
+## 三个核心参数
+
+所有组件构建与镜像打包都依赖下面三个变量，**均无默认值**。缺一不可时目标会直接失败。
+
+| 变量 | 含义 | 设置方式 |
+|---|---|---|
+| `SDK_VOLUME` | 存放 BSP 源码的 Docker volume | `make fetch-*` / `import-local-sdk` / `use-volume-*` / CLI |
+| `BOARD` | `configs/boards/<name>.conf` 板级配置 | `make use-board-*` / CLI |
+| `ROOTFS` | `buildroot` \| `debian` \| `all` | `make use-rootfs-*` / CLI |
+
+可写入 `.env` 供后续命令继承，也可在单次命令中覆盖：
 
 ```bash
-echo "$GHCR_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
+make use-volume-rock5c
+make use-board-rock5c
+make use-rootfs-debian
+make use-current
+
+# 等价的一次性传参
+make build-all \
+  BOARD=rk3588s-rock-5c \
+  SDK_VOLUME=rk3588-sdk-rock5c \
+  ROOTFS=debian \
+  DEBIAN_RELEASE=13
 ```
 
-`GHCR_TOKEN` 需要至少 `read:packages`；推送由 CI 使用 `GITHUB_TOKEN` 完成。
+可选变量见 [`.env.example`](.env.example)。常用项：`DEBIAN_RELEASE`（默认 13）、`ROOTFS_USERNAME` / `ROOTFS_PASSWORD`、`JOBS`、`ZSTD_LEVEL`。
+
+---
+
+## 已支持板型
+
+| `BOARD` | 硬件 | 配套 `SDK_VOLUME` | 源码来源 |
+|---|---|---|---|
+| `rk3588s-rock-5c` | Radxa ROCK 5C | `rk3588-sdk-rock5c` | `make fetch-rock5c`（锁定 commit） |
+| `rk3588-evb1-lp4-v10-linux` | Rockchip EVB1 LP4 V1.0 | `rk3588-sdk-rockchip-5.10` | `make fetch-510` |
+| `rk3588-cokepi-plus-lp4-v10` | CokePi Plus（RK3588） | `rk3588-sdk-cokepi-rkr9` | 本地 `import-local-sdk` |
+| `rk3588s-cokepi-model-lp4-v10` | CokePi Model（RK3588S） | `rk3588-sdk-cokepi-rkr9` | 本地 `import-local-sdk` |
+
+CokePi 两套 profile 分别使用 SDK 中 HDMI 设备树：
+
+- Plus：`rk3588-cpp-hdmi.dtb`
+- Model：`rk3588s-cpm-hdmi1.dtb`
+
+按板卡丝印选择，Plus 与 Model 不可混用。其他板型在生成镜像前需新增匹配的 board profile，并确认 DTB、U-Boot 与存储布局。
+
+---
+
+## 快速路径
+
+先构建或拉取 builder 镜像，再准备 SDK，再指定 `BOARD` / `ROOTFS` 执行完整构建。
+
+### 路径 A：ROCK 5C + Debian 13（公开源，推荐入门）
 
 ```bash
-docker pull ghcr.io/lsy1291455142/rk3588-build:latest
-docker tag ghcr.io/lsy1291455142/rk3588-build:latest rk3588-build:latest
+make build
+make fetch-rock5c
+make build-all \
+  BOARD=rk3588s-rock-5c \
+  SDK_VOLUME=rk3588-sdk-rock5c \
+  ROOTFS=debian \
+  DEBIAN_RELEASE=13
+make test-debian-qemu \
+  BOARD=rk3588s-rock-5c \
+  SDK_VOLUME=rk3588-sdk-rock5c \
+  DEBIAN_RELEASE=13
 ```
 
-本仓库的 `Makefile` / Compose 默认使用本地镜像名 `rk3588-build:latest`，因此拉取后请打上面这个本地 tag，或继续用 `make build` 本地构建。
+`test-debian-qemu` 在 ARM64 virt 上做冒烟测试（串口登录、systemd、扩容、网络/SSH），**不能**替代真实硬件验收。
 
-### 配合本地 CokePi SDK 使用
+### 路径 B：CokePi（本地 SDK）
+
+SDK 需已解压，根目录直接包含 `kernel/`、`u-boot/`、`rkbin/`、`buildroot/`。导入为 bind-backed volume，**不复制**源码。
 
 ```bash
-# 1) 准备本地 tag
-docker pull ghcr.io/lsy1291455142/rk3588-build:latest
-docker tag ghcr.io/lsy1291455142/rk3588-build:latest rk3588-build:latest
+# builder：本地构建，或拉取 GHCR 后打本地 tag
+make build
+# docker pull ghcr.io/lsy1291455142/rk3588-build:latest
+# docker tag ghcr.io/lsy1291455142/rk3588-build:latest rk3588-build:latest
 
-# 2) 导入本机已解压的 CokePi SDK（不复制源码）
 make import-local-sdk \
   SDK_PATH=/absolute/path/to/rk3588_linux-5.10-cokepi-rkr9 \
   SDK_VOLUME=rk3588-sdk-cokepi-rkr9
 make verify-cokepi-sdk SDK_VOLUME=rk3588-sdk-cokepi-rkr9
 
-# 3) 选择板型并构建
-make use-board-cokepi-model   # 或 make use-board-cokepi-plus
+# Model 示例；Plus 改为 use-board-cokepi-plus / 对应 BOARD
+make use-board-cokepi-model
 make use-rootfs-debian
 make build-all \
   BOARD=rk3588s-cokepi-model-lp4-v10 \
@@ -69,337 +143,161 @@ make build-all \
   DEBIAN_RELEASE=13
 ```
 
-说明：
-
-- 推送到 GHCR 的是 **工具链容器**，不是可烧录系统镜像
-- SDK 始终外挂；CokePi 继续走 `import-local-sdk`
-- 镜像内 COPY 了构建时的 `scripts/configs/manifests/rootfs`；用本仓库 `docker compose` 时，这些目录仍会被当前工作区 bind mount 覆盖
-- 需要 Debian rootfs 构建时，仍要在本机执行 `make build-debian-builder`（该镜像不由本 CI 推送）
-
-## 宿主机架构支持
-
-| 宿主机架构 | U-Boot/Kernel | Buildroot rootfs | Debian rootfs | 说明 |
-|---|---|---|---|---|
-| x86_64 (PC/Codespace) | 交叉编译 | 交叉编译 | QEMU binfmt 模拟 ARM64 | 自动注册 binfmt，自动安装 i386 兼容库 |
-| ARM64 (服务器/开发板) | 交叉编译或原生编译 | 交叉编译 | 原生 ARM64 | 自动安装 qemu-user-static 用于运行 rkbin 中的 x86-64 预编译工具 |
-
-两套架构均无需手动配置，`make` 会自动检测并处理。
-
-## 支持范围
-
-- Kernel `Image`、指定板级 DTB、内核模块
-- Rockchip loader 和 `uboot.img`
-- 同一 builder 同时提供 Python 2/3，并按 BOARD profile 选择 U-Boot 解释器
-- U-Boot GPT/extlinux 启动能力与签名策略构建时校验
-- Buildroot `2025.02.15`
-- Debian 11/bullseye、12/bookworm、13/trixie，默认 Debian 13
-- `ROOTFS=buildroot`、`ROOTFS=debian`、`ROOTFS=all`
-- FAT32 boot 分区、extlinux、ext4 rootfs
-- 首次启动在线扩展 rootfs
-- 串口、DHCP、SSH、sudo 和常用诊断工具
-- root 账户可直接登录（密码与普通用户相同）
-- 4 GiB GPT raw image、`.img.zst`、SHA256 和元数据
-
-当前内置以下完整镜像板级配置：
-
-| `BOARD` | 开发板 | 配套 SDK |
-|---|---|---|
-| `rk3588-evb1-lp4-v10-linux` | Rockchip RK3588 EVB1 LP4 V1.0 | `rk3588-sdk-rockchip-5.10` |
-| `rk3588-cokepi-plus-lp4-v10` | CokePi Plus LP4 V1.0 (RK3588) | `rk3588-sdk-cokepi-rkr9`（本地导入） |
-| `rk3588s-rock-5c` | Radxa ROCK 5C | `rk3588-sdk-rock5c` |
-| `rk3588s-cokepi-model-lp4-v10` | CokePi Model LP4 V1.0 (RK3588S) | `rk3588-sdk-cokepi-rkr9`（本地导入） |
-
-其他开发板可以拉取源码，但在生成最终镜像前必须增加匹配的
-`configs/boards/<board>.conf`，并确认 DTB、U-Boot 和存储布局。
-
-## 快速开始
-
-宿主机需要 Docker Engine/Desktop、Docker Compose v2 和 GNU Make。Windows
-建议在 Git Bash 或 WSL 中运行 `make`。
-
-运行 `make help` 可以看到经过测试的完整命令。构建 ROCK 5C Debian 13 时，
-不需要手工创建 Docker volume，或在宿主机安装 QEMU 和交叉编译器。`BOARD`、
-`SDK_VOLUME` 和 `ROOTFS` 是分开设置的：既可命令行显式传入，也可分别用
-`make use-volume-*`、`make use-board-*` 和 `make use-rootfs-*` 写入 `.env`：
+### 路径 C：EVB1 + Buildroot
 
 ```bash
 make build
-make fetch-rock5c
-make use-volume-rock5c
-make use-board-rock5c
-make use-rootfs-debian
-# 也可以: make use-volume && make use-board && make use-rootfs
-make build-all DEBIAN_RELEASE=13
-make test-debian-qemu DEBIAN_RELEASE=13
-```
-
-也可以不使用 `.env`，直接在命令中指定：
-
-```bash
+make fetch-510
 make build-all \
-  BOARD=rk3588s-rock-5c \
-  SDK_VOLUME=rk3588-sdk-rock5c \
-  ROOTFS=debian \
-  DEBIAN_RELEASE=13
+  BOARD=rk3588-evb1-lp4-v10-linux \
+  SDK_VOLUME=rk3588-sdk-rockchip-5.10 \
+  ROOTFS=buildroot
 ```
 
-所有组件构建都要求显式 `BOARD`，rootfs 和镜像相关目标还要求显式 `ROOTFS`。
-这两个选择都不会回落到默认值。
+---
 
-Debian rootfs 在独立的 `linux/arm64` 容器中构建。选择 `ROOTFS=debian` 后，
-`make build-rootfs` 和 `make build-all` 会自动准备该 builder：x86_64 Docker 主机通过
-`tonistiigi/binfmt` 注册 ARM64 QEMU 模拟，ARM64 Docker 主机直接原生运行。
-`make build-debian-builder` 仍可用于单独预构建或刷新 builder。`mmdebstrap`
-构建期间需要在容器内创建临时挂载，因此 `debian-rootfs` 服务以 privileged
-模式运行。只应在可信代码和可信构建主机上执行 Debian rootfs 构建。
+## Builder 镜像
 
-## 多 SDK 源切换
-
-每个 BSP 源码拉取到独立的 Docker volume，切换时不需要重新下载，也不会交叉
-污染：
-
-| 命令 | Volume | 说明 |
-|---|---|---|
-| `make fetch-510` | `rk3588-sdk-rockchip-5.10` | Rockchip Linux 5.10 LTS |
-| `make fetch-61` | `rk3588-sdk-rockchip-6.1` | Rockchip Linux 6.1 LTS |
-| `make fetch-66` | `rk3588-sdk-rockchip-6.6` | Rockchip Linux 6.6 |
-| `make fetch-firefly` | `rk3588-sdk-firefly` | Firefly AIO-3588 BSP |
-| `make fetch-radxa` | `rk3588-sdk-radxa` | Radxa Rock 5B BSP |
-| `make fetch-rock5c` | `rk3588-sdk-rock5c` | Radxa Rock 5C BSP |
-| `make fetch-orangepi` | `rk3588-sdk-orangepi` | OrangePi 5 BSP |
-
-自定义本地 manifest：
+### 本地构建
 
 ```bash
-make fetch-custom \
-  SDK_VOLUME=rk3588-sdk-cokepi \
-  MANIFEST=rk3588-cokepi.xml
+make build                 # 构建 rk3588-build:latest
+make build-debian-builder  # Debian rootfs 用 ARM64 builder（按需）
 ```
 
-自定义远程 manifest 仓库：
+Debian rootfs 在独立 `linux/arm64` 容器中构建（`mmdebstrap`，privileged）。选择 `ROOTFS=debian` 时，`build-rootfs` / `build-all` 会自动准备该 builder。仅在可信主机与可信代码上执行。
+
+Builder 基于 Ubuntu 22.04，同时提供 Python 2/3，供不同 U-Boot BSP 使用。`UBOOT_PYTHON` 在 board profile 中显式指定；全局 `python` 仍指向 Python 3。
+
+### 从 GHCR 拉取
+
+CI 只发布 **`rk3588-build` 工具链镜像**，不包含厂商 SDK、板级 `.img`，也不推送 `debian-rootfs`。
+
+```text
+ghcr.io/lsy1291455142/rk3588-build:latest
+ghcr.io/lsy1291455142/rk3588-build:main
+ghcr.io/lsy1291455142/rk3588-build:sha-<short-sha>
+```
+
+触发：`main` 上与 builder 相关路径变更自动构建并 push；PR 只构建不 push；也可在 Actions 中手动运行 `docker-rk3588-build`。
 
 ```bash
+# 私有 package 时先登录（需 read:packages）
+echo "$GHCR_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
+
+docker pull ghcr.io/lsy1291455142/rk3588-build:latest
+docker tag ghcr.io/lsy1291455142/rk3588-build:latest rk3588-build:latest
+```
+
+Makefile / Compose 默认使用本地名 `rk3588-build:latest`，拉取后需打上述 tag。使用本仓库 `docker compose` 时，工作区中的 `scripts/`、`configs/` 等仍会 bind mount 覆盖镜像内副本。
+
+---
+
+## SDK 管理
+
+每个 BSP 源码对应独立 volume，互不污染：
+
+| 命令 | Volume |
+|---|---|
+| `make fetch-510` | `rk3588-sdk-rockchip-5.10` |
+| `make fetch-61` | `rk3588-sdk-rockchip-6.1` |
+| `make fetch-66` | `rk3588-sdk-rockchip-6.6` |
+| `make fetch-firefly` | `rk3588-sdk-firefly` |
+| `make fetch-radxa` | `rk3588-sdk-radxa` |
+| `make fetch-rock5c` | `rk3588-sdk-rock5c` |
+| `make fetch-orangepi` | `rk3588-sdk-orangepi` |
+
+自定义：
+
+```bash
+make fetch-custom SDK_VOLUME=rk3588-sdk-custom MANIFEST=my-board.xml
 make fetch-custom \
   SDK_VOLUME=rk3588-sdk-custom \
   CUSTOM_MANIFEST_URL=https://example.com/manifests.git \
-  CUSTOM_MANIFEST_NAME=cokepi.xml
-```
-
-没有交互式 SDK 选择。每次拉取必须通过明确的 `fetch-*` target 或
-`fetch-custom` 指定 manifest 和 volume，避免源码混用。
-
-### 导入已经下载的本地 SDK
-
-如果宿主机上已经有完整 SDK，不要先复制到普通 Docker volume。大型 BSP 通常
-占用 20 GB 以上，复制会额外占用同等磁盘空间。项目可以创建一个由宿主机目录
-支撑的命名 volume，Compose 仍然通过统一的 `SDK_VOLUME` 接口使用它：
-
-```bash
-make build
-make import-local-sdk \
-  SDK_PATH=/absolute/path/to/rk3588-sdk \
-  SDK_VOLUME=rk3588-sdk-cokepi
-make verify-sdk-volume SDK_VOLUME=rk3588-sdk-cokepi
-```
-
-导入命令要求 SDK 根目录直接包含 `kernel/`、`u-boot/`、`rkbin/` 和
-`buildroot/`，并自动把 `SDK_VOLUME` 写入 `.env`。源码不会复制；容器中的
-`/home/builder/sdk` 直接映射到宿主机目录，构建缓存目录 `.rk3588-build/` 也会
-写在该 SDK 根目录下。删除 Docker volume 不会删除宿主机 SDK，但移动或删除
-宿主机目录会使 volume 失效。Docker daemon 必须能够访问传入的绝对路径。
-
-本地 SDK volume 只解决源码接入。新开发板仍需在 `configs/boards/` 增加与硬件
-匹配的 profile，明确指定内核 DTB 和 U-Boot 配置，然后再设置 `BOARD`。
-
-当前本机的 CokePi RKR9 SDK 可以直接导入并验证：
-
-```bash
-make import-local-sdk \
-  SDK_PATH=/root/downloads/rk3588_linux-5.10-cokepi-rkr9/rk3588_linux-5.10-cokepi-rkr9 \
-  SDK_VOLUME=rk3588-sdk-cokepi-rkr9
-make verify-cokepi-sdk SDK_VOLUME=rk3588-sdk-cokepi-rkr9
-```
-
-根据开发板丝印二选一，命令只修改 `BOARD`，不会修改已经导入的 SDK volume：
-
-```bash
-# RK3588 CokePi Plus
-make use-board-cokepi-plus
-
-# RK3588S CokePi Model
-make use-board-cokepi-model
-```
-
-两套 profile 分别采用 SDK 中面向 HDMI 输出的 `rk3588-cpp-hdmi.dtb` 和
-`rk3588s-cpm-hdmi1.dtb`。应按实物型号选择，不能把 Plus 与 Model 混用。
-
-构建时通过 `SDK_VOLUME`、`BOARD` 和 `ROOTFS` 指定 SDK、板型与根文件系统。
-三者分开写入 `.env`，
-之后命令自动继承：
-
-```bash
-# 分别写入 SDK volume、board 和 rootfs
-# 交互选择：
-make use-volume
-make use-board
-make use-rootfs
-# 或快捷目标：
-make use-volume-rock5c
-make use-board-rock5c
-make use-rootfs-debian
-make use-current
-
-# 用 Rock 5C SDK + Rock 5C board 构建
-make build-kernel
-make build-uboot
-make build-rootfs
-make image
-
-# 也可以临时覆盖
-make build-kernel BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c
-
-# 切回 Rockchip 5.10 SDK 与 EVB board
-make use-volume-rockchip-5.10
-make use-board-evb1
-make build-kernel
-
-# 更新指定 SDK
+  CUSTOM_MANIFEST_NAME=board.xml
 make update SDK_VOLUME=rk3588-sdk-radxa
-
-# 查看所有 SDK volume
 docker volume ls --filter name=rk3588
 ```
 
-`SDK_VOLUME`、`BOARD` 与 `ROOTFS` 都必须通过 `.env`、对应的 `use-*` 目标或
-命令行显式设置。三者都没有构建默认值，也不会互相覆盖。未设置 `ROOTFS` 时，
-`make build-rootfs`、`make image`、`make verify-image` 和 `make build-all` 会直接报错。
+### 本地导入（大体积 SDK）
 
-## 输出目录
+```bash
+make import-local-sdk \
+  SDK_PATH=/absolute/path/to/sdk \
+  SDK_VOLUME=rk3588-sdk-local
+make verify-sdk-volume SDK_VOLUME=rk3588-sdk-local
+```
+
+要求 SDK 根目录含 `kernel/`、`u-boot/`、`rkbin/`、`buildroot/`。容器内 `/home/builder/sdk` 直接映射该目录；构建缓存写在 SDK 下的 `.rk3588-build/`。删除 Docker volume **不会**删除宿主机源码；移动宿主机路径会使 volume 失效。Docker daemon 须能访问传入的绝对路径。
+
+本地 volume 只解决源码接入；新硬件仍须增加 board profile。
+
+---
+
+## 构建目标与产物
+
+```bash
+make build-kernel    # Image、DTB、modules.tar
+make build-uboot     # idblock.img、uboot.img、download-loader.bin
+make build-rootfs    # Buildroot 和/或 Debian rootfs
+make image           # 打包 GPT 镜像，并自动 verify-image
+make verify-image    # 单独离线校验
+make build-all       # kernel + uboot + rootfs + image
+make test-debian-qemu
+make test-debian-all # 复用一次 bootloader/kernel，依次打 Debian 11/12/13
+```
+
+产物目录：
 
 ```text
 output/<board>/
 ├── common/
 │   ├── Image
-│   ├── <board>.dtb
-│   ├── kernel-release
-│   ├── kernel.config
+│   ├── <board-or-dtb-name>.dtb
 │   ├── modules.tar
-│   ├── download-loader.bin
-│   ├── idblock.img
+│   ├── idblock.img          # RKNS，写入 sector 64
 │   ├── uboot.img
+│   ├── download-loader.bin  # LDR，供 rkdeveloptool db
 │   └── *-build-info.txt
 ├── buildroot/
 │   ├── rootfs.ext4
-│   ├── rootfs.tar
-│   ├── <board>-buildroot.img
-│   ├── <board>-buildroot.img.zst
-│   ├── <board>-buildroot.sha256
-│   └── image-build-info.txt
+│   ├── <board>-buildroot.img[.zst]
+│   └── ...
 └── debian-13/
     ├── rootfs.ext4
-    ├── rootfs.tar
-    ├── <board>-debian-13.img
-    ├── <board>-debian-13.img.zst
-    ├── <board>-debian-13.sha256
-    └── image-build-info.txt
+    ├── <board>-debian-13.img[.zst]
+    └── ...
 ```
 
-`download-loader.bin` 是带 `LDR ` 头的 USB 下载容器，可用于
-`rkdeveloptool db`。`idblock.img` 是带 `RKNS` 头的 SD/eMMC 启动块；整盘 raw
-IMG 只会把 `idblock.img` 写入 sector 64，不会把下载容器原样写入磁盘。
+打包进 FAT 的 DTB 会去掉 `/chosen/bootargs`，保证启动参数以 extlinux 为准（`root=PARTLABEL=rootfs`），避免厂商 DTB 中固定 `root=PARTUUID=...` 覆盖。
 
-每次 `make image` 都会自动运行离线校验，包括 GPT 几何、bootloader 固定偏移、
-FAT 中的 Kernel/DTB/extlinux、ext4 一致性、rootfs 标签、内核模块版本、开发
-账户、root 登录状态、首次启动扩容钩子、锁定源码 revision 和 QEMU 所需内核
-配置。打包 DTB 的 `/chosen/bootargs` 会在内核产物阶段删除并被校验，避免厂商
-DTB 中固定的 `root=PARTUUID=...` 覆盖 extlinux 的 `root=PARTLABEL=rootfs`。
-
-`make test-debian-qemu` 使用构建出的同一个 Kernel 和完整 raw GPT 镜像，在
-ARM64 `virt` 机器上验证 Debian 13 能到达串口登录、systemd 无失败单元、首次
-扩容成功、网络和 SSH 可用。QEMU 不能模拟 RK3588 的 DDR、PMIC、MMC 控制器
-和真实 loader/U-Boot，因此开发板串口启动仍是最终硬件验收。
-
-## 镜像布局
+### 镜像布局
 
 ```text
 sector 0                    Protective MBR / GPT
-sector 64                   Rockchip loader
+sector 64                   idblock.img (RKNS)
 sector 16384                uboot.img
-16 MiB .. 272 MiB           FAT32 boot partition
-272 MiB .. image end        ext4 rootfs partition
+16 MiB .. 272 MiB           FAT32 BOOT：Image、DTB、extlinux
+272 MiB .. image end        ext4 rootfs（PARTLABEL=rootfs）
 ```
 
-rootfs 文件系统初始为 2 GiB，分区占用镜像剩余空间。Debian 首次启动时使用
-`sgdisk -e` 修复备份 GPT，使用 `growpart` 将 rootfs 分区扩展到磁盘末尾，
-再通过 `resize2fs` 扩展 ext4 文件系统。
+rootfs 文件系统初始约 2 GiB，分区占满镜像剩余空间。Debian 首次启动会修复备份 GPT、扩展分区与 ext4。
 
-## 默认登录
+### 默认登录
 
 ```text
-username: rk3588
-password: rk3588
-root password: rk3588
+用户: rk3588
+密码: rk3588
+root 密码: rk3588
 ```
 
-可通过 `ROOTFS_USERNAME` 修改普通用户名称，`ROOTFS_PASSWORD` 同时修改普通用户
-和 root 的密码。默认密码只适合隔离的开发网络，接入其他网络前必须更换。
+`ROOTFS_USERNAME` / `ROOTFS_PASSWORD` 可改。默认密码仅适合隔离实验环境。
 
-## 常用命令
+---
 
-```bash
-make help
-make build
-make build-debian-builder  # 可选：提前构建/刷新 ARM64 Debian builder
-make check
+## 烧录
 
-# 拉取 SDK
-make fetch-510
-make fetch-radxa
-make fetch-rock5c
-make update SDK_VOLUME=rk3588-sdk-radxa
-
-# 组件构建
-make use-volume-rockchip-5.10
-make use-board-evb1
-make use-rootfs-buildroot
-make build-kernel
-make build-uboot
-make build-rootfs
-
-# 切换 SDK 源
-make use-volume-rock5c
-make use-board-rock5c
-make build-kernel
-make build-uboot
-
-# 生成镜像
-make use-volume-rockchip-5.10
-make use-board-evb1
-make use-rootfs-buildroot
-make image
-make verify-image
-make test-debian-qemu \
-  BOARD=rk3588s-rock-5c \
-  SDK_VOLUME=rk3588-sdk-rock5c \
-  DEBIAN_RELEASE=13
-
-# 一次性构建 Debian 11/12/13
-make use-volume-rockchip-5.10
-make use-board-evb1
-make test-debian-all
-
-make shell                # 进入构建容器
-make status               # 查看容器和 volume 状态
-make clean                # 停止容器
-make clean-all            # 停止容器并删除 volume 和镜像
-```
-
-`make test-debian-all` 会复用一次 Kernel/U-Boot 构建，依次生成并校验 Debian
-11、12、13 镜像。
-
-## 写入存储介质
-
-先核对目标设备名，写错设备会覆盖宿主机磁盘：
+务必核对目标设备名，写错会覆盖宿主机磁盘：
 
 ```bash
 zstd -d output/<board>/<variant>/<board>-<variant>.img.zst
@@ -407,34 +305,39 @@ sudo dd if=output/<board>/<variant>/<board>-<variant>.img \
   of=/dev/sdX bs=4M status=progress conv=fsync
 ```
 
-本项目只生成 SD/eMMC 使用的 raw GPT 镜像，不生成 Rockchip `update.img`，
-也不处理 SPI NAND、桌面环境、Mali/MPP/RKNPU 用户态组件。
+---
 
-## 源码与板级适配
+## 新板适配要点
 
-七个 manifest 都包含官方 Buildroot `2025.02.15`：
+1. 准备对应 SDK（`fetch-*` 或 `import-local-sdk`）
+2. 复制最近似的 `configs/boards/*.conf`，修改 DTB、defconfig、U-Boot 参数与串口
+3. 确认 loader / U-Boot 扇区不与 boot 分区重叠
+4. 用 `BOARD=...` 构建并做离线校验，再在硬件上串口验收
 
-```text
-kernel/       Rockchip 或板厂内核
-u-boot/       Rockchip 或板厂 U-Boot
-rkbin/        DDR init、TF-A、OP-TEE 等预编译固件和打包工具
-buildroot/    官方 Buildroot 固定版本
+字段说明见 [configs/README.md](configs/README.md)，阶段细节见 [构建流程](docs/RK3588_SYSTEM_IMAGE_BUILD_FLOW.md)。
+
+---
+
+## CI 与依赖更新
+
+- **GitHub Actions**：`.github/workflows/docker-rk3588-build.yml` 构建并推送 `rk3588-build` 至 GHCR。
+- **Dependabot**：`.github/dependabot.yml` 跟踪 Docker 基础镜像与 Actions 版本。对 `ubuntu` / `debian` 的 **major** 升级已 ignore——builder 固定在 Ubuntu 22.04（Python 2、i386 兼容栈），大版本升级需单独评估，不宜直接合入。
+
+---
+
+## 其他命令
+
+```bash
+make help
+make check
+make shell          # 进入构建容器
+make status
+make clean          # 停止容器
+make clean-all      # 停止并删除 volume / 镜像
 ```
 
-板级差异集中在 `configs/boards/`。新增板卡时至少要确认：
-
-- `KERNEL_DTB` 与实际硬件一致
-- U-Boot `make.sh` 参数、`UBOOT_PYTHON` 和 loader 文件匹配
-- 串口设备与波特率正确
-- SD/eMMC 控制器在 Kernel 和 DTB 中启用
-- loader、U-Boot、boot 分区的偏移没有重叠
-
-`UBOOT_PYTHON` 必须在 BOARD profile 中显式设置为 `python2` 或 `python3`。
-builder 全局保持 `python -> python3`；U-Boot 构建只在当前进程内让裸 `python`
-指向所选版本，因此旧 BSP 与新 BSP 可以复用同一个镜像。
+---
 
 ## 许可证
 
-分发镜像时需要同时处理 Kernel、U-Boot、Buildroot/Debian 软件包及 rkbin
-固件各自的许可证义务。Kernel/U-Boot 的 GPL 源码提供义务不会因为使用容器
-构建而消失。
+分发镜像时需同时处理 Kernel、U-Boot、Buildroot/Debian 软件包及 rkbin 固件各自的许可证义务。容器构建不免除 Kernel / U-Boot 的 GPL 源码提供义务。
