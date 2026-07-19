@@ -173,6 +173,8 @@ Builder 基于 Ubuntu 22.04，同时提供 Python 2/3，供不同 U-Boot BSP 使
 
 CI 只发布 **`rk3588-build` 工具链镜像**，不包含厂商 SDK、板级 `.img`，也不推送 `debian-rootfs`。
 
+镜像为 **multi-arch**：`linux/amd64` 与 `linux/arm64` 同一 tag。Docker 会按宿主机架构自动拉取对应变体；x86_64 主机交叉编译目标板，ARM64 主机可原生运行 builder。
+
 ```text
 ghcr.io/lsy1291455142/rk3588-build:latest
 ghcr.io/lsy1291455142/rk3588-build:main
@@ -320,7 +322,7 @@ sudo dd if=output/<board>/<variant>/<board>-<variant>.img \
 
 ## CI 与依赖更新
 
-- **GitHub Actions**：`.github/workflows/docker-rk3588-build.yml` 构建并推送 `rk3588-build` 至 GHCR。
+- **GitHub Actions**：`.github/workflows/docker-rk3588-build.yml` 分别在 x64 / ARM runner 上构建 `linux/amd64` 与 `linux/arm64`，合并为 multi-arch 清单后推送 `rk3588-build` 至 GHCR。
 - **Dependabot**：`.github/dependabot.yml` 跟踪 Docker 基础镜像与 Actions 版本。对 `ubuntu` / `debian` 的 **major** 升级已 ignore——builder 固定在 Ubuntu 22.04（Python 2、i386 兼容栈），大版本升级需单独评估，不宜直接合入。
 
 ---
