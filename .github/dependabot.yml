@@ -1,0 +1,38 @@
+# Dependabot configuration for rk3588-build.
+# This repo is mostly shell/Make/Docker; there is no npm/pip app lockfile yet.
+# Start with Docker base images, and keep GitHub Actions ready for future workflows.
+version: 2
+updates:
+  # Dockerfile base images:
+  # - ubuntu:22.04 (rk3588-build)
+  # - debian:trixie-slim (debian-rootfs)
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - docker
+    commit-message:
+      prefix: "docker"
+      include: "scope"
+
+  # Future .github/workflows/* action versions (checkout, upload-artifact, etc.)
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:30"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "ci"
+      include: "scope"
