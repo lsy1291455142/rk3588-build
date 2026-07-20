@@ -4,7 +4,7 @@
 
 本仓库管理的是**构建流程与板级配置**，不是厂商 BSP 本体。SDK 通过独立 Docker volume 接入；CokePi 等无法公开拉取的 SDK 使用本地导入。
 
-构建阶段说明见 [完整系统镜像构建流程](docs/RK3588_SYSTEM_IMAGE_BUILD_FLOW.md) / [在线文档](https://lsy1291455142.github.io/rk3588-build/)。板级字段说明见 [configs/README.md](configs/README.md) 与 [板级配置](https://lsy1291455142.github.io/rk3588-build/boards/profiles)。
+构建与使用说明见 [在线文档](https://lsy1291455142.github.io/rk3588-build/)。板级字段见 [configs/README.md](configs/README.md) 与 [已支持板型](https://lsy1291455142.github.io/rk3588-build/boards/supported)。
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/lsy1291455142/rk3588-build)
 
@@ -338,7 +338,7 @@ sudo dd if=output/<board>/<variant>/<board>-<variant>.img \
 3. 确认 loader / U-Boot 扇区不与 boot 分区重叠
 4. 用 `BOARD=...` 构建并做离线校验，再在硬件上串口验收
 
-字段说明见 [configs/README.md](configs/README.md)，阶段细节见 [构建流程](docs/RK3588_SYSTEM_IMAGE_BUILD_FLOW.md)。
+字段说明见 [configs/README.md](configs/README.md)，阶段细节见 [构建流水线](https://lsy1291455142.github.io/rk3588-build/how-it-works/pipeline)。
 
 ---
 
