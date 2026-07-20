@@ -4,7 +4,7 @@
 
 本仓库管理的是**构建流程与板级配置**，不是厂商 BSP 本体。SDK 通过独立 Docker volume 接入；CokePi 等无法公开拉取的 SDK 使用本地导入。
 
-构建阶段说明见 [完整系统镜像构建流程](docs/RK3588_SYSTEM_IMAGE_BUILD_FLOW.md)。板级字段说明见 [configs/README.md](configs/README.md)。
+构建阶段说明见 [完整系统镜像构建流程](docs/RK3588_SYSTEM_IMAGE_BUILD_FLOW.md) / [在线文档](https://lsy1291455142.github.io/rk3588-build/)。板级字段说明见 [configs/README.md](configs/README.md) 与 [板级配置](https://lsy1291455142.github.io/rk3588-build/boards/profiles)。
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/lsy1291455142/rk3588-build)
 
@@ -358,6 +358,27 @@ make status
 make clean          # 停止容器
 make clean-all      # 停止并删除 volume / 镜像
 ```
+
+---
+
+## 文档站点
+
+本仓库使用 [VitePress](https://vitepress.dev/) 生成文档（与 CPA Manager Plus 同类方案）：
+
+```bash
+cd docs
+npm install
+npm run dev      # 本地预览
+npm run build    # 输出到 docs/.vitepress/dist
+```
+
+推送到 `main` 后，GitHub Actions 会部署到 GitHub Pages：
+
+```text
+https://lsy1291455142.github.io/rk3588-build/
+```
+
+仓库设置中需启用 **Pages → Source = GitHub Actions**。
 
 ---
 
