@@ -1,58 +1,61 @@
 import { defineConfig, type DefaultTheme } from 'vitepress'
 
 const nav: DefaultTheme.NavItem[] = [
-  { text: '首页', link: '/' },
-  { text: '快速开始', link: '/guide/getting-started' },
-  { text: '构建流程', link: '/build/pipeline' },
-  { text: '板级配置', link: '/boards/profiles' },
+  { text: '简介', link: '/intro/what-is' },
+  { text: '快速上手', link: '/usage/quick-start' },
+  { text: '工作原理', link: '/how-it-works/architecture' },
+  { text: '板型', link: '/boards/supported' },
   {
-    text: 'GitHub',
+    text: '仓库',
     link: 'https://github.com/lsy1291455142/rk3588-build',
   },
 ]
 
 const sidebar: DefaultTheme.Sidebar = [
   {
-    text: '开始使用',
+    text: '简介',
     items: [
-      { text: '文档首页', link: '/' },
-      { text: '快速开始', link: '/guide/getting-started' },
-      { text: '环境与参数', link: '/guide/concepts' },
-      { text: 'Builder 镜像', link: '/guide/builder' },
-      { text: 'SDK 管理', link: '/guide/sdk' },
+      { text: '这是什么', link: '/intro/what-is' },
+      { text: '环境要求', link: '/intro/requirements' },
     ],
   },
   {
-    text: '构建与产物',
+    text: '使用',
     items: [
-      { text: '流水线总览', link: '/build/pipeline' },
-      { text: '阶段说明', link: '/build/stages' },
-      { text: '产物与布局', link: '/build/artifacts' },
-      { text: '烧录与登录', link: '/build/flash' },
-      { text: '校验边界', link: '/build/verification' },
+      { text: '第一次构建', link: '/usage/quick-start' },
+      { text: '日常构建', link: '/usage/daily-build' },
+      { text: '烧录与启动', link: '/usage/flash-and-boot' },
+      { text: 'SDK 从哪来', link: '/usage/sdk' },
     ],
   },
   {
-    text: '板型适配',
+    text: '工作原理',
     items: [
-      { text: '已支持板型', link: '/boards/profiles' },
-      { text: '新板检查清单', link: '/boards/new-board' },
+      { text: '架构与目录', link: '/how-it-works/architecture' },
+      { text: '构建流水线', link: '/how-it-works/pipeline' },
+      { text: '磁盘与启动契约', link: '/how-it-works/boot-contract' },
+    ],
+  },
+  {
+    text: '板型',
+    items: [
+      { text: '已支持板型', link: '/boards/supported' },
+      { text: '新增板型', link: '/boards/add-board' },
     ],
   },
   {
     text: '参考',
     items: [
-      { text: '常用命令', link: '/reference/commands' },
-      { text: 'CI 与依赖', link: '/reference/ci' },
-      { text: 'FAQ', link: '/reference/faq' },
+      { text: 'Make 目标', link: '/reference/make-targets' },
+      { text: '变量与 .env', link: '/reference/variables' },
+      { text: '排错', link: '/reference/troubleshooting' },
     ],
   },
 ]
 
 export default defineConfig({
-  title: 'RK3588 Build',
-  description:
-    '基于 Docker 的 RK3588 BSP 构建文档：loader、U-Boot、内核、rootfs 与 GPT 镜像打包。',
+  title: 'rk3588-build',
+  description: '在 Docker 里用厂商 BSP 打出可烧录的 RK3588 GPT 系统镜像。',
   lang: 'zh-CN',
   base: '/rk3588-build/',
   lastUpdated: true,
@@ -61,9 +64,9 @@ export default defineConfig({
   sitemap: {
     hostname: 'https://lsy1291455142.github.io/rk3588-build/',
   },
-  head: [['meta', { name: 'theme-color', content: '#2563eb' }]],
+  head: [['meta', { name: 'theme-color', content: '#1f6feb' }]],
   themeConfig: {
-    siteTitle: 'RK3588 Build',
+    siteTitle: 'rk3588-build',
     nav,
     sidebar,
     search: {
@@ -75,9 +78,9 @@ export default defineConfig({
             buttonAriaLabel: '搜索文档',
           },
           modal: {
-            noResultsText: '没有找到相关结果',
-            resetButtonTitle: '清除查询条件',
-            displayDetails: '显示详细列表',
+            noResultsText: '没有结果',
+            resetButtonTitle: '清空',
+            displayDetails: '显示详情',
             footer: {
               selectText: '选择',
               navigateText: '切换',
@@ -96,27 +99,18 @@ export default defineConfig({
     editLink: {
       pattern:
         'https://github.com/lsy1291455142/rk3588-build/edit/main/docs/:path',
-      text: '编辑此页',
+      text: '在 GitHub 上编辑',
     },
-    lastUpdated: {
-      text: '最后更新',
-    },
-    outline: {
-      label: '本页目录',
-      level: [2, 3],
-    },
-    docFooter: {
-      prev: '上一页',
-      next: '下一页',
-    },
-    sidebarMenuLabel: '菜单',
-    returnToTopLabel: '返回顶部',
-    darkModeSwitchLabel: '外观',
-    lightModeSwitchTitle: '切换到浅色模式',
-    darkModeSwitchTitle: '切换到深色模式',
+    lastUpdated: { text: '更新于' },
+    outline: { label: '本页', level: [2, 3] },
+    docFooter: { prev: '上一页', next: '下一页' },
+    sidebarMenuLabel: '目录',
+    returnToTopLabel: '回到顶部',
+    darkModeSwitchLabel: '主题',
+    lightModeSwitchTitle: '浅色',
+    darkModeSwitchTitle: '深色',
     footer: {
-      message: 'Docker-based RK3588 BSP build environment',
-      copyright: 'Copyright © RK3588 Build contributors',
+      message: '源码与 issues: github.com/lsy1291455142/rk3588-build',
     },
   },
 })
