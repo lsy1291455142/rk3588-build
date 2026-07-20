@@ -86,6 +86,7 @@ make build-all \
 | `rk3588-evb1-lp4-v10-linux` | Rockchip EVB1 LP4 V1.0 | `rk3588-sdk-rockchip-5.10` | `make fetch-510` |
 | `rk3588-cokepi-plus-lp4-v10` | CokePi Plus（RK3588） | `rk3588-sdk-cokepi-rkr9` | 本地 `import-local-sdk` |
 | `rk3588s-cokepi-model-lp4-v10` | CokePi Model（RK3588S） | `rk3588-sdk-cokepi-rkr9` | 本地 `import-local-sdk` |
+| `rk3588-muse` | MUSE RK3588（eMMC） | `rk3588-sdk-muse-5.10` | `make fetch-muse`（kernel: `MUSEInstitute/kernel`） |
 
 CokePi 两套 profile 分别使用 SDK 中 HDMI 设备树：
 
@@ -154,6 +155,25 @@ make build-all \
   ROOTFS=buildroot
 ```
 
+### 路径 D：MUSE RK3588 + Debian 13
+
+kernel 使用组织 fork [`MUSEInstitute/kernel`](https://github.com/MUSEInstitute/kernel) 的 `develop-5.10`；u-boot / rkbin 仍走 Rockchip 公开仓。构建前须在 fork 中提供 `rk3588-muse.dts`（输出 `rk3588-muse.dtb`）。
+
+```bash
+make build
+make fetch-muse
+make use-board-muse
+make use-rootfs-debian
+make build-all \
+  BOARD=rk3588-muse \
+  SDK_VOLUME=rk3588-sdk-muse-5.10 \
+  ROOTFS=debian \
+  DEBIAN_RELEASE=13
+```
+
+镜像为 GPT raw，可用 `dd` 写入 eMMC 或 SD；rootfs 通过 `PARTLABEL=rootfs` 挂载，不写死 `mmcblk` 设备名。
+
+
 ---
 
 ## Builder 镜像
@@ -208,6 +228,7 @@ Makefile / Compose 默认使用本地名 `rk3588-build:latest`，拉取后需打
 | `make fetch-radxa` | `rk3588-sdk-radxa` |
 | `make fetch-rock5c` | `rk3588-sdk-rock5c` |
 | `make fetch-orangepi` | `rk3588-sdk-orangepi` |
+| `make fetch-muse` | `rk3588-sdk-muse-5.10` |
 
 自定义：
 

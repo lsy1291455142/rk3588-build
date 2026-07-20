@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+  <remote name="muse"
+          fetch="https://github.com/MUSEInstitute"
+          review="" />
+  <remote name="rockchip"
+          fetch="https://github.com/rockchip-linux"
+          review="gerrit.rockchip.com" />
+  <remote name="buildroot" fetch="https://gitlab.com/buildroot.org" />
+
+  <default remote="rockchip"
+           revision="develop-5.10"
+           sync-j="4" />
+
+  <!-- MUSE RK3588 board: kernel from org fork; keep u-boot/rkbin public. -->
+  <project name="kernel" path="kernel"
+           remote="muse" revision="develop-5.10" />
+  <project name="u-boot" path="u-boot"
+           remote="rockchip" revision="next-dev" />
+  <project name="rkbin" path="rkbin"
+           remote="rockchip" revision="master" />
+  <project name="buildroot" path="buildroot"
+           remote="buildroot" revision="refs/tags/2025.02.15" />
+</manifest>

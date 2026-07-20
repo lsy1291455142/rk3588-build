@@ -6,11 +6,11 @@
 	register-arm64-binfmt \
 	import-local-sdk verify-sdk-volume verify-cokepi-sdk \
 	fetch-custom fetch-510 fetch-61 fetch-66 fetch-firefly fetch-radxa \
-	fetch-rock5c fetch-orangepi update shell debian-shell \
+	fetch-rock5c fetch-orangepi fetch-muse update shell debian-shell \
 	use-volume use-volume-rockchip-5.10 use-volume-rockchip-6.1 use-volume-rockchip-6.6 \
-	use-volume-firefly use-volume-radxa use-volume-rock5c use-volume-orangepi \
+	use-volume-firefly use-volume-radxa use-volume-rock5c use-volume-orangepi use-volume-muse \
 	use-board use-board-evb1 use-board-rock5c use-board-cokepi-plus \
-	use-board-cokepi-model use-rootfs use-rootfs-buildroot use-rootfs-debian \
+	use-board-cokepi-model use-board-muse use-rootfs use-rootfs-buildroot use-rootfs-debian \
 	use-rootfs-all use-current \
 	build-kernel build-uboot build-rootfs image verify-image pack \
 	build-all test-debian-all test-debian-qemu check clean clean-all status \
@@ -63,6 +63,7 @@ help:
 		'  make fetch-radxa                   Radxa Rock 5B -> rk3588-sdk-radxa' \
 		'  make fetch-rock5c                  Radxa Rock 5C -> rk3588-sdk-rock5c' \
 		'  make fetch-orangepi                OrangePi 5 -> rk3588-sdk-orangepi' \
+		'  make fetch-muse                    MUSE RK3588 (kernel fork) -> rk3588-sdk-muse-5.10' \
 		'  make fetch-custom SDK_VOLUME=... MANIFEST=...   Custom local manifest' \
 		'  make update SDK_VOLUME=<volume>    Update an existing SDK' \
 		'' \
@@ -75,6 +76,7 @@ help:
 		'  make use-volume-radxa             -> rk3588-sdk-radxa' \
 		'  make use-volume-rock5c            -> rk3588-sdk-rock5c' \
 		'  make use-volume-orangepi          -> rk3588-sdk-orangepi' \
+		'  make use-volume-muse              -> rk3588-sdk-muse-5.10' \
 		'' \
 		'Switch active board (writes .env BOARD only):' \
 		'  make use-board                    Interactive board picker' \
@@ -82,6 +84,7 @@ help:
 		'  make use-board-rock5c             -> rk3588s-rock-5c' \
 		'  make use-board-cokepi-plus        -> rk3588-cokepi-plus-lp4-v10' \
 		'  make use-board-cokepi-model       -> rk3588s-cokepi-model-lp4-v10' \
+		'  make use-board-muse               -> rk3588-muse' \
 		'' \
 		'Switch active root filesystem (writes .env ROOTFS only):' \
 		'  make use-rootfs                  Interactive rootfs picker' \
@@ -250,6 +253,14 @@ fetch-orangepi:
 		-e MANIFEST=rk3588-orangepi.xml -e SDK_VOLUME=rk3588-sdk-orangepi rk3588-build \
 		bash /home/builder/scripts/fetch_sources.sh
 
+fetch-muse: SDK_VOLUME=rk3588-sdk-muse-5.10
+fetch-muse:
+	docker volume create $(SDK_VOLUME) >/dev/null
+	SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
+		-e BOARD=rk3588-muse \
+		-e MANIFEST=rk3588-muse-5.10.xml -e SDK_VOLUME=rk3588-sdk-muse-5.10 rk3588-build \
+		bash /home/builder/scripts/fetch_sources.sh
+
 
 # ---- Switch active SDK volume (writes .env SDK_VOLUME only) ----
 _use_sdk_switch:
@@ -313,6 +324,8 @@ use-volume-rock5c: SWITCH_VOL=rk3588-sdk-rock5c
 use-volume-rock5c: _use_sdk_switch
 use-volume-orangepi: SWITCH_VOL=rk3588-sdk-orangepi
 use-volume-orangepi: _use_sdk_switch
+use-volume-muse: SWITCH_VOL=rk3588-sdk-muse-5.10
+use-volume-muse: _use_sdk_switch
 
 # ---- Switch active board (writes .env BOARD only) ----
 _use_board_switch:
@@ -383,6 +396,8 @@ use-board-cokepi-plus: SWITCH_BOARD=rk3588-cokepi-plus-lp4-v10
 use-board-cokepi-plus: _use_board_switch
 use-board-cokepi-model: SWITCH_BOARD=rk3588s-cokepi-model-lp4-v10
 use-board-cokepi-model: _use_board_switch
+use-board-muse: SWITCH_BOARD=rk3588-muse
+use-board-muse: _use_board_switch
 
 # ---- Switch active root filesystem (writes .env ROOTFS only) ----
 _use_rootfs_switch:

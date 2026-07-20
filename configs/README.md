@@ -11,6 +11,7 @@ configs/boards/rk3588-evb1-lp4-v10-linux.conf
 configs/boards/rk3588s-rock-5c.conf
 configs/boards/rk3588-cokepi-plus-lp4-v10.conf
 configs/boards/rk3588s-cokepi-model-lp4-v10.conf
+configs/boards/rk3588-muse.conf
 ```
 
 | Profile | 硬件 | 说明 |
@@ -19,6 +20,7 @@ configs/boards/rk3588s-cokepi-model-lp4-v10.conf
 | `rk3588s-rock-5c` | Radxa ROCK 5C | 锁定 manifest 中各仓库 commit |
 | `rk3588-cokepi-plus-lp4-v10` | CokePi Plus（RK3588） | `KERNEL_DTB=rk3588-cpp-hdmi.dtb`；需本地 CokePi SDK |
 | `rk3588s-cokepi-model-lp4-v10` | CokePi Model（RK3588S） | `KERNEL_DTB=rk3588s-cpm-hdmi1.dtb`；需本地 CokePi SDK |
+| `rk3588-muse` | MUSE RK3588（eMMC） | `KERNEL_DTB=rk3588-muse.dtb`；kernel 来自 `MUSEInstitute/kernel` `develop-5.10` |
 
 CokePi Plus 与 Model 使用同一 SDK volume 时仍须按丝印选择不同 profile，不可混用。项目 profile 选用 SDK 中 HDMI 设备树变体。
 

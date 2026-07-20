@@ -208,6 +208,9 @@ make image   BOARD=rk3588-evb1-lp4-v10-linux   SDK_VOLUME=rk3588-sdk-rockchip-5.
 
 ```bash
 cp configs/boards/rk3588-evb1-lp4-v10-linux.conf    configs/boards/rk3588-myboard.conf
+# 或直接使用已提供的 MUSE profile：
+# configs/boards/rk3588-muse.conf + manifests/rk3588-muse-5.10.xml
+# make fetch-muse
 ```
 
 至少确认：
