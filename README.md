@@ -74,7 +74,7 @@ make build-all \
   DEBIAN_RELEASE=13
 ```
 
-可选变量见 [`.env.example`](.env.example)。常用项：`DEBIAN_RELEASE`（默认 13）、`ROOTFS_USERNAME` / `ROOTFS_PASSWORD`、`JOBS`、`ZSTD_LEVEL`。
+可选变量见 [`.env.example`](.env.example)。常用项：`DEBIAN_RELEASE`（默认 13）、`DEBIAN_FEATURES`（如 `nm,hwdebug,firstboot-info`）、`ROOTFS_HOSTNAME`、`ROOTFS_USERNAME` / `ROOTFS_PASSWORD`、`JOBS`、`ZSTD_LEVEL`。
 
 ---
 
@@ -168,7 +168,8 @@ make build-all \
   BOARD=rk3588-muse \
   SDK_VOLUME=rk3588-sdk-muse-5.10 \
   ROOTFS=debian \
-  DEBIAN_RELEASE=13
+  DEBIAN_RELEASE=13 \
+  DEBIAN_FEATURES=nm,hwdebug,firstboot-info
 ```
 
 镜像为 GPT raw，可用 `dd` 写入 eMMC 或 SD；rootfs 通过 `PARTLABEL=rootfs` 挂载，不写死 `mmcblk` 设备名。
@@ -304,7 +305,7 @@ sector 16384                uboot.img
 272 MiB .. image end        ext4 rootfs（PARTLABEL=rootfs）
 ```
 
-rootfs 文件系统初始约 2 GiB，分区占满镜像剩余空间。Debian 首次启动会修复备份 GPT、扩展分区与 ext4。
+rootfs 文件系统初始约 2 GiB，分区占满镜像剩余空间。Debian 首次启动会修复备份 GPT、扩展分区与 ext4。可选 `DEBIAN_FEATURES=firstboot-info` 会在扩容后打印板级摘要（board/DTB/网络提示），并写入 MOTD；`nm` 预装 NetworkManager 与 `nmtui`。
 
 ### 默认登录
 

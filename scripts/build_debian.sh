@@ -9,6 +9,23 @@ load_board_profile
 validate_board_source_revisions
 ROOTFS=debian
 resolve_debian_release
+# Board profile may set DEBIAN_FEATURES_DEFAULT / ROOTFS_HOSTNAME_DEFAULT.
+# Empty DEBIAN_FEATURES means "use board default if any".
+# Force minbase with DEBIAN_FEATURES=none (or minbase/off).
+case "${DEBIAN_FEATURES:-}" in
+    '')
+        if [ -n "${DEBIAN_FEATURES_DEFAULT:-}" ]; then
+            DEBIAN_FEATURES="${DEBIAN_FEATURES_DEFAULT}"
+        fi
+        ;;
+    none|minbase|off|-)
+        DEBIAN_FEATURES=""
+        ;;
+esac
+if [ -z "${ROOTFS_HOSTNAME:-}" ]; then
+    ROOTFS_HOSTNAME="${ROOTFS_HOSTNAME_DEFAULT:-rk3588}"
+fi
+resolve_debian_features
 require_cmd mmdebstrap dpkg chroot systemctl tar truncate mkfs.ext4 \
     tune2fs e2fsck blkid debugfs depmod realpath
 
@@ -24,6 +41,7 @@ MODULES_TAR="${COMMON_OUTPUT}/modules.tar"
 KERNEL_RELEASE_FILE="${COMMON_OUTPUT}/kernel-release"
 ROOTFS_USERNAME="${ROOTFS_USERNAME:-rk3588}"
 ROOTFS_PASSWORD="${ROOTFS_PASSWORD:-rk3588}"
+ROOTFS_HOSTNAME="${ROOTFS_HOSTNAME:-rk3588}"
 CONSOLE_DEVICE="${CONSOLE%%,*}"
 CONSOLE_SPEED="${CONSOLE#*,}"
 CONSOLE_SPEED="${CONSOLE_SPEED%%[!0-9]*}"
@@ -73,7 +91,25 @@ PACKAGES=(
 if [ "${DEBIAN_RELEASE}" != "11" ]; then
     PACKAGES+=(systemd-resolved)
 fi
+mapfile -t FEATURE_PACKAGES < <(debian_feature_packages)
+if [ "${#FEATURE_PACKAGES[@]}" -gt 0 ]; then
+    PACKAGES+=("${FEATURE_PACKAGES[@]}")
+fi
+# Deduplicate while preserving order.
+declare -A PACKAGE_SEEN=()
+DEDUPED_PACKAGES=()
+for pkg in "${PACKAGES[@]}"; do
+    [ -z "${PACKAGE_SEEN[${pkg}]+x}" ] || continue
+    PACKAGE_SEEN["${pkg}"]=1
+    DEDUPED_PACKAGES+=("${pkg}")
+done
+PACKAGES=("${DEDUPED_PACKAGES[@]}")
 PACKAGE_LIST="$(IFS=,; printf '%s' "${PACKAGES[*]}")"
+if [ -n "${DEBIAN_FEATURES}" ]; then
+    log_info "Debian features: ${DEBIAN_FEATURES}"
+else
+    log_info "Debian features: (none; minbase)"
+fi
 
 run_mmdebstrap() {
     local -a sources=("$@")
@@ -109,8 +145,13 @@ if ! run_mmdebstrap "${REGULAR_SOURCES[@]}"; then
         die "Debian 11 archive fallback failed"
 fi
 
-printf 'rk3588\n' >"${ROOT_DIR}/etc/hostname"
-printf '127.0.0.1 localhost\n127.0.1.1 rk3588\n' >"${ROOT_DIR}/etc/hosts"
+case "${ROOTFS_HOSTNAME}" in
+    ''|*[!a-zA-Z0-9._-]*)
+        die "ROOTFS_HOSTNAME is invalid: ${ROOTFS_HOSTNAME}"
+        ;;
+esac
+printf '%s\n' "${ROOTFS_HOSTNAME}" >"${ROOT_DIR}/etc/hostname"
+printf '127.0.0.1 localhost\n127.0.1.1 %s\n' "${ROOTFS_HOSTNAME}" >"${ROOT_DIR}/etc/hosts"
 
 chroot "${ROOT_DIR}" useradd -m -s /bin/bash -G sudo "${ROOTFS_USERNAME}"
 printf '%s:%s\n' "${ROOTFS_USERNAME}" "${ROOTFS_PASSWORD}" |
@@ -122,7 +163,8 @@ chroot "${ROOT_DIR}" passwd -u root
 install -d "${ROOT_DIR}/etc/systemd/network" \
     "${ROOT_DIR}/etc/systemd/system/ssh.service.d" \
     "${ROOT_DIR}/etc/ssh/sshd_config.d"
-cat >"${ROOT_DIR}/etc/systemd/network/20-wired.network" <<'EOF'
+if [ "${DEBIAN_HAS_NM}" != "1" ]; then
+    cat >"${ROOT_DIR}/etc/systemd/network/20-wired.network" <<'EOF'
 [Match]
 Name=en* eth*
 
@@ -130,6 +172,19 @@ Name=en* eth*
 DHCP=yes
 IPv6AcceptRA=yes
 EOF
+else
+    # Prefer NetworkManager as the primary stack when feature nm is enabled.
+    # Keep resolved; do not enable networkd so only one manager owns DHCP.
+    install -d "${ROOT_DIR}/etc/NetworkManager/conf.d"
+    cat >"${ROOT_DIR}/etc/NetworkManager/conf.d/10-rk3588.conf" <<'EOF'
+[main]
+plugins=ifupdown,keyfile
+dns=systemd-resolved
+
+[ifupdown]
+managed=true
+EOF
+fi
 cat >"${ROOT_DIR}/etc/ssh/sshd_config.d/10-rk3588.conf" <<'EOF'
 PasswordAuthentication yes
 PermitRootLogin yes
@@ -217,11 +272,84 @@ partx -u --nr "$partnum" "$rootdisk"
 udevadm settle
 resize2fs "$rootdev"
 
+if [ -x /usr/local/sbin/rk3588-firstboot-info ]; then
+    /usr/local/sbin/rk3588-firstboot-info || true
+fi
+
 mkdir -p "$(dirname "$MARKER")"
 touch "$MARKER"
 systemctl disable rk3588-firstboot.service >/dev/null 2>&1 || true
 EOF
 chmod 0755 "${ROOT_DIR}/usr/local/sbin/rk3588-firstboot"
+
+if [ "${DEBIAN_HAS_FIRSTBOOT_INFO}" = "1" ]; then
+    install -d "${ROOT_DIR}/etc/update-motd.d" "${ROOT_DIR}/etc/profile.d"
+    cat >"${ROOT_DIR}/usr/local/sbin/rk3588-firstboot-info" <<EOF
+#!/bin/sh
+set -eu
+INFO=/var/lib/rk3588-board-info
+{
+    echo "board=${BOARD}"
+    echo "board_description=${BOARD_DESCRIPTION}"
+    echo "hostname=${ROOTFS_HOSTNAME}"
+    echo "kernel_release=\$(uname -r 2>/dev/null || true)"
+    echo "dtb=${KERNEL_DTB}"
+    echo "features=${DEBIAN_FEATURES:-none}"
+    echo "generated_utc=\$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
+} >"\$INFO"
+
+# One-shot serial banner for the first boot after resize.
+{
+    echo
+    echo "=============================================="
+    echo " RK3588 first boot"
+    echo " board: ${BOARD}"
+    echo " desc : ${BOARD_DESCRIPTION}"
+    echo " host : ${ROOTFS_HOSTNAME}"
+    echo " dtb  : ${KERNEL_DTB}"
+    echo " kern : \$(uname -r 2>/dev/null || true)"
+    echo " feats: ${DEBIAN_FEATURES:-none}"
+    if command -v nmtui >/dev/null 2>&1; then
+        echo " net  : NetworkManager enabled (nmtui / nmcli)"
+    elif command -v networkctl >/dev/null 2>&1; then
+        echo " net  : systemd-networkd + DHCP on en*/eth*"
+    fi
+    echo " tip  : lsblk; ip -br a; i2cdetect -l"
+    echo "=============================================="
+    echo
+} | tee /dev/console 2>/dev/null || cat
+EOF
+    chmod 0755 "${ROOT_DIR}/usr/local/sbin/rk3588-firstboot-info"
+
+    cat >"${ROOT_DIR}/etc/update-motd.d/50-rk3588" <<'EOF'
+#!/bin/sh
+[ -r /var/lib/rk3588-board-info ] || exit 0
+echo
+echo "RK3588 board info:"
+sed 's/^/  /' /var/lib/rk3588-board-info
+if command -v nmtui >/dev/null 2>&1; then
+    echo "  network: use nmtui or nmcli"
+fi
+echo
+EOF
+    chmod 0755 "${ROOT_DIR}/etc/update-motd.d/50-rk3588"
+
+    cat >"${ROOT_DIR}/etc/profile.d/rk3588-board-info.sh" <<'EOF'
+# Show board summary once per interactive login until dismissed.
+if [ -n "${PS1:-}" ] && [ -r /var/lib/rk3588-board-info ] &&
+    [ ! -e "$HOME/.rk3588-board-info.seen" ]; then
+    echo
+    echo "RK3588 board info:"
+    sed 's/^/  /' /var/lib/rk3588-board-info
+    if command -v nmtui >/dev/null 2>&1; then
+        echo "  network: use nmtui or nmcli"
+    fi
+    echo
+    touch "$HOME/.rk3588-board-info.seen" 2>/dev/null || true
+fi
+EOF
+    chmod 0644 "${ROOT_DIR}/etc/profile.d/rk3588-board-info.sh"
+fi
 
 cat >"${ROOT_DIR}/etc/systemd/system/rk3588-firstboot.service" <<'EOF'
 [Unit]
@@ -282,16 +410,29 @@ enable_unit() {
     die "Unable to enable Debian systemd unit: ${unit}"
 }
 
-enable_unit systemd-networkd.service
+if [ "${DEBIAN_HAS_NM}" = "1" ]; then
+    enable_unit NetworkManager.service
+else
+    enable_unit systemd-networkd.service
+fi
 enable_unit systemd-resolved.service
 enable_unit ssh.service
 enable_unit rk3588-firstboot.service
 enable_unit "serial-getty@${CONSOLE_DEVICE}.service"
 
-chroot "${ROOT_DIR}" systemd-analyze verify --man=no \
-    multi-user.target rk3588-firstboot.service \
-    "serial-getty@${CONSOLE_DEVICE}.service" ssh.service \
-    systemd-networkd.service systemd-resolved.service
+VERIFY_UNITS=(
+    multi-user.target
+    rk3588-firstboot.service
+    "serial-getty@${CONSOLE_DEVICE}.service"
+    ssh.service
+    systemd-resolved.service
+)
+if [ "${DEBIAN_HAS_NM}" = "1" ]; then
+    VERIFY_UNITS+=(NetworkManager.service)
+else
+    VERIFY_UNITS+=(systemd-networkd.service)
+fi
+chroot "${ROOT_DIR}" systemd-analyze verify --man=no "${VERIFY_UNITS[@]}"
 chroot "${ROOT_DIR}" ssh-keygen -A
 install -d -m 0755 "${ROOT_DIR}/run/sshd"
 chroot "${ROOT_DIR}" sshd -t
@@ -340,6 +481,9 @@ write_common_metadata "${VARIANT_OUTPUT}/rootfs-build-info.txt" \
     "rootfs_arch=arm64" \
     "debian_release=${DEBIAN_RELEASE}" \
     "debian_codename=${DEBIAN_CODENAME}" \
+    "debian_features=${DEBIAN_FEATURES:-}" \
+    "hostname=${ROOTFS_HOSTNAME}" \
+    "network_stack=$([ "${DEBIAN_HAS_NM}" = "1" ] && printf NetworkManager || printf systemd-networkd)" \
     "kernel_release=${KERNEL_RELEASE}" \
     "username=${ROOTFS_USERNAME}" \
     "root_login=enabled" \

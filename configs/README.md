@@ -57,3 +57,36 @@ loader 与 U-Boot 区域必须位于 `BOOT_START_MIB` 之前。当前约定：
 `configs/kernel/rootfs-base.config` 在板级 defconfig 之后合并，启用 Buildroot / Debian 所需的最小能力（ext4、MMC、devtmpfs、namespaces、cgroups 等）。
 
 板级专用内核选项应放在 BSP defconfig 或额外板级适配中，不要堆进该共享 baseline。
+
+## Debian 可选功能（rootfs）
+
+构建 Debian 时可通过环境变量 `DEBIAN_FEATURES` 预装功能集（逗号分隔）。
+未指定时：若板级设了 `DEBIAN_FEATURES_DEFAULT` 则用板级默认，否则 minbase。
+显式 `DEBIAN_FEATURES=none`（或 `minbase` / `off` / `-`）强制 minbase。
+
+| Token | 内容 |
+|---|---|
+| `nm` | NetworkManager + `nmtui`（替代 systemd-networkd 作为主网络栈） |
+| `hwdebug` | `i2c-tools` `usbutils` `pciutils` `mmc-utils` |
+| `tools` | `tmux` `htop` `strace` |
+| `firstboot-info` | 首次启动串口摘要 + MOTD/登录提示（不装额外 deb） |
+| `all` | 以上全部 |
+
+板级 profile 可设默认值（仅当 CLI/env 未指定时生效）：
+
+```bash
+DEBIAN_FEATURES_DEFAULT="nm,hwdebug,firstboot-info"
+ROOTFS_HOSTNAME_DEFAULT="muse"
+```
+
+示例：
+
+```bash
+make build-rootfs DEBIAN_FEATURES=nm,hwdebug,firstboot-info
+make build-rootfs DEBIAN_FEATURES=all ROOTFS_HOSTNAME=muse
+# 强制 minbase，覆盖板级默认
+make build-rootfs DEBIAN_FEATURES=none
+```
+
+`rootfs-build-info.txt` 会记录 `debian_features` 与 `network_stack`。
+

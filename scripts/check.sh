@@ -303,6 +303,60 @@ check_qemu_smoke_contract() {
     grep -Fq 'python3-pexpect' "${PROJECT_DIR}/Dockerfile" || return 1
 }
 
+
+check_debian_features() {
+    # shellcheck source=lib/common.sh
+    source "${SCRIPT_DIR}/lib/common.sh"
+
+    (
+        DEBIAN_FEATURES=""
+        resolve_debian_features
+        [ "${DEBIAN_FEATURES}" = "" ] || exit 1
+        [ "${DEBIAN_HAS_NM}" = "0" ] || exit 1
+    ) || return 1
+
+    (
+        DEBIAN_FEATURES="none"
+        resolve_debian_features
+        [ "${DEBIAN_FEATURES}" = "" ] || exit 1
+        [ "${DEBIAN_HAS_NM}" = "0" ] || exit 1
+    ) || return 1
+
+    (
+        DEBIAN_FEATURES="nm,hwdebug"
+        resolve_debian_features
+        [ "${DEBIAN_FEATURES}" = "nm,hwdebug" ] || exit 1
+        [ "${DEBIAN_HAS_NM}" = "1" ] || exit 1
+        [ "${DEBIAN_HAS_HWDEBUG}" = "1" ] || exit 1
+        mapfile -t pkgs < <(debian_feature_packages)
+        printf '%s\n' "${pkgs[@]}" | grep -Fxq network-manager || exit 1
+        printf '%s\n' "${pkgs[@]}" | grep -Fxq i2c-tools || exit 1
+    ) || return 1
+
+    (
+        DEBIAN_FEATURES="all"
+        resolve_debian_features
+        [ "${DEBIAN_HAS_TOOLS}" = "1" ] || exit 1
+        [ "${DEBIAN_HAS_FIRSTBOOT_INFO}" = "1" ] || exit 1
+    ) || return 1
+
+    # die() exits the subshell; success means the token was rejected.
+    if (
+        DEBIAN_FEATURES="nope"
+        resolve_debian_features >/dev/null 2>&1
+    ); then
+        return 1
+    fi
+
+    # scripts/ and configs/ are bind-mounted; Makefile may be image-baked until rebuild.
+    grep -Fq 'resolve_debian_features' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
+    grep -Fq 'packages+=(network-manager)' "${PROJECT_DIR}/scripts/lib/common.sh" || return 1
+    grep -Fq 'NetworkManager.service' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
+    grep -Fq 'rk3588-firstboot-info' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
+    grep -Fq 'DEBIAN_FEATURES_DEFAULT' \
+        "${PROJECT_DIR}/configs/boards/rk3588-muse.conf" || return 1
+}
+
 check_board_profiles() {
     local profile board
     while IFS= read -r -d '' profile; do
@@ -414,6 +468,7 @@ run_check "Buildroot external tree" check_buildroot_external
 run_check "U-Boot GPT/extlinux contract guard" check_uboot_boot_contract_guard
 run_check "make help complete Rock 5C workflow" check_help_contract
 run_check "Cross-host Debian builder contract" check_debian_builder_contract
+run_check "Debian optional features" check_debian_features
 run_check "Explicit rootfs configuration" check_rootfs_configuration
 run_check "QEMU Debian smoke-test contract" check_qemu_smoke_contract
 run_check "Failure-path self-tests" self_tests

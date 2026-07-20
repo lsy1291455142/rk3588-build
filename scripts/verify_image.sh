@@ -300,8 +300,30 @@ else
         grep -q 'Inode:' || die "Debian rootfs lacks sgdisk"
     debugfs -R "stat /usr/bin/growpart" "${WORK_DIR}/rootfs.ext4" 2>&1 |
         grep -q 'Inode:' || die "Debian rootfs lacks growpart"
+    ROOTFS_META="${VARIANT_OUTPUT}/rootfs-build-info.txt"
+    NETWORK_STACK="systemd-networkd"
+    DEBIAN_FEATURES_META=""
+    if [ -f "${ROOTFS_META}" ]; then
+        NETWORK_STACK="$(metadata_value "${ROOTFS_META}" network_stack || true)"
+        DEBIAN_FEATURES_META="$(metadata_value "${ROOTFS_META}" debian_features || true)"
+        NETWORK_STACK="${NETWORK_STACK:-systemd-networkd}"
+    fi
+    if [ "${NETWORK_STACK}" = "NetworkManager" ]; then
+        NET_UNIT_PATH=/etc/systemd/system/multi-user.target.wants/NetworkManager.service
+        debugfs -R "stat ${NET_UNIT_PATH}" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+            grep -q 'Inode:' || die "Debian rootfs does not enable NetworkManager"
+        debugfs -R "stat /usr/bin/nmtui" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+            grep -q 'Inode:' || die "Debian rootfs with nm feature lacks nmtui"
+        if debugfs -R "stat /etc/systemd/system/multi-user.target.wants/systemd-networkd.service" \
+            "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -q 'Inode:'; then
+            die "Debian NetworkManager rootfs must not enable systemd-networkd"
+        fi
+    else
+        NET_UNIT_PATH=/etc/systemd/system/multi-user.target.wants/systemd-networkd.service
+        debugfs -R "stat ${NET_UNIT_PATH}" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+            grep -q 'Inode:' || die "Debian rootfs does not enable systemd-networkd"
+    fi
     for enabled_path in \
-        /etc/systemd/system/multi-user.target.wants/systemd-networkd.service \
         /etc/systemd/system/sysinit.target.wants/systemd-resolved.service \
         /etc/systemd/system/multi-user.target.wants/ssh.service \
         /etc/systemd/system/multi-user.target.wants/rk3588-firstboot.service \
@@ -309,6 +331,23 @@ else
         debugfs -R "stat ${enabled_path}" "${WORK_DIR}/rootfs.ext4" 2>&1 |
             grep -q 'Inode:' || die "Debian rootfs does not enable ${enabled_path##*/}"
     done
+    case ",${DEBIAN_FEATURES_META}," in
+        *,hwdebug,*)
+            debugfs -R "stat /usr/sbin/i2cdetect" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+                grep -q 'Inode:' || die "Debian hwdebug feature lacks i2cdetect"
+            ;;
+    esac
+    case ",${DEBIAN_FEATURES_META}," in
+        *,firstboot-info,*)
+            debugfs -R "stat /usr/local/sbin/rk3588-firstboot-info" \
+                "${WORK_DIR}/rootfs.ext4" 2>&1 |
+                grep -q 'Inode:' || die "Debian firstboot-info feature lacks helper"
+            debugfs -R "cat /usr/local/sbin/rk3588-firstboot" \
+                "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+                grep -Fq 'rk3588-firstboot-info' ||
+                die "Debian firstboot does not invoke firstboot-info"
+            ;;
+    esac
 fi
 
 (

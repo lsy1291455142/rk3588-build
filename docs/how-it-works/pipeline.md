@@ -54,7 +54,7 @@ ARM64 宿主机上，部分 rkbin x86 工具会走 qemu-user。
 | 类型 | 脚本 | 特征 |
 |---|---|---|
 | Buildroot | `build_buildroot.sh` | glibc + BusyBox init + Dropbear；external 在 `rootfs/buildroot/` |
-| Debian | `build_debian.sh` | `mmdebstrap` + systemd-networkd + OpenSSH；11/12/13 |
+| Debian | `build_debian.sh` | `mmdebstrap` + OpenSSH；默认 networkd，可选 `DEBIAN_FEATURES`（nm/nmtui 等）；11/12/13 |
 
 两者都要先有 kernel 的 `modules.tar`，都会装匹配的 `/lib/modules`，都带串口/SSH/扩容相关配置。
 

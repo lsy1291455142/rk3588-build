@@ -25,6 +25,8 @@ SDK_VOLUME ?=
 DEBIAN_RELEASE ?= 13
 ROOTFS_USERNAME ?= rk3588
 ROOTFS_PASSWORD ?= rk3588
+ROOTFS_HOSTNAME ?=
+DEBIAN_FEATURES ?=
 DEBIAN_MIRROR ?= http://deb.debian.org/debian
 DEBIAN_SECURITY_MIRROR ?= http://security.debian.org/debian-security
 DEBIAN_ALLOW_ARCHIVE_FALLBACK ?= yes
@@ -99,11 +101,12 @@ help:
 		'  make build-rootfs [BOARD=...] [SDK_VOLUME=...] [ROOTFS=...]' \
 		'' \
 		'Complete images (BOARD, SDK_VOLUME, and ROOTFS required):' \
-		'  make build-all [DEBIAN_RELEASE=13]' \
+		'  make build-all [DEBIAN_RELEASE=13] [DEBIAN_FEATURES=nm,hwdebug]' \
 		'  make image' \
 		'  make verify-image' \
 		'  make test-debian-all BOARD=... SDK_VOLUME=...' \
 		'  make test-debian-qemu BOARD=... SDK_VOLUME=... DEBIAN_RELEASE=13' \
+		'  DEBIAN_FEATURES=nm,hwdebug,tools,firstboot-info|all; empty=board default/minbase; none=force minbase' \
 		'' \
 		'Validation:' \
 		'  make check'
@@ -589,6 +592,8 @@ _debian-rootfs: prepare-output debian-preflight
 		-e DEBIAN_RELEASE="$(DEBIAN_RELEASE)" \
 		-e ROOTFS_USERNAME="$(ROOTFS_USERNAME)" \
 		-e ROOTFS_PASSWORD="$(ROOTFS_PASSWORD)" \
+		-e ROOTFS_HOSTNAME="$(ROOTFS_HOSTNAME)" \
+		-e DEBIAN_FEATURES="$(DEBIAN_FEATURES)" \
 		-e DEBIAN_MIRROR="$(DEBIAN_MIRROR)" \
 		-e DEBIAN_SECURITY_MIRROR="$(DEBIAN_SECURITY_MIRROR)" \
 		-e DEBIAN_ALLOW_ARCHIVE_FALLBACK="$(DEBIAN_ALLOW_ARCHIVE_FALLBACK)" \

@@ -57,6 +57,34 @@ make test-debian-all BOARD=... SDK_VOLUME=...
 make build-all ROOTFS=debian DEBIAN_RELEASE=12
 ```
 
+## Debian 可选预装功能
+
+`DEBIAN_FEATURES` 控制预装包与首次启动信息。未指定时用板级 `DEBIAN_FEATURES_DEFAULT`（muse 默认 `nm,hwdebug,firstboot-info`）；无默认则 minbase。显式 `none` 强制 minbase。
+
+| Token | 作用 |
+|---|---|
+| `nm` | NetworkManager + **nmtui** |
+| `hwdebug` | I2C/USB/PCI/MMC 调试工具 |
+| `tools` | tmux/htop/strace |
+| `firstboot-info` | 首次启动串口/MOTD 板级摘要 |
+| `all` | 全部 |
+
+```bash
+# muse 默认功能集 + hostname muse（可不写 DEBIAN_FEATURES）
+make build-rootfs BOARD=rk3588-muse ROOTFS=debian
+# 显式指定
+make build-rootfs DEBIAN_FEATURES=nm,hwdebug,firstboot-info ROOTFS_HOSTNAME=muse
+# 强制 minbase
+make build-rootfs DEBIAN_FEATURES=none
+make image
+```
+
+说明：
+
+- **首次启动信息**不是扩容本身。扩容仍由 `rk3588-firstboot` 做（growpart + resize2fs）。
+- 打开 `firstboot-info` 后，首次启动还会写 `/var/lib/rk3588-board-info`，串口打出 board/dtb/kernel/网络提示；登录 MOTD 也会显示，直到用户 home 下出现 `.rk3588-board-info.seen`。
+- 打开 `nm` 后 **不再启用** systemd-networkd，避免双栈抢网卡；有线/无线用 `nmtui` 或 `nmcli`。
+
 ## 进入容器
 
 ```bash

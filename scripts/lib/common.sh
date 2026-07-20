@@ -238,6 +238,95 @@ resolve_debian_release() {
     esac
 }
 
+# Optional Debian package feature sets. Empty keeps minbase-only rootfs.
+# Known tokens: nm, hwdebug, tools, firstboot-info, all
+resolve_debian_features() {
+    local raw token
+    local -a requested=()
+    local -a expanded=()
+    local -A seen=()
+
+    raw="${DEBIAN_FEATURES:-}"
+    raw="${raw//[[:space:]]/}"
+    raw="${raw//+/,}"
+    raw="${raw//;/,}"
+    case "${raw}" in
+        none|minbase|off|-)
+            raw=""
+            ;;
+    esac
+    if [ -z "${raw}" ]; then
+        DEBIAN_FEATURES=""
+        DEBIAN_FEATURE_LIST=""
+        DEBIAN_HAS_NM=0
+        DEBIAN_HAS_HWDEBUG=0
+        DEBIAN_HAS_TOOLS=0
+        DEBIAN_HAS_FIRSTBOOT_INFO=0
+        return 0
+    fi
+
+    IFS=',' read -r -a requested <<<"${raw}"
+    for token in "${requested[@]}"; do
+        [ -n "${token}" ] || continue
+        case "${token}" in
+            all)
+                expanded+=(nm hwdebug tools firstboot-info)
+                ;;
+            nm|network-manager|networkmanager)
+                expanded+=(nm)
+                ;;
+            hwdebug|hw-debug|debug-hw)
+                expanded+=(hwdebug)
+                ;;
+            tools|devtools)
+                expanded+=(tools)
+                ;;
+            firstboot-info|firstboot|motd)
+                expanded+=(firstboot-info)
+                ;;
+            *)
+                die "Unsupported DEBIAN_FEATURES token: ${token} (expected nm, hwdebug, tools, firstboot-info, all)"
+                ;;
+        esac
+    done
+
+    DEBIAN_FEATURE_LIST=""
+    DEBIAN_HAS_NM=0
+    DEBIAN_HAS_HWDEBUG=0
+    DEBIAN_HAS_TOOLS=0
+    DEBIAN_HAS_FIRSTBOOT_INFO=0
+    for token in "${expanded[@]}"; do
+        [ -z "${seen[${token}]+x}" ] || continue
+        seen["${token}"]=1
+        case "${token}" in
+            nm) DEBIAN_HAS_NM=1 ;;
+            hwdebug) DEBIAN_HAS_HWDEBUG=1 ;;
+            tools) DEBIAN_HAS_TOOLS=1 ;;
+            firstboot-info) DEBIAN_HAS_FIRSTBOOT_INFO=1 ;;
+        esac
+        if [ -n "${DEBIAN_FEATURE_LIST}" ]; then
+            DEBIAN_FEATURE_LIST+=","
+        fi
+        DEBIAN_FEATURE_LIST+="${token}"
+    done
+    DEBIAN_FEATURES="${DEBIAN_FEATURE_LIST}"
+}
+
+debian_feature_packages() {
+    local packages=()
+    if [ "${DEBIAN_HAS_NM:-0}" = "1" ]; then
+        packages+=(network-manager)
+    fi
+    if [ "${DEBIAN_HAS_HWDEBUG:-0}" = "1" ]; then
+        packages+=(i2c-tools usbutils pciutils mmc-utils)
+    fi
+    if [ "${DEBIAN_HAS_TOOLS:-0}" = "1" ]; then
+        packages+=(tmux htop strace)
+    fi
+    # firstboot-info is scripts/MOTD only; no extra packages.
+    printf '%s\n' "${packages[@]}"
+}
+
 rootfs_variant() {
     validate_rootfs_choice
     if [ "${ROOTFS}" = "buildroot" ]; then

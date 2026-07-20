@@ -113,7 +113,11 @@ def run_guest_checks(child, kernel_release, debian_release, password):
         ),
         ("unit_health", "test -z \"$(systemctl --failed --no-legend --plain)\""),
         ("ssh_service", "systemctl is-active --quiet ssh.service"),
-        ("networkd_service", "systemctl is-active --quiet systemd-networkd.service"),
+        (
+            "network_service",
+            "systemctl is-active --quiet NetworkManager.service || "
+            "systemctl is-active --quiet systemd-networkd.service",
+        ),
         ("resolved_service", "systemctl is-active --quiet systemd-resolved.service"),
         ("sshd_config", "/usr/sbin/sshd -t"),
         (
