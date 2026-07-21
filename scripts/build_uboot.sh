@@ -43,6 +43,11 @@ require_file "${UBOOT_DIR}/make.sh" "Rockchip U-Boot make.sh"
 
 # On ARM64 hosts, Rockchip's prebuilt x86-64 rkbin tools (boot_merger,
 # trust_merger, etc.) cannot execute natively. Wrap them with qemu-x86_64.
+# Every wrapped binary is recorded in RKBIN_WRAPPED so we can restore the
+# rkbin working tree on exit (no dirty tree, no modified files for
+# import-local-sdk users).
+RKBIN_WRAPPED=()
+
 wrap_rkbin_tools() {
     if [ "$(dpkg --print-architecture 2>/dev/null || echo unknown)" != "arm64" ]; then
         return 0
@@ -52,26 +57,36 @@ wrap_rkbin_tools() {
     if [ -z "${qemu}" ]; then
         die "ARM64 host requires qemu-user-static for x86-64 rkbin tools"
     fi
-    # Restore any previously wrapped binaries from .real backups
+    # Restore any previously wrapped binaries from .real backups (e.g. a prior
+    # run that crashed before its exit trap could clean up).
     for bin in "${RKBIN_DIR}/tools"/*.real; do
-        if [ ! -f "${bin}" ]; then
-            continue
-        fi
-        local orig="${bin%.real}"
-        mv -f "${bin}" "${orig}"
+        [ -f "${bin}" ] || continue
+        mv -f "${bin}" "${bin%.real}"
     done
-    # Wrap each x86-64 ELF binary with a qemu shim
+    # Wrap each x86-64 ELF binary with a qemu shim.
     for bin in "${RKBIN_DIR}/tools"/*; do
-        if [ ! -f "${bin}" ] || [ ! -x "${bin}" ]; then
-            continue
-        fi
+        [ -f "${bin}" ] && [ -x "${bin}" ] || continue
         file "${bin}" 2>/dev/null | grep -q 'ELF.*x86-64' || continue
         mv "${bin}" "${bin}.real"
         printf '#!/bin/sh\nexec %s %s.real "$@"\n' "${qemu}" "${bin}" >"${bin}"
         chmod 0755 "${bin}"
+        RKBIN_WRAPPED+=("${bin}")
     done
     log_info "Wrapped x86-64 rkbin tools with qemu-x86_64-static"
 }
+
+# Reverse wrap_rkbin_tools: move each saved .real binary back over its shim so
+# the rkbin working tree is left exactly as found. Runs on every script exit,
+# including failures, so a build never leaves rkbin/tools dirty.
+restore_rkbin_tools() {
+    local bin
+    [ "${#RKBIN_WRAPPED[@]}" -eq 0 ] && return 0
+    for bin in "${RKBIN_WRAPPED[@]}"; do
+        [ -f "${bin}.real" ] && mv -f "${bin}.real" "${bin}"
+    done
+}
+
+trap restore_rkbin_tools EXIT
 
 wrap_rkbin_tools
 

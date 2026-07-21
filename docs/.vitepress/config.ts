@@ -25,6 +25,7 @@ const sidebar: DefaultTheme.Sidebar = [
       { text: '第一次构建', link: '/usage/quick-start' },
       { text: '日常构建', link: '/usage/daily-build' },
       { text: '烧录与启动', link: '/usage/flash-and-boot' },
+      { text: 'Debian 功能集', link: '/usage/debian-features' },
       { text: 'SDK 从哪来', link: '/usage/sdk' },
     ],
   },
