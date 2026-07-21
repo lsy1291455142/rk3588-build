@@ -87,7 +87,7 @@ CokePi Plus 和 Model 共用 SDK 但 DTB 不同，必须按板子丝印选择 pr
 
 | Token | 内容 |
 |---|---|
-| `nm` | NetworkManager + nmtui（替代 systemd-networkd） |
+| `nm` | NetworkManager + nmtui + wpasupplicant（替代 systemd-networkd；含 wpa_supplicant 使 WiFi 可扫描/连接） |
 | `hwdebug` | i2c-tools、usbutils、pciutils、mmc-utils |
 | `tools` | tmux、htop、strace |
 | `firstboot-info` | 首次启动串口摘要 + MOTD（不装额外包） |

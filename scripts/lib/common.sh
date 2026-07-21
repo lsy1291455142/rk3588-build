@@ -315,7 +315,10 @@ resolve_debian_features() {
 debian_feature_packages() {
     local packages=()
     if [ "${DEBIAN_HAS_NM:-0}" = "1" ]; then
-        packages+=(network-manager)
+        # wpasupplicant is only a Recommends of network-manager and is NOT
+        # pulled in by mmdebstrap --variant=minbase, yet NetworkManager needs
+        # it as the WiFi supplicant backend. Without it nmtui shows wired only.
+        packages+=(network-manager wpasupplicant)
     fi
     if [ "${DEBIAN_HAS_HWDEBUG:-0}" = "1" ]; then
         packages+=(i2c-tools usbutils pciutils mmc-utils)

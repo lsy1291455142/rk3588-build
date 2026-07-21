@@ -6,7 +6,7 @@
 
 | Token | 安装的包 | 效果 |
 |---|---|---|
-| `nm` | network-manager, nmtui | 用 NetworkManager 替代 systemd-networkd 作为主网络栈（保留 systemd-resolved 做 DNS） |
+| `nm` | network-manager, wpasupplicant, nmtui | 用 NetworkManager 替代 systemd-networkd 作为主网络栈（保留 systemd-resolved 做 DNS）；含 wpa_supplicant，使 WiFi 可扫描/连接 |
 | `hwdebug` | i2c-tools, usbutils, pciutils, mmc-utils | 硬件调试工具，排查板级外设 |
 | `tools` | tmux, htop, strace | 常用诊断/排障工具 |
 | `firstboot-info` | （不装额外包） | 首次启动串口打印板型摘要；登录后 MOTD 与 profile 也显示板型信息 |
