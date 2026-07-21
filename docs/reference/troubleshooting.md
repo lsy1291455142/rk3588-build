@@ -1,90 +1,120 @@
 # 排错
 
-先分清是**构建失败**还是**镜像起不来**。离线 `verify-image` 只覆盖前者与镜像结构。
+## Docker 相关
 
-## 构建前：缺变量 / 缺 volume
+### `SDK_VOLUME is required`
 
-症状：目标立刻失败，提示 `BOARD` / `SDK_VOLUME` / `ROOTFS` 未设置。
+没有指定 SDK volume。先运行 `make fetch-*` 拉取一个 SDK，或在命令行加上 `SDK_VOLUME=...`。
 
-```bash
-make use-current
-# 或
-make build-all BOARD=... SDK_VOLUME=... ROOTFS=...
-```
+### `Cannot run the linux/arm64 Debian builder`
 
-症状：Compose 报 external volume 不存在。
+x86_64 宿主机没有注册 ARM64 binfmt 模拟。运行：
 
 ```bash
-docker volume ls --filter name=rk3588
-make fetch-rock5c   # 或 import-local-sdk / 对应 fetch
+make register-arm64-binfmt
 ```
 
-## builder / binfmt
+这会自动执行 `docker run --privileged --rm tonistiigi/binfmt --install arm64`。之后重新构建。
 
-| 现象 | 处理 |
-|---|---|
-| 找不到 `rk3588-build:latest` | `make build`，或 GHCR pull 后 `docker tag ... rk3588-build:latest` |
-| Debian rootfs 要求 arm64 | `make build-debian-builder`；x86_64 需 binfmt（`register-arm64-binfmt`） |
-| 特权容器被拒 | Debian 路径需要 privileged；只在可信主机跑 |
+### Docker 磁盘空间不足
 
-## SDK
+```bash
+# 清理不用的镜像和容器
+docker system prune
 
-| 现象 | 处理 |
-|---|---|
-| 缺 `kernel/` `u-boot/` `rkbin/` `buildroot/` | 解压路径不对，或 import 的根目录层级多了一层 |
-| `import-local-sdk` 后路径失效 | volume 是 bind；宿主机目录被移动/删除后要重新 import |
-| ROCK 5C revision 不匹配 | profile 锁定了 commit；应用 `fetch-rock5c` 的 volume，或改 profile 锁定 |
-| CokePi 校验失败 | `make verify-cokepi-sdk SDK_VOLUME=...` 看缺什么 |
-
-## kernel / U-Boot
-
-| 现象 | 处理 |
-|---|---|
-| 找不到 DTB | `KERNEL_DTB` 与 SDK 实际文件名不一致 |
-| U-Boot `make.sh` / python 报错 | 检查 `UBOOT_PYTHON`（CokePi 常为 python2，EVB/MUSE/ROCK5C 多为 python3） |
-| idblock 魔数不是 `RKNS` | 挑错了产物文件；看 `DOWNLOAD_LOADER_GLOBS` / 构建日志 |
-| loader 体积越界 | 不要把 FAT 起点压到 U-Boot 区域；保持默认 16 MiB 预留 |
-
-## rootfs / image
-
-| 现象 | 处理 |
-|---|---|
-| `modules.tar` 缺失 | 先 `make build-kernel` |
-| mmdebstrap / 源失败 | 查网络与 `DEBIAN_MIRROR`；Debian 11 可开 archive fallback |
-| `verify-image` 报 DTB bootargs | 打包应删 `/chosen/bootargs`；确认用的是本仓库脚本产物 |
-| `verify-image` 报 PARTLABEL | 不要手改成 `root=UUID=...` 却未同步校验预期 |
-| zst 损坏 | 重新 `make image`；传输时保留 `.sha256` |
-
-## 真机起不来
-
-按串口阶段判断：
-
-1. **完全无输出**：供电、串口线序/电平、波特率（多为 1500000 8N1）、是否烧到正确介质  
-2. **无 IDBlock / 无 U-Boot**：写错盘、写了 zst 未解压、把 `download-loader.bin`（`LDR `）当成 idblock 写进 sector 64  
-3. **U-Boot 起、进不了内核**：FAT 缺 `Image`/`extlinux`，或 DTB 名不对  
-4. **内核 panic / 挂不上 root**：错 DTB、root 参数被覆盖、分区 label 不是 `rootfs`  
-5. **能挂 root 但无登录**：账号密码被改、getty 不在该 console
-
-```text
-用户/密码默认: rk3588 / rk3588
-root 密码: rk3588
+# 清理不用的 SDK volume
+docker volume ls --filter name=rk3588-sdk
+docker volume rm rk3588-sdk-不需要的
 ```
 
-## QEMU 通过、真机不过
+## SDK 拉取
 
-`test-debian-qemu` 用的是 **ARM64 virt**，不是板级 U-Boot/DRAM/PMIC 路径。它只能证明 Debian rootfs 与通用内核用户态大致可用，**不能**替代串口验收。
+### `repo sync` 失败
 
-## 清理过头
+网络问题最常见。`fetch_sources.sh` 自带 3 次重试，重试间隔递增。如果持续失败：
 
-`make clean-all` 会删 volume 与镜像。
+- 检查网络连接和代理设置
+- 尝试减少并行数：`make fetch-rock5c JOBS=2`
+- 手动进入容器重试：`make shell SDK_VOLUME=... && cd /home/builder/sdk && repo sync -j2`
 
-- `fetch-*` 进 volume 的源码会丢，需重新 fetch  
-- `import-local-sdk` 的 bind **不删**宿主机源码，但 volume 引用没了，需重新 import  
+### 磁盘空间不足
 
-## 还要看哪里
+SDK 源码 + 编译产物通常需要 30-50 GB。确认 Docker 数据目录所在分区有足够空间。
 
-- 终端最后一段错误（脚本 `die` 信息）  
-- `output/<BOARD>/common/*-build-info.txt` 与 rootfs 侧 metadata  
-- [磁盘与启动契约](/how-it-works/boot-contract)  
-- [构建流水线](/how-it-works/pipeline)  
-- `make check`（静态契约，不替代真实构建）
+## 编译错误
+
+### 内核编译失败：`O= build` 相关错误
+
+某些厂商内核在 Git 里跟踪了 Kbuild 生成文件（`.config`、`include/config`、`arch/arm64/include/generated`），导致外源构建失败。`build_kernel.sh` 通过符号链接视图自动处理这个问题。如果仍然报错，检查内核源码是否有非标准的生成文件。
+
+### U-Boot 编译失败：Python 相关错误
+
+Rockchip 的 `make.sh` 和 FIT 生成器可能需要 Python 2。检查板级 profile 中的 `UBOOT_PYTHON` 设置：
+
+- 大多数新 BSP 用 `python3`
+- CokePi 等老 BSP 用 `python2`
+
+Docker 镜像内置了 Python 2.7 + pyelftools，不需要额外安装。
+
+### U-Boot 编译失败：`pyelftools` 缺失
+
+确保 Docker 镜像是用最新的 `Dockerfile` 构建的。重新运行 `make build`。
+
+## 镜像校验失败
+
+### `Kernel configuration did not retain ...`
+
+共享 fragment `configs/kernel/rootfs-base.config` 中的某个选项没有被板级 defconfig 保留。检查板级 defconfig 是否显式禁用了该选项。
+
+### `Built board DTB is invalid`
+
+DTB 编译失败或文件损坏。检查内核编译日志。
+
+### `Packaged DTB still defines /chosen/bootargs`
+
+`fdtput -d` 删除 bootargs 失败。可能是 dtc 版本问题。重新构建 Docker 镜像。
+
+### `idblock.img exceeds the reserved IDBlock area`
+
+IDBlock 太大，超过了 IDBLOCK_SECTOR 到 UBOOT_SECTOR 之间的空间。这通常意味着 rkbin 版本不兼容。
+
+### `Embedded rootfs lacks modules for ...`
+
+rootfs 中没有找到内核模块。确认 `build-kernel` 在 `build-rootfs` 之前成功完成。
+
+## QEMU 测试失败
+
+### `fatal boot message matched: Kernel panic`
+
+内核在 QEMU virt 里崩溃。常见原因：
+
+- DTB 不兼容（QEMU virt 不需要真实硬件的 DTB，测试直接用 `-kernel` 加载 Image）
+- 内核缺少 virtio 支持。确认 `configs/kernel/rootfs-base.config` 中的 `CONFIG_VIRTIO*` 选项都在最终 `.config` 里
+
+### `serial password login failed`
+
+镜像中的用户名密码不匹配。确认构建时用的 `ROOTFS_USERNAME` 和 `ROOTFS_PASSWORD` 与测试时传入的一致。
+
+### `Debian guest checks failed: firstboot`
+
+首次启动扩容没有完成。可能是 QEMU 磁盘太小或超时太短。尝试增加 `QEMU_TIMEOUT=900`。
+
+## 首次启动问题
+
+### 串口没有输出
+
+- 确认波特率是 1500000（不是 115200）
+- 确认 USB 转串口线接线正确（TX/RX 交叉）
+- 某些板子需要按住 recovery 键再上电
+
+### 无法 SSH 登录
+
+- 首次启动需要 30-60 秒生成 SSH host key，稍等再试
+- 确认 IP 地址正确：`ip addr show`
+- 确认密码是 `rk3588`（或构建时设置的值）
+
+### 根分区没有扩容
+
+- Buildroot：检查 `/var/lib/rk3588-rootfs-expanded` 标记是否存在
+- Debian：检查 `/var/lib/rk3588-firstboot.done` 标记
+- 手动执行：`sudo resize2fs /dev/mmcblkXp2`

@@ -1,92 +1,104 @@
 # configs/
 
-镜像构建由板级 profile 与共享内核 fragment 驱动。
+构建配置中心：板级 profile + 共享内核 fragment。
 
 ## 板级 profile（`boards/`）
 
+每块支持的开发板对应一个 `.conf` 文件，文件名（去掉 `.conf`）就是 `BOARD` 变量的值。
+
 当前内置：
 
-```text
-configs/boards/rk3588-evb1-lp4-v10-linux.conf
-configs/boards/rk3588s-rock-5c.conf
-configs/boards/rk3588-cokepi-plus-lp4-v10.conf
-configs/boards/rk3588s-cokepi-model-lp4-v10.conf
-configs/boards/rk3588-muse.conf
-```
-
-| Profile | 硬件 | 说明 |
+| Profile | 硬件 | 关键特征 |
 |---|---|---|
-| `rk3588-evb1-lp4-v10-linux` | Rockchip EVB1 | 参考板；`UBOOT_PYTHON=python3` |
-| `rk3588s-rock-5c` | Radxa ROCK 5C | 锁定 manifest 中各仓库 commit |
-| `rk3588-cokepi-plus-lp4-v10` | CokePi Plus（RK3588） | `KERNEL_DTB=rk3588-cpp-hdmi.dtb`；需本地 CokePi SDK |
-| `rk3588s-cokepi-model-lp4-v10` | CokePi Model（RK3588S） | `KERNEL_DTB=rk3588s-cpm-hdmi1.dtb`；需本地 CokePi SDK |
-| `rk3588-muse` | MUSE RK3588（eMMC） | `KERNEL_DTB=rk3588-muse.dtb`；kernel 来自 `MUSEInstitute/kernel` `develop-5.10` |
+| `rk3588-evb1-lp4-v10-linux` | Rockchip EVB1 参考板 | 参考实现，`UBOOT_PYTHON=python3` |
+| `rk3588s-rock-5c` | Radxa ROCK 5C | manifest 全量锁定 commit |
+| `rk3588-cokepi-plus-lp4-v10` | CokePi Plus (RK3588) | `KERNEL_DTB=rk3588-cpp-hdmi.dtb`，需本地 SDK |
+| `rk3588s-cokepi-model-lp4-v10` | CokePi Model (RK3588S) | `KERNEL_DTB=rk3588s-cpm-hdmi1.dtb`，需本地 SDK |
+| `rk3588-muse` | MUSE RK3588 (eMMC) | kernel 来自 MUSEInstitute fork |
 
-CokePi Plus 与 Model 使用同一 SDK volume 时仍须按丝印选择不同 profile，不可混用。项目 profile 选用 SDK 中 HDMI 设备树变体。
+CokePi Plus 和 Model 共用 SDK 但 DTB 不同，必须按板子丝印选择 profile，不可混用。
 
-### 主要字段
+### 字段说明
 
-| 字段 | 作用 |
+必填字段：
+
+| 字段 | 说明 |
 |---|---|
-| `KERNEL_DEFCONFIG` | BSP 内核 defconfig |
-| `KERNEL_DTB` | 唯一打包的 DTB 文件名 |
-| `UBOOT_DEFCONFIG` / `UBOOT_BOARD` | U-Boot 配置与 `make.sh` 板名 |
-| `UBOOT_BUILD_SYSTEM` | 当前为 `rockchip-make-sh` |
-| `UBOOT_PYTHON` | `python2` 或 `python3`，必填 |
-| `BOOTLOADER_LAYOUT` | 当前为 `rockchip-gpt-idblock-extlinux-v1` |
-| `DOWNLOAD_LOADER_GLOBS` / `UBOOT_IMAGE_NAMES` | 产物匹配 |
-| `IDBLOCK_SECTOR` / `UBOOT_SECTOR` | 默认 64 / 16384 |
-| `CONSOLE` / `EXTRA_KERNEL_ARGS` | 写入 extlinux |
-| `IMAGE_SIZE_MIB` / `BOOT_START_MIB` / `BOOT_SIZE_MIB` / `ROOTFS_SIZE_MIB` | 镜像几何 |
+| `BOARD_DESCRIPTION` | 板子描述 |
+| `KERNEL_DEFCONFIG` | 内核 defconfig 文件名 |
+| `KERNEL_DTB` | DTB 文件名（`.dtb` 结尾） |
+| `UBOOT_DEFCONFIG` | U-Boot defconfig |
+| `UBOOT_BOARD` | Rockchip `make.sh` 板名 |
+| `UBOOT_BUILD_SYSTEM` | 固定 `rockchip-make-sh` |
+| `UBOOT_PYTHON` | `python2` 或 `python3` |
+| `BOOTLOADER_LAYOUT` | 固定 `rockchip-gpt-idblock-extlinux-v1` |
+| `DOWNLOAD_LOADER_GLOBS` | loader 文件匹配模式（分号分隔） |
+| `UBOOT_IMAGE_NAMES` | U-Boot 镜像匹配模式（分号分隔） |
+| `CONSOLE` | 串口设备和波特率 |
+| `IMAGE_SIZE_MIB` | 总镜像大小 |
+| `BOOT_START_MIB` | boot 分区起始（>= 16） |
+| `BOOT_SIZE_MIB` | boot 分区大小 |
+| `ROOTFS_SIZE_MIB` | rootfs 初始大小 |
+| `IDBLOCK_SECTOR` | IDBlock 扇区号（>= 34） |
+| `UBOOT_SECTOR` | U-Boot 扇区号 |
 
-可选锁定 revision（如 ROCK 5C）：`EXPECTED_KERNEL_REVISION` 等；`SOURCE_MANIFEST` 记录对应 manifest。
+可选字段：
 
-所有组件与镜像目标都要求显式 `BOARD=<profile 文件名去掉 .conf>`，无默认板型。新增硬件时复制最接近的 profile 再改字段。
+| 字段 | 说明 |
+|---|---|
+| `EXTRA_KERNEL_ARGS` | 额外内核命令行参数 |
+| `SOURCE_MANIFEST` | 对应 manifest 文件名（启用版本锁定） |
+| `EXPECTED_KERNEL_REVISION` | 锁定 kernel commit（完整 40 位 SHA） |
+| `EXPECTED_UBOOT_REVISION` | 锁定 u-boot commit |
+| `EXPECTED_RKBIN_REVISION` | 锁定 rkbin commit |
+| `EXPECTED_BUILDROOT_REVISION` | 锁定 buildroot commit |
+| `DEBIAN_FEATURES_DEFAULT` | Debian 默认功能集 |
+| `ROOTFS_HOSTNAME_DEFAULT` | 默认主机名 |
 
-### 布局约束
+新增板型：复制最接近的 profile 改字段即可。详见 `docs/boards/add-board.md`。
 
-loader 与 U-Boot 区域必须位于 `BOOT_START_MIB` 之前。当前约定：
+### 磁盘布局约束
 
-- 前 16 MiB 预留 bootloader
-- IDBlock：sector 64
-- `uboot.img`：sector 16384
-- FAT boot：自 16 MiB 起，默认 256 MiB
+- 前 16 MiB 预留引导链
+- IDBlock：sector 64（Rockchip 标准）
+- uboot.img：sector 16384（8 MiB 处）
+- FAT boot 分区：自 16 MiB 起，默认 256 MiB
+- rootfs 分区：紧随 boot 分区，初始 2048 MiB（首次启动自动扩容）
+
+`IDBLOCK_SECTOR` 必须 >= 34（不覆盖 GPT 主表），`UBOOT_SECTOR` 必须在 boot 分区之前。
 
 ## 内核 fragment（`kernel/`）
 
-`configs/kernel/rootfs-base.config` 在板级 defconfig 之后合并，启用 Buildroot / Debian 所需的最小能力（ext4、MMC、devtmpfs、namespaces、cgroups 等）。
+`rootfs-base.config` 在板级 defconfig 之后通过 `merge_config.sh` 合并，确保所有板型有一致的基础能力：
 
-板级专用内核选项应放在 BSP defconfig 或额外板级适配中，不要堆进该共享 baseline。
+- 文件系统：ext4、tmpfs（含 POSIX ACL 和 xattr）、autofs
+- 设备：devtmpfs（含自动挂载）、MMC（含 Rockchip DW 和 SDHCI）
+- 命名空间与 cgroup：namespaces、cgroups、memcg、seccomp
+- 虚拟化：virtio（blk、net、MMIO、rng）— QEMU 测试需要
+- 串口：PL011（QEMU virt 控制台）
+- RTC：PL031（QEMU virt）
+- 其他：fhandle、inotify、signalfd、timerfd、packet socket
 
-## Debian 可选功能（rootfs）
+板级专用的内核选项放在 BSP defconfig 或额外的板级适配中，不要堆进共享 baseline。
 
-构建 Debian 时可通过环境变量 `DEBIAN_FEATURES` 预装功能集（逗号分隔）。
-未指定时：若板级设了 `DEBIAN_FEATURES_DEFAULT` 则用板级默认，否则 minbase。
-显式 `DEBIAN_FEATURES=none`（或 `minbase` / `off` / `-`）强制 minbase。
+## Debian 可选功能
+
+构建 Debian rootfs 时通过 `DEBIAN_FEATURES` 环境变量预装功能集（逗号分隔）：
 
 | Token | 内容 |
 |---|---|
-| `nm` | NetworkManager + `nmtui`（替代 systemd-networkd 作为主网络栈） |
-| `hwdebug` | `i2c-tools` `usbutils` `pciutils` `mmc-utils` |
-| `tools` | `tmux` `htop` `strace` |
-| `firstboot-info` | 首次启动串口摘要 + MOTD/登录提示（不装额外 deb） |
+| `nm` | NetworkManager + nmtui（替代 systemd-networkd） |
+| `hwdebug` | i2c-tools、usbutils、pciutils、mmc-utils |
+| `tools` | tmux、htop、strace |
+| `firstboot-info` | 首次启动串口摘要 + MOTD（不装额外包） |
 | `all` | 以上全部 |
 
-板级 profile 可设默认值（仅当 CLI/env 未指定时生效）：
-
-```bash
-DEBIAN_FEATURES_DEFAULT="nm,hwdebug,firstboot-info"
-ROOTFS_HOSTNAME_DEFAULT="muse"
-```
-
-示例：
+优先级：命令行 `DEBIAN_FEATURES` > 板级 `DEBIAN_FEATURES_DEFAULT` > minbase。显式 `DEBIAN_FEATURES=none`（或 `minbase`/`off`/`-`）强制 minbase。
 
 ```bash
 make build-rootfs DEBIAN_FEATURES=nm,hwdebug,firstboot-info
 make build-rootfs DEBIAN_FEATURES=all ROOTFS_HOSTNAME=muse
-# 强制 minbase，覆盖板级默认
-make build-rootfs DEBIAN_FEATURES=none
+make build-rootfs DEBIAN_FEATURES=none    # 强制 minbase
 ```
 
-`rootfs-build-info.txt` 会记录 `debian_features` 与 `network_stack`。
-
+构建元数据 `rootfs-build-info.txt` 会记录 `debian_features` 和 `network_stack`。

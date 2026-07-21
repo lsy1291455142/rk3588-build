@@ -1,100 +1,86 @@
 # 变量与 .env
 
-三个核心变量**没有默认值**，缺了相关目标会直接失败。其余可写在 `.env` 或命令行覆盖。
+所有变量可以通过三种方式设置，优先级从高到低：
 
-模板见仓库根目录 [`.env.example`](https://github.com/lsy1291455142/rk3588-build/blob/main/.env.example)。
+1. 命令行：`make build-all BOARD=my-board`
+2. `.env` 文件：`BOARD=my-board`
+3. Makefile 默认值
 
-## 必需
+`make use-board` / `use-volume` / `use-rootfs` 系列目标会自动写入 `.env`。
 
-| 变量 | 含义 | 典型设置 |
+## 核心变量
+
+| 变量 | 默认值 | 说明 |
 |---|---|---|
-| `SDK_VOLUME` | 存放 BSP 的 Docker volume 名 | `make use-volume-*` / `fetch-*` / CLI |
-| `BOARD` | `configs/boards/<name>.conf`（无后缀） | `make use-board-*` / CLI |
-| `ROOTFS` | `buildroot` / `debian` / `all` | `make use-rootfs-*` / CLI |
+| `BOARD` | （必填） | 板级 profile 名（`.conf` 文件名去掉后缀） |
+| `SDK_VOLUME` | （必填） | Docker volume 名，指向 SDK 源码 |
+| `ROOTFS` | （构建 rootfs 时必填） | `buildroot`、`debian` 或 `all` |
+
+## rootfs 变量
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `ROOTFS_USERNAME` | `rk3588` | 非 root 用户名 |
+| `ROOTFS_PASSWORD` | `rk3588` | 用户和 root 密码 |
+| `ROOTFS_HOSTNAME` | `rk3588` | 主机名 |
+
+## Debian 变量
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `DEBIAN_RELEASE` | `13` | Debian 版本：11、12 或 13 |
+| `DEBIAN_FEATURES` | （空） | 功能集：`nm,hwdebug,tools,firstboot-info,all` |
+| `DEBIAN_MIRROR` | `http://deb.debian.org/debian` | Debian 主镜像源 |
+| `DEBIAN_SECURITY_MIRROR` | `http://security.debian.org/debian-security` | 安全更新源 |
+| `DEBIAN_ALLOW_ARCHIVE_FALLBACK` | `yes` | Debian 11 过期时回退到 archive.debian.org |
+
+`DEBIAN_FEATURES` 为空时：如果板级 profile 设了 `DEBIAN_FEATURES_DEFAULT` 则用板级默认，否则 minbase。设为 `none` / `minbase` / `off` / `-` 强制 minbase。
+
+## 构建变量
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `JOBS` | `0`（= CPU 核数） | 编译并行数 |
+| `ZSTD_LEVEL` | `6` | 镜像压缩级别（1-19） |
+| `DEPTH` | `1` | repo 浅克隆深度，`0` = 完整克隆 |
+| `CCACHE_MAXSIZE` | `10G` | ccache 缓存上限 |
+| `USE_NATIVE_BUILD` | `no` | ARM64 宿主机上用原生 GCC 替代交叉编译 |
+
+## SDK 拉取变量
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `MANIFEST` | （空） | 本地 manifest 文件名 |
+| `CUSTOM_MANIFEST_URL` | （空） | 远程 manifest 仓库 URL |
+| `CUSTOM_MANIFEST_NAME` | （空） | 远程 manifest 文件名 |
+| `SDK_PATH` | （空） | 本地 SDK 路径（import-local-sdk 用） |
+| `FETCH_ON_START` | `no` | 容器启动时自动拉取 SDK |
+| `EXTRA_COMPONENTS` | `no` | 拉取额外组件 |
+| `MAX_RETRIES` | `3` | repo sync 重试次数 |
+| `MIN_DISK_GB` | `10` | 最小磁盘空间检查 |
+
+## QEMU 测试变量
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `QEMU_TIMEOUT` | `600` | 启动超时（秒） |
+| `QEMU_MEMORY_MIB` | `1024` | 虚拟机内存 |
+| `QEMU_CPUS` | `2` | 虚拟机 CPU 数 |
+
+## .env 文件示例
 
 ```bash
-make use-volume-rock5c
-make use-board-rock5c
-make use-rootfs-debian
-make use-current
+# 当前选择（由 make use-* 自动写入）
+BOARD=rk3588s-rock-5c
+SDK_VOLUME=rk3588-sdk-rock5c
+ROOTFS=debian
+
+# 可选覆盖
+DEBIAN_RELEASE=13
+DEBIAN_FEATURES=nm,hwdebug
+ROOTFS_USERNAME=admin
+ROOTFS_PASSWORD=mysecret
+JOBS=8
 ```
 
-Compose 把 `SDK_VOLUME` 当 external volume。volume 不存在时，依赖它的服务起不来。
-
-## Debian / rootfs
-
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `DEBIAN_RELEASE` | `13` | `11` / `12` / `13` |
-| `DEBIAN_FEATURES` | 空 | 见下表；空时用板级 `DEBIAN_FEATURES_DEFAULT`（若有） |
-| `ROOTFS_HOSTNAME` | 空 → 板级默认或 `rk3588` | Debian hostname |
-| `ROOTFS_USERNAME` | `rk3588` | 开发用户 |
-| `ROOTFS_PASSWORD` | `rk3588` | 用户与 root 密码（仅实验环境） |
-| `DEBIAN_MIRROR` | `http://deb.debian.org/debian` | 主源 |
-| `DEBIAN_SECURITY_MIRROR` | `http://security.debian.org/debian-security` | security 源 |
-| `DEBIAN_ALLOW_ARCHIVE_FALLBACK` | `yes` | Debian 11 归档回退 |
-
-### `DEBIAN_FEATURES` token
-
-逗号分隔。`all` 展开为全部 token。
-
-| Token | 内容 |
-|---|---|
-| `nm` | NetworkManager + `nmtui`（不再启用 networkd） |
-| `hwdebug` | `i2c-tools` `usbutils` `pciutils` `mmc-utils` |
-| `tools` | `tmux` `htop` `strace` |
-| `firstboot-info` | 首次启动串口摘要 + MOTD（无额外 deb） |
-| `all` | 以上全部 |
-
-强制 minbase（覆盖板级默认）：
-
-```bash
-make build-rootfs DEBIAN_FEATURES=none
-# 也接受 minbase / off / -
-```
-
-板级可在 `.conf` 里写：
-
-```bash
-DEBIAN_FEATURES_DEFAULT="nm,hwdebug,firstboot-info"
-ROOTFS_HOSTNAME_DEFAULT="muse"
-```
-
-## SDK 拉取
-
-| 变量 | 说明 |
-|---|---|
-| `SDK_PATH` | `import-local-sdk` 的绝对路径 |
-| `MANIFEST` | `fetch-custom` 用的本地 manifest 名 |
-| `CUSTOM_MANIFEST_URL` / `CUSTOM_MANIFEST_NAME` | 远程 manifest |
-| `BRANCH` | 部分 fetch 路径使用 |
-| `DEPTH` | 浅克隆深度，默认 `1` |
-| `MAX_RETRIES` | fetch 重试次数 |
-| `EXTRA_COMPONENTS` | 是否拉额外组件，默认 `no` |
-| `FETCH_ON_START` | 默认 `no` |
-
-## 构建控制
-
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `JOBS` | `0` | 并行度；`0` 表示脚本自定 |
-| `CCACHE_MAXSIZE` | `10G` | ccache 上限 |
-| `ZSTD_LEVEL` | `6` | 最终 `.img.zst` 压缩级别 |
-| `USE_NATIVE_BUILD` | `no` | 是否倾向原生编译（视脚本路径） |
-
-## 板级 profile 字段（不是 .env）
-
-写在 `configs/boards/*.conf`，由 `BOARD` 选中后 source。主要字段：
-
-| 字段 | 作用 |
-|---|---|
-| `KERNEL_DEFCONFIG` / `KERNEL_DTB` | 内核配置与唯一 DTB |
-| `UBOOT_DEFCONFIG` / `UBOOT_BOARD` / `UBOOT_PYTHON` | U-Boot 构建 |
-| `BOOTLOADER_LAYOUT` | 当前为 `rockchip-gpt-idblock-extlinux-v1` |
-| `IDBLOCK_SECTOR` / `UBOOT_SECTOR` | 默认 64 / 16384 |
-| `CONSOLE` / `EXTRA_KERNEL_ARGS` | extlinux APPEND |
-| `IMAGE_SIZE_MIB` / `BOOT_*` / `ROOTFS_SIZE_MIB` | 镜像几何 |
-| `EXPECTED_*_REVISION` | 可选源码锁定 |
-| `DEBIAN_FEATURES_DEFAULT` / `ROOTFS_HOSTNAME_DEFAULT` | Debian 默认 |
-
-完整说明见 [configs/README.md](https://github.com/lsy1291455142/rk3588-build/blob/main/configs/README.md)。
+`.env` 文件在 Makefile 顶部通过 `-include .env` 加载，所有变量同时传入 docker compose 环境。

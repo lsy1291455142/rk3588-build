@@ -1,75 +1,115 @@
 # 烧录与启动
 
-## 找镜像
+## 烧录方式
 
-```text
-output/<BOARD>/<variant>/<BOARD>-<variant>.img.zst
-```
+### SD 卡（推荐用于首次验证）
 
-例：
-
-```text
-output/rk3588s-rock-5c/debian-13/rk3588s-rock-5c-debian-13.img.zst
-```
-
-## dd 到 SD / eMMC
-
-先确认设备节点。写错盘会毁掉宿主机数据。
+Linux / macOS：
 
 ```bash
-zstd -d -f output/rk3588s-rock-5c/debian-13/rk3588s-rock-5c-debian-13.img.zst
-sudo dd if=output/rk3588s-rock-5c/debian-13/rk3588s-rock-5c-debian-13.img \
+# 确认 SD 卡设备名（如 /dev/sdX 或 /dev/mmcblkX）
+lsblk
+
+sudo dd if=output/<board>/<variant>/<board>-<variant>.img \
   of=/dev/sdX bs=4M status=progress conv=fsync
 ```
 
-板载 eMMC 视启动模式可能是 `/dev/mmcblk0` 或 USB 烧录工具路径。本流程产出的是 **GPT raw**，不是 `rkdeveloptool wl` 用的分卷 `update.img`。
+Windows：用 [balenaEtcher](https://www.balena.io/etcher/) 或 [Rufus](https://rufus.ie/) 选择 `.img` 文件写入 SD 卡。
 
-## USB 下载 loader
+### eMMC
 
-| 文件 | 魔数 | 用途 |
+方式一：先烧 SD 卡启动，再在系统内把镜像 dd 到 eMMC：
+
+```bash
+# 在开发板上执行（假设 eMMC 是 /dev/mmcblk0）
+sudo dd if=/path/to/image.img of=/dev/mmcblk0 bs=4M status=progress conv=fsync
+sudo sync
+```
+
+方式二：用 Rockchip 的 `rkdeveloptool` 进入 maskrom 模式烧录。镜像中的 `download-loader.bin` 和 `idblock.img` 就是为这种模式准备的，但完整流程需要 Rockchip 工具链支持，超出本项目范围。
+
+### 压缩镜像
+
+`.img.zst` 文件先解压再烧录：
+
+```bash
+zstd -d image.img.zst -o image.img
+```
+
+或者管道直接写入：
+
+```bash
+zstd -dc image.img.zst | sudo dd of=/dev/sdX bs=4M status=progress conv=fsync
+```
+
+## 验证烧录
+
+烧录完成后重新插入 SD 卡，应该能看到两个分区：
+
+- `BOOT`（FAT32，约 256 MB）— 包含 `Image`、`*.dtb`、`extlinux/extlinux.conf`
+- `rootfs`（ext4）— Linux 根文件系统
+
+## 串口连接
+
+所有支持的板型统一使用 `ttyFIQ0`，波特率 **1500000**，8N1。
+
+Linux：
+
+```bash
+sudo screen /dev/ttyUSB0 1500000
+# 或
+sudo minicom -D /dev/ttyUSB0 -b 1500000
+```
+
+macOS：
+
+```bash
+screen /dev/tty.usbserial-* 1500000
+```
+
+Windows：用 PuTTY 或 Tera Term，选 Serial，波特率 1500000。
+
+## 首次启动
+
+上电后串口会输出 U-Boot 和内核日志。首次启动的关键行为：
+
+1. **根分区扩容** — `rk3588-firstboot` 服务自动把根分区扩到磁盘实际大小
+2. **SSH host key 生成** — 首次启动时自动生成
+3. **网络 DHCP** — 自动获取 IP（Buildroot 用 udhcpc，Debian 用 systemd-networkd 或 NetworkManager）
+
+Debian 镜像首次启动约需 30-60 秒（扩容 + SSH key 生成），之后每次启动约 10-15 秒。
+
+## 登录
+
+| 方式 | 账号 | 密码 |
 |---|---|---|
-| `idblock.img` | `RKNS` | 写在磁盘 sector 64 |
-| `download-loader.bin` | `LDR ` | 给 `rkdeveloptool db` 一类 USB 下载 |
+| 串口 | `rk3588` | `rk3588` |
+| SSH | `rk3588` | `rk3588` |
+| root | `root` | `rk3588` |
 
-两者不能互换。把 `download-loader.bin` 写到 sector 64 会起不来。
+SSH 登录（先查 IP）：
 
-## 串口
+```bash
+# 串口里执行
+ip addr show
 
-默认 console（板级 profile 的 `CONSOLE`）：
-
-```text
-ttyFIQ0,1500000n8
+# 宿主机上
+ssh rk3588@<board-ip>
 ```
 
-多数 Rockchip 板：1500000 8N1。接好地线，先开串口再上电。
+## 首次启动信息（Debian）
 
-## 默认账号
+如果板级 profile 启用了 `firstboot-info` feature（如 MUSE 默认开启），首次启动完成后串口会打印一段板型摘要，后续每次登录的 MOTD 也会显示板型信息。
 
-```text
-用户: rk3588
-密码: rk3588
-root 密码: rk3588
+## 修改默认账号密码
+
+构建时通过变量覆盖：
+
+```bash
+make build-all \
+  BOARD=... SDK_VOLUME=... ROOTFS=debian \
+  ROOTFS_USERNAME=myuser \
+  ROOTFS_PASSWORD=mypassword
 ```
 
-由 `ROOTFS_USERNAME` / `ROOTFS_PASSWORD` 控制。默认密码只适合隔离实验网。
-
-## 启动后 root 挂载方式
-
-内核参数来自 FAT 分区里的 `extlinux/extlinux.conf`：
-
-```text
-root=PARTLABEL=rootfs rootwait rw console=...
-```
-
-不写死 `mmcblk` 设备名。SD 和 eMMC 只要分区 label 对，就能挂上 rootfs。
-
-Debian 首次启动会尝试修复备份 GPT、扩展 root 分区与文件系统。Buildroot 也带扩容钩子，行为以 rootfs 脚本为准。
-
-## 起不来先查什么
-
-1. 串口有没有 loader / U-Boot 输出  
-2. U-Boot 是否找到 FAT 与 extlinux  
-3. 内核是否卡在 `VFS: Unable to mount root fs`  
-4. DTB 是否匹配硬件（错板 profile 最常见）
-
-离线校验通过只说明镜像结构对；DRAM 初始化、PMIC、存储时序仍依赖厂商 loader 与正确 DTB。
+或者在已启动的系统里用 `passwd` 修改。
