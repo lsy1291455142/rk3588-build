@@ -1,4 +1,8 @@
-# rk3588-build
+# RK3588 Linux BSP Docker Build Environment
+
+在 Docker 里基于厂商 BSP 源码，为 RK3588 / RK3588S 开发板构建可直接烧录启动的 GPT 磁盘镜像。
+
+整条流水线在一个命令里完成：拉取 SDK → 编译 U-Boot → 编译内核 → 生成根文件系统（Buildroot 或 Debian）→ 组装 GPT 镜像 → 校验镜像 → 可选 QEMU 冒烟启动测试。宿主机只需要 Docker 和 GNU Make，不需要安装交叉工具链、QEMU 或任何 Rockchip 专有工具。
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/lsy1291455142/rk3588-build)
 
@@ -6,10 +10,6 @@
 > **一键云端构建**：本项目已完整支持 GitHub Codespaces。点击上方按钮可直接在云端打开预配置好 Docker-in-Docker 和编译工具链的开发环境，无需在本地配置 Docker 和运行环境。
 > * **免费额度**：GitHub 个人账户每月赠送 **120 核时**（默认 2 核机器可运行 60 小时）与 **15 GB 存储**空间。
 > * **省流建议**：不使用时容器会自动暂停（不计运行时间）。为了避免持续占用 15 GB 存储额度，编译/测试完成后建议及时去 [GitHub Codespaces 管理页](https://github.com/codespaces) 删除不用的实例。
-
-在 Docker 里基于厂商 BSP 源码，为 RK3588 / RK3588S 开发板构建可直接烧录启动的 GPT 磁盘镜像。
-
-整条流水线在一个命令里完成：拉取 SDK → 编译 U-Boot → 编译内核 → 生成根文件系统（Buildroot 或 Debian）→ 组装 GPT 镜像 → 校验镜像 → 可选 QEMU 冒烟启动测试。宿主机只需要 Docker 和 GNU Make，不需要安装交叉工具链、QEMU 或任何 Rockchip 专有工具。
 
 ## 能做什么
 
