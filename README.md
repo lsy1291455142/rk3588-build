@@ -16,7 +16,7 @@
 - 用 `repo` manifest 锁定 kernel / u-boot / rkbin / buildroot 四个组件的来源与版本
 - 用 Rockchip 官方 `make.sh` 构建 U-Boot 引导链（IDBlock + uboot.img + download loader）
 - 用板级 defconfig 加共享 fragment 构建内核，产出 Image、DTB 和模块包
-- 用 Buildroot external tree 或 mmdebstrap 生成最小化根文件系统
+- 用 Buildroot external tree 或 mmdebstrap 生成最小化根文件系统；Debian 可选功能集（`nm`/`wifibt` 等），WiFi 固件可从完整 BSP 同步到 `assets/` 而不污染最小 SDK
 - 按 GPT 布局组装裸镜像，内置 extlinux 启动配置、SHA-256 校验和与构建元数据
 - 用 QEMU virt 机器对 Debian 镜像做完整的串口登录 + SSH + systemd 健康检查
 

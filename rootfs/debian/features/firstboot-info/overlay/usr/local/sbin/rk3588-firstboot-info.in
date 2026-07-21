@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+INFO=/var/lib/rk3588-board-info
+{
+    echo "board=@BOARD@"
+    echo "board_description=@BOARD_DESCRIPTION@"
+    echo "hostname=@ROOTFS_HOSTNAME@"
+    echo "kernel_release=$(uname -r 2>/dev/null || true)"
+    echo "dtb=@KERNEL_DTB@"
+    echo "features=@DEBIAN_FEATURES@"
+    echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
+} >"$INFO"
+
+# One-shot serial banner for the first boot after resize.
+{
+    echo
+    echo "=============================================="
+    echo " RK3588 first boot"
+    echo " board: @BOARD@"
+    echo " desc : @BOARD_DESCRIPTION@"
+    echo " host : @ROOTFS_HOSTNAME@"
+    echo " dtb  : @KERNEL_DTB@"
+    echo " kern : $(uname -r 2>/dev/null || true)"
+    echo " feats: @DEBIAN_FEATURES@"
+    if command -v nmtui >/dev/null 2>&1; then
+        echo " net  : NetworkManager enabled (nmtui / nmcli)"
+    elif command -v networkctl >/dev/null 2>&1; then
+        echo " net  : systemd-networkd + DHCP on en*/eth*"
+    fi
+    if [ -e /vendor/etc/firmware ] || [ -d /lib/firmware ]; then
+        echo " wifi : firmware present under /lib/firmware (vendor link if set)"
+    fi
+    echo " tip  : lsblk; ip -br a; i2cdetect -l"
+    echo "=============================================="
+    echo
+} | tee /dev/console 2>/dev/null || cat

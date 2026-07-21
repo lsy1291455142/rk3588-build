@@ -348,6 +348,35 @@ else
                 die "Debian firstboot does not invoke firstboot-info"
             ;;
     esac
+    case ",${DEBIAN_FEATURES_META}," in
+        *,wifibt,*)
+            WIFIBT_SOURCE_META="$(metadata_value "${ROOTFS_META}" wifibt_source || true)"
+            WIFIBT_FILES_META="$(metadata_value "${ROOTFS_META}" wifibt_files || true)"
+            case "${WIFIBT_SOURCE_META}" in
+                skipped|none|missing|empty|'')
+                    # Optional/soft mode: feature present but firmware not required.
+                    ;;
+                *)
+                    debugfs -R "stat /lib/firmware" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+                        grep -q 'Inode:' || die "Debian wifibt feature lacks /lib/firmware"
+                    debugfs -R "stat /vendor" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+                        grep -q 'Inode:' || die "Debian wifibt feature lacks /vendor link"
+                    if [ -n "${WIFIBT_FILES_META}" ] && [ "${WIFIBT_FILES_META}" != "0" ]; then
+                        :
+                    else
+                        die "Debian wifibt feature metadata reports zero firmware files"
+                    fi
+                    ;;
+            esac
+            ;;
+    esac
+    # Always check wpa_supplicant when nm feature is recorded.
+    case ",${DEBIAN_FEATURES_META}," in
+        *,nm,*)
+            debugfs -R "stat /usr/sbin/wpa_supplicant" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+                grep -q 'Inode:' || die "Debian nm feature lacks wpa_supplicant"
+            ;;
+    esac
 fi
 
 (

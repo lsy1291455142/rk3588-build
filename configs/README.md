@@ -91,6 +91,7 @@ CokePi Plus 和 Model 共用 SDK 但 DTB 不同，必须按板子丝印选择 pr
 | `hwdebug` | i2c-tools、usbutils、pciutils、mmc-utils |
 | `tools` | tmux、htop、strace |
 | `firstboot-info` | 首次启动串口摘要 + MOTD（不装额外包） |
+| `wifibt` | 从 SDK `external/rkwifibt` 或 `assets/wifibt` 安装 WiFi/BT 固件到 `/lib/firmware`，并建立 `/vendor` 兼容软链（需 `WIFIBT_CHIP`） |
 | `all` | 以上全部 |
 
 优先级：命令行 `DEBIAN_FEATURES` > 板级 `DEBIAN_FEATURES_DEFAULT` > minbase。显式 `DEBIAN_FEATURES=none`（或 `minbase`/`off`/`-`）强制 minbase。
@@ -99,6 +100,19 @@ CokePi Plus 和 Model 共用 SDK 但 DTB 不同，必须按板子丝印选择 pr
 make build-rootfs DEBIAN_FEATURES=nm,hwdebug,firstboot-info
 make build-rootfs DEBIAN_FEATURES=all ROOTFS_HOSTNAME=muse
 make build-rootfs DEBIAN_FEATURES=none    # 强制 minbase
+make build-rootfs DEBIAN_FEATURES=nm,wifibt WIFIBT_CHIP=AP6275S
+make sync-wifibt-assets SDK_PATH=/path/to/full-bsp WIFIBT_CHIP=AP6275S
 ```
 
 构建元数据 `rootfs-build-info.txt` 会记录 `debian_features` 和 `network_stack`。
+
+
+## Debian overlay（配置文件）
+
+静态 rootfs 文件放在 `rootfs/debian/`，不要继续往 `build_debian.sh` 塞 heredoc：
+
+- `rootfs/debian/overlay/` — 始终应用
+- `rootfs/debian/features/<token>/overlay/` — 随 `DEBIAN_FEATURES` 应用
+- `rootfs/debian/boards/<board>/overlay/` — 板级覆盖
+
+详见 `rootfs/debian/README.md` 与 `docs/usage/debian-features.md`。

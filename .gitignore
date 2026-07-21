@@ -17,3 +17,11 @@
 # 编译产物 (如果在宿主机编译)
 output/
 out/
+
+# WiFi/BT firmware blobs (populate via make sync-wifibt-assets)
+# Ignore blob files, but keep directory markers and SOURCE.txt provenance notes.
+assets/wifibt/**
+!assets/wifibt/**/
+!assets/wifibt/.gitkeep
+!assets/wifibt/**/SOURCE.txt
+

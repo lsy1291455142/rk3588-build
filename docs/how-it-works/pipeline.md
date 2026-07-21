@@ -91,17 +91,15 @@
 流程：
 
 1. 解析 `DEBIAN_RELEASE`（11/12/13 → bullseye/bookworm/trixie）
-2. 解析 `DEBIAN_FEATURES`（可选功能集：nm、hwdebug、tools、firstboot-info、all）
-3. 用 `mmdebstrap --variant=minbase` 构建最小化 Debian rootfs
-4. 安装额外包（openssh-server、sudo、systemd 等）加上 feature 对应的包
-5. 创建用户账号，设置 root 密码，配置 sudo
-6. 配置网络（systemd-networkd 或 NetworkManager）
-7. 配置 SSH（允许密码登录、允许 root 登录、首次启动生成 host key）
-8. 安装内核模块并运行 `depmod`
-9. 配置串口 getty（保持板型波特率）
-10. 安装 `rk3588-firstboot` 服务（GPT 修复 + 分区扩容 + 文件系统扩容）
-11. 校验 systemd 单元、SSH 配置、usrmerge 布局
-12. 打包 ext4 镜像和 tar 归档
+2. 解析 `DEBIAN_FEATURES`（nm、hwdebug、tools、firstboot-info、wifibt、all）
+3. 用 `mmdebstrap --variant=minbase` 构建最小化 Debian rootfs，并安装基础包 + feature 包
+4. 创建用户/密码，写入 hostname
+5. 应用 `rootfs/debian/` 分层 overlay（通用 → networkd 或 nm → feature → board）
+6. 安装串口 getty 波特率 drop-in（路径依赖 `CONSOLE_DEVICE`）
+7. 安装内核模块并 `depmod`；可选 `install_wifibt_firmware`
+8. 启用 systemd unit（NM 或 networkd、resolved、ssh、firstboot、serial-getty）
+9. 校验 systemd / SSH / usrmerge 布局
+10. 打包 `rootfs.ext4` 与 `rootfs.tar`
 
 输出到 `output/<board>/debian-<release>/`：`rootfs.ext4`、`rootfs.tar`、`rootfs-build-info.txt`。
 

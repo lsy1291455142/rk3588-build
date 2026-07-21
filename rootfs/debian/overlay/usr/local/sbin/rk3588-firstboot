@@ -1,0 +1,59 @@
+#!/bin/sh
+set -eu
+
+MARKER=/var/lib/rk3588-firstboot.done
+[ ! -e "$MARKER" ] || exit 0
+
+rootdev="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
+rootdev="$(readlink -f "$rootdev" 2>/dev/null || true)"
+if [ -z "$rootdev" ] || [ ! -b "$rootdev" ]; then
+    rootdev="$(findfs PARTLABEL=rootfs 2>/dev/null || true)"
+fi
+if [ -z "$rootdev" ] || [ ! -b "$rootdev" ]; then
+    echo "Unable to locate rootfs block device" >&2
+    exit 1
+fi
+
+rootdev_name="${rootdev#/dev/}"
+sys_block="/sys/class/block/$rootdev_name"
+if [ ! -r "$sys_block/partition" ]; then
+    echo "Unable to locate partition metadata for $rootdev" >&2
+    exit 1
+fi
+partnum="$(cat "$sys_block/partition")"
+rootdisk_name="$(basename "$(dirname "$(readlink -f "$sys_block")")")"
+case "$partnum" in
+    ''|*[!0-9]*)
+        echo "Unable to determine root partition number for $rootdev" >&2
+        exit 1
+        ;;
+esac
+rootdisk="/dev/$rootdisk_name"
+if [ -z "$rootdisk_name" ] || [ ! -b "$rootdisk" ]; then
+    echo "Unable to determine parent disk for $rootdev" >&2
+    exit 1
+fi
+
+sgdisk -e "$rootdisk"
+if ! grow_output="$(growpart "$rootdisk" "$partnum" 2>&1)"; then
+    case "$grow_output" in
+        *NOCHANGE*) printf '%s\n' "$grow_output" ;;
+        *)
+            printf '%s\n' "$grow_output" >&2
+            exit 1
+            ;;
+    esac
+else
+    printf '%s\n' "$grow_output"
+fi
+partx -u --nr "$partnum" "$rootdisk"
+udevadm settle
+resize2fs "$rootdev"
+
+if [ -x /usr/local/sbin/rk3588-firstboot-info ]; then
+    /usr/local/sbin/rk3588-firstboot-info || true
+fi
+
+mkdir -p "$(dirname "$MARKER")"
+touch "$MARKER"
+systemctl disable rk3588-firstboot.service >/dev/null 2>&1 || true

@@ -160,41 +160,10 @@ printf 'root:%s\n' "${ROOTFS_PASSWORD}" |
     chroot "${ROOT_DIR}" chpasswd
 chroot "${ROOT_DIR}" passwd -u root
 
-install -d "${ROOT_DIR}/etc/systemd/network" \
-    "${ROOT_DIR}/etc/systemd/system/ssh.service.d" \
-    "${ROOT_DIR}/etc/ssh/sshd_config.d"
-if [ "${DEBIAN_HAS_NM}" != "1" ]; then
-    cat >"${ROOT_DIR}/etc/systemd/network/20-wired.network" <<'EOF'
-[Match]
-Name=en* eth*
-
-[Network]
-DHCP=yes
-IPv6AcceptRA=yes
-EOF
-else
-    # Prefer NetworkManager as the primary stack when feature nm is enabled.
-    # Keep resolved; do not enable networkd so only one manager owns DHCP.
-    install -d "${ROOT_DIR}/etc/NetworkManager/conf.d"
-    cat >"${ROOT_DIR}/etc/NetworkManager/conf.d/10-rk3588.conf" <<'EOF'
-[main]
-plugins=ifupdown,keyfile
-dns=systemd-resolved
-
-[ifupdown]
-managed=true
-EOF
-fi
-cat >"${ROOT_DIR}/etc/ssh/sshd_config.d/10-rk3588.conf" <<'EOF'
-PasswordAuthentication yes
-PermitRootLogin yes
-EOF
-cat >"${ROOT_DIR}/etc/systemd/system/ssh.service.d/10-hostkeys.conf" <<'EOF'
-[Service]
-ExecStartPre=
-ExecStartPre=/usr/bin/ssh-keygen -A
-ExecStartPre=/usr/sbin/sshd -t
-EOF
+# Static configs live under rootfs/debian/ overlays (see rootfs/debian/README.md).
+# Packages and dynamic values stay here; file content should not grow as heredocs.
+apply_debian_rootfs_overlays "${ROOT_DIR}"
+install_serial_getty_baud_conf "${ROOT_DIR}"
 
 rm -f "${ROOT_DIR}"/etc/ssh/ssh_host_* "${ROOT_DIR}/etc/machine-id"
 : >"${ROOT_DIR}/etc/machine-id"
@@ -212,160 +181,8 @@ depmod -b "${ROOT_DIR}" "${KERNEL_RELEASE}"
 chroot "${ROOT_DIR}" /bin/true ||
     die "Debian userspace is not executable after installing kernel modules"
 
-install -d "${ROOT_DIR}/usr/local/sbin" "${ROOT_DIR}/etc/systemd/system" \
-    "${ROOT_DIR}/etc/systemd/system/serial-getty@${CONSOLE_DEVICE}.service.d"
-cat >"${ROOT_DIR}/etc/systemd/system/serial-getty@${CONSOLE_DEVICE}.service.d/10-baud.conf" <<EOF
-[Service]
-ExecStart=
-ExecStart=-/sbin/agetty -o '-- \\\\u' --noreset --noclear --keep-baud ${CONSOLE_SPEED},115200,57600,38400,9600 - \${TERM}
-EOF
-cat >"${ROOT_DIR}/usr/local/sbin/rk3588-firstboot" <<'EOF'
-#!/bin/sh
-set -eu
-
-MARKER=/var/lib/rk3588-firstboot.done
-[ ! -e "$MARKER" ] || exit 0
-
-rootdev="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
-rootdev="$(readlink -f "$rootdev" 2>/dev/null || true)"
-if [ -z "$rootdev" ] || [ ! -b "$rootdev" ]; then
-    rootdev="$(findfs PARTLABEL=rootfs 2>/dev/null || true)"
-fi
-if [ -z "$rootdev" ] || [ ! -b "$rootdev" ]; then
-    echo "Unable to locate rootfs block device" >&2
-    exit 1
-fi
-
-rootdev_name="${rootdev#/dev/}"
-sys_block="/sys/class/block/$rootdev_name"
-if [ ! -r "$sys_block/partition" ]; then
-    echo "Unable to locate partition metadata for $rootdev" >&2
-    exit 1
-fi
-partnum="$(cat "$sys_block/partition")"
-rootdisk_name="$(basename "$(dirname "$(readlink -f "$sys_block")")")"
-case "$partnum" in
-    ''|*[!0-9]*)
-        echo "Unable to determine root partition number for $rootdev" >&2
-        exit 1
-        ;;
-esac
-rootdisk="/dev/$rootdisk_name"
-if [ -z "$rootdisk_name" ] || [ ! -b "$rootdisk" ]; then
-    echo "Unable to determine parent disk for $rootdev" >&2
-    exit 1
-fi
-
-sgdisk -e "$rootdisk"
-if ! grow_output="$(growpart "$rootdisk" "$partnum" 2>&1)"; then
-    case "$grow_output" in
-        *NOCHANGE*) printf '%s\n' "$grow_output" ;;
-        *)
-            printf '%s\n' "$grow_output" >&2
-            exit 1
-            ;;
-    esac
-else
-    printf '%s\n' "$grow_output"
-fi
-partx -u --nr "$partnum" "$rootdisk"
-udevadm settle
-resize2fs "$rootdev"
-
-if [ -x /usr/local/sbin/rk3588-firstboot-info ]; then
-    /usr/local/sbin/rk3588-firstboot-info || true
-fi
-
-mkdir -p "$(dirname "$MARKER")"
-touch "$MARKER"
-systemctl disable rk3588-firstboot.service >/dev/null 2>&1 || true
-EOF
-chmod 0755 "${ROOT_DIR}/usr/local/sbin/rk3588-firstboot"
-
-if [ "${DEBIAN_HAS_FIRSTBOOT_INFO}" = "1" ]; then
-    install -d "${ROOT_DIR}/etc/update-motd.d" "${ROOT_DIR}/etc/profile.d"
-    cat >"${ROOT_DIR}/usr/local/sbin/rk3588-firstboot-info" <<EOF
-#!/bin/sh
-set -eu
-INFO=/var/lib/rk3588-board-info
-{
-    echo "board=${BOARD}"
-    echo "board_description=${BOARD_DESCRIPTION}"
-    echo "hostname=${ROOTFS_HOSTNAME}"
-    echo "kernel_release=\$(uname -r 2>/dev/null || true)"
-    echo "dtb=${KERNEL_DTB}"
-    echo "features=${DEBIAN_FEATURES:-none}"
-    echo "generated_utc=\$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
-} >"\$INFO"
-
-# One-shot serial banner for the first boot after resize.
-{
-    echo
-    echo "=============================================="
-    echo " RK3588 first boot"
-    echo " board: ${BOARD}"
-    echo " desc : ${BOARD_DESCRIPTION}"
-    echo " host : ${ROOTFS_HOSTNAME}"
-    echo " dtb  : ${KERNEL_DTB}"
-    echo " kern : \$(uname -r 2>/dev/null || true)"
-    echo " feats: ${DEBIAN_FEATURES:-none}"
-    if command -v nmtui >/dev/null 2>&1; then
-        echo " net  : NetworkManager enabled (nmtui / nmcli)"
-    elif command -v networkctl >/dev/null 2>&1; then
-        echo " net  : systemd-networkd + DHCP on en*/eth*"
-    fi
-    echo " tip  : lsblk; ip -br a; i2cdetect -l"
-    echo "=============================================="
-    echo
-} | tee /dev/console 2>/dev/null || cat
-EOF
-    chmod 0755 "${ROOT_DIR}/usr/local/sbin/rk3588-firstboot-info"
-
-    cat >"${ROOT_DIR}/etc/update-motd.d/50-rk3588" <<'EOF'
-#!/bin/sh
-[ -r /var/lib/rk3588-board-info ] || exit 0
-echo
-echo "RK3588 board info:"
-sed 's/^/  /' /var/lib/rk3588-board-info
-if command -v nmtui >/dev/null 2>&1; then
-    echo "  network: use nmtui or nmcli"
-fi
-echo
-EOF
-    chmod 0755 "${ROOT_DIR}/etc/update-motd.d/50-rk3588"
-
-    cat >"${ROOT_DIR}/etc/profile.d/rk3588-board-info.sh" <<'EOF'
-# Show board summary once per interactive login until dismissed.
-if [ -n "${PS1:-}" ] && [ -r /var/lib/rk3588-board-info ] &&
-    [ ! -e "$HOME/.rk3588-board-info.seen" ]; then
-    echo
-    echo "RK3588 board info:"
-    sed 's/^/  /' /var/lib/rk3588-board-info
-    if command -v nmtui >/dev/null 2>&1; then
-        echo "  network: use nmtui or nmcli"
-    fi
-    echo
-    touch "$HOME/.rk3588-board-info.seen" 2>/dev/null || true
-fi
-EOF
-    chmod 0644 "${ROOT_DIR}/etc/profile.d/rk3588-board-info.sh"
-fi
-
-cat >"${ROOT_DIR}/etc/systemd/system/rk3588-firstboot.service" <<'EOF'
-[Unit]
-Description=Expand RK3588 root filesystem on first boot
-After=local-fs.target
-ConditionPathExists=!/var/lib/rk3588-firstboot.done
-
-[Service]
-Type=oneshot
-ExecStart=-/usr/local/sbin/rk3588-firstboot
-RemainAfterExit=yes
-TimeoutStartSec=10min
-
-[Install]
-WantedBy=multi-user.target
-EOF
+# Optional WiFi/BT firmware (feature: wifibt). Uses SDK external/rkwifibt or assets/.
+install_wifibt_firmware "${ROOT_DIR}"
 
 enable_unit() {
     local unit="$1"
@@ -484,6 +301,9 @@ write_common_metadata "${VARIANT_OUTPUT}/rootfs-build-info.txt" \
     "debian_features=${DEBIAN_FEATURES:-}" \
     "hostname=${ROOTFS_HOSTNAME}" \
     "network_stack=$([ "${DEBIAN_HAS_NM}" = "1" ] && printf NetworkManager || printf systemd-networkd)" \
+    "wifibt_chip=${WIFIBT_CHIP:-none}" \
+    "wifibt_source=${WIFIBT_RESOLVED_SOURCE:-skipped}" \
+    "wifibt_files=${WIFIBT_FILE_COUNT:-0}" \
     "kernel_release=${KERNEL_RELEASE}" \
     "username=${ROOTFS_USERNAME}" \
     "root_login=enabled" \

@@ -27,6 +27,7 @@
 | `make fetch-custom SDK_VOLUME=... MANIFEST=...` | 自定义本地 manifest |
 | `make fetch-custom SDK_VOLUME=... CUSTOM_MANIFEST_URL=... CUSTOM_MANIFEST_NAME=...` | 自定义远程 manifest |
 | `make import-local-sdk SDK_PATH=... SDK_VOLUME=...` | 导入本地已有 SDK |
+| `make sync-wifibt-assets SDK_PATH=... [WIFIBT_CHIP=...]` | 从完整 BSP 拷贝 WiFi/BT 固件到 `assets/wifibt`（默认 `ALL_AP`，不改 SDK） |
 | `make update SDK_VOLUME=...` | 更新已有 SDK（repo sync） |
 | `make verify-sdk-volume SDK_VOLUME=...` | 校验 SDK 完整性 |
 | `make verify-cokepi-sdk SDK_VOLUME=...` | CokePi SDK 额外校验 |

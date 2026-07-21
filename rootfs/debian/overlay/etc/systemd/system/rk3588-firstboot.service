@@ -1,0 +1,13 @@
+[Unit]
+Description=Expand RK3588 root filesystem on first boot
+After=local-fs.target
+ConditionPathExists=!/var/lib/rk3588-firstboot.done
+
+[Service]
+Type=oneshot
+ExecStart=-/usr/local/sbin/rk3588-firstboot
+RemainAfterExit=yes
+TimeoutStartSec=10min
+
+[Install]
+WantedBy=multi-user.target

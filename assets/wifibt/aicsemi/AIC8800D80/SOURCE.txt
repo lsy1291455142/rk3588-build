@@ -1,0 +1,6 @@
+Source: Radxa aic8800-firmware deb
+  https://github.com/radxa-pkg/aic8800/releases
+  package: aic8800-firmware (SDIO/aic8800D80)
+Install target for Rockchip/Coke kernel (CONFIG_AIC_FW_PATH=/vendor/etc/firmware):
+  /lib/firmware/aic8800D80/*
+  with /vendor -> /system and /system/etc/firmware -> /lib/firmware

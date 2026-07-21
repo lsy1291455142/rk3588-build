@@ -338,6 +338,100 @@ check_debian_features() {
         resolve_debian_features
         [ "${DEBIAN_HAS_TOOLS}" = "1" ] || exit 1
         [ "${DEBIAN_HAS_FIRSTBOOT_INFO}" = "1" ] || exit 1
+        [ "${DEBIAN_HAS_WIFIBT}" = "1" ] || exit 1
+    ) || return 1
+
+    (
+        DEBIAN_FEATURES="nm"
+        resolve_debian_features
+        mapfile -t pkgs < <(debian_feature_packages)
+        printf '%s\n' "${pkgs[@]}" | grep -Fxq wpasupplicant || exit 1
+    ) || return 1
+
+    (
+        DEBIAN_FEATURES="wifibt"
+        resolve_debian_features
+        [ "${DEBIAN_FEATURES}" = "wifibt" ] || exit 1
+        [ "${DEBIAN_HAS_WIFIBT}" = "1" ] || exit 1
+        WIFIBT_CHIP="AP6275S"
+        WIFIBT_SOURCE="assets"
+        WIFIBT_REQUIRED="no"
+        resolve_wifibt_config
+        [ "${WIFIBT_CHIP}" = "AP6275S" ] || exit 1
+        [ "${WIFIBT_SOURCE}" = "assets" ] || exit 1
+    ) || return 1
+
+    # Optional install path when assets already contain a chip tree (host unit test).
+    if [ -d "${PROJECT_DIR}/assets/wifibt/broadcom/AP6275S" ]; then
+        (
+            DEBIAN_FEATURES="wifibt"
+            resolve_debian_features
+            WIFIBT_CHIP="AP6275S"
+            WIFIBT_SOURCE="assets"
+            WIFIBT_REQUIRED="yes"
+            tmp="$(mktemp -d)"
+            install_wifibt_firmware "${tmp}"
+            [ "${WIFIBT_RESOLVED_SOURCE}" = "assets" ] || exit 1
+            [ "${WIFIBT_FILE_COUNT}" -gt 0 ] || exit 1
+            [ -e "${tmp}/lib/firmware/fw_bcmdhd.bin" ] || [ -e "${tmp}/lib/firmware" ] || exit 1
+            [ -L "${tmp}/vendor" ] || exit 1
+            [ -L "${tmp}/system/etc/firmware" ] || exit 1
+            rm -rf "${tmp}"
+        ) || return 1
+    fi
+
+    if [ -d "${PROJECT_DIR}/assets/wifibt/aicsemi/AIC8800D80" ]; then
+        (
+            DEBIAN_FEATURES="wifibt"
+            resolve_debian_features
+            WIFIBT_CHIP="AIC8800D80"
+            WIFIBT_SOURCE="assets"
+            WIFIBT_REQUIRED="yes"
+            tmp="$(mktemp -d)"
+            install_wifibt_firmware "${tmp}"
+            [ "${WIFIBT_RESOLVED_SOURCE}" = "assets" ] || exit 1
+            [ "${WIFIBT_FILE_COUNT}" -gt 0 ] || exit 1
+            [ -f "${tmp}/lib/firmware/aic8800D80/fw_patch_table_8800d80_u02.bin" ] || exit 1
+            [ -L "${tmp}/vendor" ] || exit 1
+            [ -L "${tmp}/system/etc/firmware" ] || exit 1
+            # On-device /vendor/etc/firmware resolves via absolute symlinks;
+            # host unit test only checks link targets + real install path.
+            [ "$(readlink "${tmp}/vendor")" = "/system" ] || exit 1
+            [ "$(readlink "${tmp}/system/etc/firmware")" = "/lib/firmware" ] || exit 1
+            rm -rf "${tmp}"
+        ) || return 1
+    fi
+
+    # Overlay apply + template expansion (host unit test, no packages).
+    (
+        BOARD="rk3588-muse"
+        BOARD_DESCRIPTION="overlay unit test"
+        ROOTFS_HOSTNAME="muse"
+        KERNEL_DTB="rk3588-muse.dtb"
+        DEBIAN_FEATURES="nm,firstboot-info"
+        CONSOLE_DEVICE="ttyFIQ0"
+        CONSOLE_SPEED="1500000"
+        resolve_debian_features
+        tmp="$(mktemp -d)"
+        apply_debian_rootfs_overlays "${tmp}"
+        install_serial_getty_baud_conf "${tmp}"
+        [ -x "${tmp}/usr/local/sbin/rk3588-firstboot" ] || exit 1
+        [ -x "${tmp}/usr/local/sbin/rk3588-firstboot-info" ] || exit 1
+        [ -f "${tmp}/etc/NetworkManager/conf.d/10-rk3588.conf" ] || exit 1
+        [ -f "${tmp}/etc/udev/rules.d/99-rockchip-permissions.rules" ] || exit 1
+        [ -f "${tmp}/etc/systemd/system/serial-getty@ttyFIQ0.service.d/10-baud.conf" ] || exit 1
+        grep -Fq 'board=rk3588-muse' "${tmp}/usr/local/sbin/rk3588-firstboot-info" || exit 1
+        grep -Fq 'wifi.scan-rand-mac-address=no' \
+            "${tmp}/etc/NetworkManager/conf.d/10-rk3588.conf" || exit 1
+        grep -Fq '1500000' \
+            "${tmp}/etc/systemd/system/serial-getty@ttyFIQ0.service.d/10-baud.conf" || exit 1
+        # networkd path when nm is off
+        DEBIAN_FEATURES="none"
+        resolve_debian_features
+        tmp2="$(mktemp -d)"
+        apply_debian_rootfs_overlays "${tmp2}"
+        [ -f "${tmp2}/etc/systemd/network/20-wired.network" ] || exit 1
+        [ ! -e "${tmp2}/etc/NetworkManager/conf.d/10-rk3588.conf" ] || exit 1
     ) || return 1
 
     # die() exits the subshell; success means the token was rejected.
@@ -348,13 +442,32 @@ check_debian_features() {
         return 1
     fi
 
-    # scripts/ and configs/ are bind-mounted; Makefile may be image-baked until rebuild.
+    # scripts/ and configs/ are bind-mounted. Makefile/docker-compose live in the
+    # image layer unless the host rebuilt; only require them when present.
     grep -Fq 'resolve_debian_features' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
-    grep -Fq 'packages+=(network-manager)' "${PROJECT_DIR}/scripts/lib/common.sh" || return 1
+    grep -Fq 'install_wifibt_firmware' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
+    grep -Fq 'apply_debian_rootfs_overlays' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
+    grep -Fq 'packages+=(network-manager wpasupplicant)' "${PROJECT_DIR}/scripts/lib/common.sh" || return 1
     grep -Fq 'NetworkManager.service' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
-    grep -Fq 'rk3588-firstboot-info' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
     grep -Fq 'DEBIAN_FEATURES_DEFAULT' \
         "${PROJECT_DIR}/configs/boards/rk3588-muse.conf" || return 1
+    grep -Fq 'wifibt' "${PROJECT_DIR}/configs/boards/rk3588s-cokepi-model-lp4-v10.conf" || return 1
+    # Overlay trees carry static feature content (not heredocs in build_debian.sh).
+    [ -f "${PROJECT_DIR}/rootfs/debian/overlay/usr/local/sbin/rk3588-firstboot" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/overlay/etc/systemd/system/rk3588-firstboot.service" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/features/nm/overlay/etc/NetworkManager/conf.d/10-rk3588.conf" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/features/firstboot-info/overlay/usr/local/sbin/rk3588-firstboot-info.in" ] || return 1
+    grep -Fq 'wifi.scan-rand-mac-address=no' \
+        "${PROJECT_DIR}/rootfs/debian/features/nm/overlay/etc/NetworkManager/conf.d/10-rk3588.conf" || return 1
+    grep -Fq 'apply_debian_rootfs_overlays' "${PROJECT_DIR}/scripts/lib/common.sh" || return 1
+    # Host-side only: container image may ship a stale baked Makefile/compose
+    # without the latest WIFIBT wiring; those files are not bind-mounted.
+    if [ -f "${PROJECT_DIR}/Makefile" ] && [ -d "${PROJECT_DIR}/.git" ]; then
+        grep -Fq 'sync-wifibt-assets' "${PROJECT_DIR}/Makefile" || return 1
+    fi
+    if [ -f "${PROJECT_DIR}/docker-compose.yml" ] && [ -d "${PROJECT_DIR}/.git" ]; then
+        grep -Fq 'WIFIBT_CHIP' "${PROJECT_DIR}/docker-compose.yml" || return 1
+    fi
 }
 
 check_board_profiles() {

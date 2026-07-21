@@ -13,6 +13,9 @@ services:
       ROOTFS_PASSWORD: ${ROOTFS_PASSWORD:-rk3588}
       ROOTFS_HOSTNAME: ${ROOTFS_HOSTNAME:-}
       DEBIAN_FEATURES: ${DEBIAN_FEATURES:-}
+      WIFIBT_CHIP: ${WIFIBT_CHIP:-}
+      WIFIBT_SOURCE: ${WIFIBT_SOURCE:-}
+      WIFIBT_REQUIRED: ${WIFIBT_REQUIRED:-}
       DEBIAN_MIRROR: ${DEBIAN_MIRROR:-http://deb.debian.org/debian}
       DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-http://security.debian.org/debian-security}
       DEBIAN_ALLOW_ARCHIVE_FALLBACK: ${DEBIAN_ALLOW_ARCHIVE_FALLBACK:-yes}
@@ -36,6 +39,7 @@ services:
       - ./patches:/home/builder/patches:ro
       - ./configs:/home/builder/configs:ro
       - ./rootfs:/home/builder/rootfs:ro
+      - ./assets:/home/builder/assets:ro
       - ./output:/home/builder/output
     init: true
     stdin_open: true
@@ -57,6 +61,9 @@ services:
       ROOTFS_PASSWORD: ${ROOTFS_PASSWORD:-rk3588}
       ROOTFS_HOSTNAME: ${ROOTFS_HOSTNAME:-}
       DEBIAN_FEATURES: ${DEBIAN_FEATURES:-}
+      WIFIBT_CHIP: ${WIFIBT_CHIP:-}
+      WIFIBT_SOURCE: ${WIFIBT_SOURCE:-}
+      WIFIBT_REQUIRED: ${WIFIBT_REQUIRED:-}
       DEBIAN_MIRROR: ${DEBIAN_MIRROR:-http://deb.debian.org/debian}
       DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-http://security.debian.org/debian-security}
       DEBIAN_ALLOW_ARCHIVE_FALLBACK: ${DEBIAN_ALLOW_ARCHIVE_FALLBACK:-yes}
@@ -66,6 +73,7 @@ services:
       - ./manifests:/home/builder/manifests:ro
       - ./configs:/home/builder/configs:ro
       - ./rootfs:/home/builder/rootfs:ro
+      - ./assets:/home/builder/assets:ro
       - ./output:/home/builder/output
     init: true
     stdin_open: true
