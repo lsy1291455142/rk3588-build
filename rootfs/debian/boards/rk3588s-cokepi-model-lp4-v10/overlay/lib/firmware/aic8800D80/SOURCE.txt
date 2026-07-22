@@ -10,12 +10,15 @@ Default pin (info_len=4):
   aic8800-firmware_3.0+git20240327.3561b08f-7_all.deb
   https://github.com/radxa-pkg/aic8800/releases/tag/3.0%2Bgit20240327.3561b08f-7
 
-Staging:
-  - Automatic: boards/.../plugin.sh during make build-rootfs
-  - Manual:    ./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
+Install path:
+  - Build: boards/.../plugin.sh reads packages/*.deb (or pre-staged overlay)
+    and installs blobs into the rootfs. The board tree stays read-only
+    (docker mounts ./rootfs:ro).
+  - Optional host stage into overlay/:
+    ./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
 
-Populates this directory from the deb's
+Deb layout remapped from:
   lib/firmware/aic8800_fw/SDIO/aic8800D80/
 (with matching adid/patch/fmac from the same package).
 
-SOURCE.txt alone is not firmware; WiFi needs the staged blobs.
+SOURCE.txt alone is not firmware; WiFi needs the installed blobs.

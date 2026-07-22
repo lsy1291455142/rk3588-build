@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Optional manual helper: stage Radxa aic8800-firmware into this board overlay.
-# Rootfs build already runs this via boards/<board>/plugin.sh; use the CLI to
-# refresh firmware or pin a different deb without rebuilding immediately.
+# Optional host helper: stage Radxa aic8800-firmware into this board overlay.
+# Rootfs build does NOT need this: board plugin installs from packages/*.deb
+# (or pre-staged overlay) directly into the rootfs without writing the board tree
+# (docker mounts rootfs/:ro).
 #
-# Usage:
+# Usage (on a writable host checkout):
 #   ./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
 #   ./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh /path/or/url.deb
 set -Eeuo pipefail

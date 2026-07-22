@@ -41,7 +41,7 @@
 `DEBIAN_OVERLAYS` 为空时用板级 `DEBIAN_OVERLAYS_DEFAULT`；`none`/`off`/`-` 强制无插件；`all` 启用 `rootfs/debian/overlays/*`。示例：`base,console,firstboot,network`。
 
 WiFi/BT 固件走板级 `boards/<BOARD>/plugin.sh`，不在通用变量里控制。
-CokePi：`make build-rootfs` 自动 stage；可选手动 CLI：
+CokePi：`make build-rootfs` 从 `packages/*.deb` 装入 rootfs；host 可选手动：
 
 ```bash
 make build-rootfs

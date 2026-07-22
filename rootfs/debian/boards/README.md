@@ -29,13 +29,13 @@ board_plugin_apply() {
     local self_dir
     self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-    # 1. Optional prep (extract/remap local debs into overlay/, etc.)
-    # stage_something "${self_dir}"
-
-    # 2. Apply static tree
+    # 1. Apply static tree first (read-only board checkout is fine)
     if [ -d "${self_dir}/overlay" ]; then
         apply_rootfs_overlay_tree "${root_dir}" "${self_dir}/overlay"
     fi
+
+    # 2. Optional prep that writes only into root_dir (extract local debs, etc.)
+    # install_something_into_rootfs "${root_dir}" "${self_dir}"
 
     # 3. Optional enable_unit / other layout tweaks
 }
@@ -47,7 +47,8 @@ board_plugin_apply() {
   `enable_unit`, `log_info`, `log_warn` from `common.sh`
 - **Do not** install APT packages here — packages only via `DEBIAN_PACKAGES`
 - Prefer board-local logic over new core Makefile knobs
-- Large binaries stay out of git (stage/cache under `packages/` or gitignore)
+- Large binaries stay out of git (`packages/*.deb` or gitignored overlay blobs)
+- Build containers mount `rootfs/:ro`: never write the board tree from `board_plugin_apply`
 
 ## Static-only boards
 
@@ -65,7 +66,7 @@ Later files at the same relative path overwrite earlier ones.
 
 | Board | Notes |
 |---|---|
-| `rk3588s-cokepi-model-lp4-v10` | AIC8800D80 firmware stage + vendor links |
+| `rk3588s-cokepi-model-lp4-v10` | AIC8800D80 firmware install from packages/ + vendor links |
 
 ## Checklist for a new board plugin
 

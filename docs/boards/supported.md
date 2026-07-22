@@ -65,7 +65,7 @@ make use-board BOARD=rk3588s-cokepi-model-lp4-v10
 
 Debian WiFi/BT（Model）：板级 plugin
 `rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/`。
-`make build-rootfs` 自动 stage AIC 固件（默认 3.0）；可选手动：
+`make build-rootfs` 从 `packages/*.deb` 装入 AIC 固件（默认 3.0）；host 可选手动：
 
 ```bash
 ./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh

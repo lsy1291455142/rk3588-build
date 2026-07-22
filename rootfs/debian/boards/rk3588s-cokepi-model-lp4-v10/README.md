@@ -8,13 +8,13 @@ as optional `overlays/<name>/plugin.sh`, but always applied when `BOARD` matches
 
 ```text
 plugin.sh                    # board_plugin_apply(root_dir) — auto at build
-lib-aic8800.sh               # stage_aic8800_firmware() helper
-stage-aic8800-firmware.sh    # optional manual CLI (same staging)
+lib-aic8800.sh               # install/stage helpers
+stage-aic8800-firmware.sh    # optional host-only CLI
 overlay/
-  lib/firmware/aic8800D80/   # AIC firmware blobs (gitignored except SOURCE.txt)
+  lib/firmware/aic8800D80/   # optional pre-staged blobs (gitignored except SOURCE.txt)
   vendor -> /system
   system/etc/firmware -> /lib/firmware
-packages/                    # cached aic8800-firmware_*.deb (gitignored)
+packages/                    # aic8800-firmware_*.deb input (gitignored)
 ```
 
 ## Convention
@@ -22,27 +22,33 @@ packages/                    # cached aic8800-firmware_*.deb (gitignored)
 | Piece | Role |
 |---|---|
 | `plugin.sh` | Required entry when board needs logic; core sources it and calls `board_plugin_apply` |
-| `overlay/` | Static files (and/or files produced by the plugin before apply) |
+| `overlay/` | Static files copied into rootfs |
+| `packages/` | Local deb inputs read by the plugin (build does not write here) |
 | helpers | Board-local `lib-*.sh` / scripts; **not** Makefile core targets |
 
 Boards with only static files may omit `plugin.sh`; core then copies `overlay/` only.
 
+Docker mounts `./rootfs:ro`. Board plugins must install into `root_dir` only;
+they must not write back into the board tree during build.
+
 ## WiFi/BT
 
 Drivers come from the CokePi kernel modules. Firmware is board-local: the plugin
-stages Radxa `aic8800-firmware` (default **3.0**, `info_len=4`) into `overlay/`
-during `make build-rootfs`. No generic `wifibt` plugin, no `WIFIBT_*` env.
+installs Radxa `aic8800-firmware` (default **3.0**, `info_len=4`) into the
+rootfs from `packages/*.deb` (or host-pre-staged overlay blobs). No generic
+`wifibt` plugin, no `WIFIBT_*` env.
 
 **Firmware pin:** Radxa **3.0** line matches the CokePi BSP driver. **4.0/5.0**
 uses `info_len=6` and can panic. Keep adid/patch/fmac from the **same** package.
 
 ```bash
-# Normal: build auto-stages (uses packages/*.deb cache or downloads 3.0)
+# Normal: put deb in packages/, then build
+cp aic8800-firmware_3.0+git20240327.3561b08f-7_all.deb \
+  rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/packages/
 make build-rootfs
 
-# Optional manual re-stage / override
+# Optional host-only: materialize blobs into overlay/ for inspection
 ./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
-./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh /path/to.deb
 ```
 
 Source: https://github.com/radxa-pkg/aic8800/releases (`aic8800-firmware`, 3.0 line).

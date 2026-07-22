@@ -79,13 +79,14 @@ make build-rootfs DEBIAN_OVERLAYS=all
 ## WiFi/BT 固件（板级 plugin 示例）
 
 WiFi/BT 不是通用插件，也不进 `DEBIAN_PACKAGES`。CokePi Model 的板级
-`plugin.sh` 在 `make build-rootfs` 时自动 stage Radxa `aic8800-firmware`
-（默认 3.0，`info_len=4`），并拷贝 `overlay/`（含 `/vendor` 兼容链）。
+`plugin.sh` 在 `make build-rootfs` 时从 `packages/*.deb`（或已 stage 的 overlay）
+把 Radxa `aic8800-firmware`（默认 3.0，`info_len=4`）装进 rootfs，并带上 `/vendor` 兼容链。
+容器内 `rootfs/:ro`，不会回写板级目录。
 
 ```bash
-make build-rootfs   # 自动 stage + 应用板级 overlay
+make build-rootfs   # 自动从 packages/*.deb 装固件进 rootfs
 
-# 可选：手动刷新 / 指定 deb
+# 可选（仅可写 host 树）：把 blob 物化到 overlay/
 ./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
 ```
 

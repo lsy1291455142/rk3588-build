@@ -72,8 +72,9 @@ If `plugin.sh` is present, core sources it and runs `board_plugin_apply`.
 Otherwise, if only `overlay/` exists, core copies that static tree.
 
 Board-local WiFi/BT (CokePi AIC) is an example: `boards/rk3588s-cokepi-model-lp4-v10/plugin.sh`
-stages firmware during `make build-rootfs` (uses `packages/*.deb` cache or
-downloads the pinned 3.0 deb). Manual re-stage CLI remains optional.
+installs firmware into the rootfs during `make build-rootfs` from
+`packages/*.deb` (or host-pre-staged overlay blobs). Docker mounts `rootfs/:ro`,
+so the board tree is never written at build time. Manual stage CLI is host-only.
 
 ```bash
 make build-rootfs DEBIAN_OVERLAYS=base,console,firstboot,network

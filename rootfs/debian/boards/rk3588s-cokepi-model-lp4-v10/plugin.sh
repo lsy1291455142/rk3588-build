@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Board plugin for rk3588s-cokepi-model-lp4-v10.
 # Applied automatically when BOARD matches (same dispatch as optional overlays).
+#
+# Note: docker mounts ./rootfs as :ro. Never write into the board tree here;
+# install firmware into root_dir (and use packages/*.deb as read-only input).
 
 board_plugin_apply() {
     local root_dir="$1"
@@ -10,17 +13,12 @@ board_plugin_apply() {
     # shellcheck source=lib-aic8800.sh
     source "${self_dir}/lib-aic8800.sh"
 
-    # Stage firmware blobs into this board overlay (host-side extract/remap).
-    # Prefer packages/*.deb cache; otherwise download the pinned 3.0 deb.
-    # Skip network fetch when offline only if blobs already staged, else fail.
-    if [ -n "$(find "${self_dir}/overlay/lib/firmware/aic8800D80" -type f ! -name 'SOURCE.txt' 2>/dev/null | head -n 1)" ]; then
-        log_info "Board ${BOARD}: AIC8800 firmware already staged"
-    else
-        stage_aic8800_firmware "${self_dir}"
-    fi
-
-    # Static board tree (firmware + vendor links).
+    # Static board tree (SOURCE.txt, vendor links, any host-pre-staged blobs).
     if [ -d "${self_dir}/overlay" ]; then
         apply_rootfs_overlay_tree "${root_dir}" "${self_dir}/overlay"
     fi
+
+    # Ensure firmware blobs exist in the rootfs. Prefer packages/*.deb when
+    # overlay has only SOURCE.txt (typical in clean CI / docker :ro).
+    install_aic8800_firmware_into_rootfs "${root_dir}" "${self_dir}"
 }
