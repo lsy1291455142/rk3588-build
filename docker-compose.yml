@@ -9,10 +9,11 @@ services:
       BOARD: ${BOARD:-}
       ROOTFS: ${ROOTFS:-}
       DEBIAN_RELEASE: ${DEBIAN_RELEASE:-13}
-      ROOTFS_USERNAME: ${ROOTFS_USERNAME:-rk3588}
-      ROOTFS_PASSWORD: ${ROOTFS_PASSWORD:-rk3588}
+      ROOTFS_USERNAME: ${ROOTFS_USERNAME:-user}
+      ROOTFS_PASSWORD: ${ROOTFS_PASSWORD:-password}
       ROOTFS_HOSTNAME: ${ROOTFS_HOSTNAME:-}
       DEBIAN_FEATURES: ${DEBIAN_FEATURES:-}
+      DEBIAN_EXTRA_PACKAGES: ${DEBIAN_EXTRA_PACKAGES:-}
       WIFIBT_CHIP: ${WIFIBT_CHIP:-}
       WIFIBT_SOURCE: ${WIFIBT_SOURCE:-}
       WIFIBT_REQUIRED: ${WIFIBT_REQUIRED:-}
@@ -57,10 +58,11 @@ services:
       BOARD: ${BOARD:-}
       ROOTFS: debian
       DEBIAN_RELEASE: ${DEBIAN_RELEASE:-13}
-      ROOTFS_USERNAME: ${ROOTFS_USERNAME:-rk3588}
-      ROOTFS_PASSWORD: ${ROOTFS_PASSWORD:-rk3588}
+      ROOTFS_USERNAME: ${ROOTFS_USERNAME:-user}
+      ROOTFS_PASSWORD: ${ROOTFS_PASSWORD:-password}
       ROOTFS_HOSTNAME: ${ROOTFS_HOSTNAME:-}
       DEBIAN_FEATURES: ${DEBIAN_FEATURES:-}
+      DEBIAN_EXTRA_PACKAGES: ${DEBIAN_EXTRA_PACKAGES:-}
       WIFIBT_CHIP: ${WIFIBT_CHIP:-}
       WIFIBT_SOURCE: ${WIFIBT_SOURCE:-}
       WIFIBT_REQUIRED: ${WIFIBT_REQUIRED:-}
@@ -69,6 +71,7 @@ services:
       DEBIAN_ALLOW_ARCHIVE_FALLBACK: ${DEBIAN_ALLOW_ARCHIVE_FALLBACK:-yes}
     volumes:
       - sdk:/home/builder/sdk
+      - sbc-apt-cache:/var/cache/apt/archives
       - ./scripts:/home/builder/scripts:ro
       - ./manifests:/home/builder/manifests:ro
       - ./configs:/home/builder/configs:ro
@@ -85,3 +88,5 @@ volumes:
     name: ${SDK_VOLUME}
   rk3588-ccache:
     name: rk3588-ccache
+  sbc-apt-cache:
+    name: sbc-apt-cache

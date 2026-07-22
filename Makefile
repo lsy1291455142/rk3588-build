@@ -4,27 +4,39 @@
 
 .PHONY: help build build-nocache build-builder build-debian-builder \
 	register-arm64-binfmt \
-	import-local-sdk sync-wifibt-assets verify-sdk-volume verify-cokepi-sdk \
-	fetch-custom fetch-510 fetch-61 fetch-66 fetch-firefly fetch-radxa \
-	fetch-rock5c fetch-orangepi fetch-muse update shell debian-shell \
-	use-volume use-volume-rockchip-5.10 use-volume-rockchip-6.1 use-volume-rockchip-6.6 \
-	use-volume-firefly use-volume-radxa use-volume-rock5c use-volume-orangepi use-volume-muse \
-	use-board use-board-evb1 use-board-rock5c use-board-cokepi-plus \
-	use-board-cokepi-model use-board-muse use-rootfs use-rootfs-buildroot use-rootfs-debian \
+	import-local-sdk sync-wifibt-assets verify-sdk-volume \
+	fetch fetch-custom update shell debian-shell \
+	use-volume use-board use-rootfs use-rootfs-buildroot use-rootfs-debian \
 	use-rootfs-all use-current \
 	build-kernel build-uboot build-rootfs image verify-image pack \
 	build-all test-debian-all test-debian-qemu check clean clean-all status \
 	require-board require-rootfs require-sdk-volume validate-rootfs prepare-output \
 	debian-preflight _use_sdk_switch _use_board_switch _use_rootfs_switch \
 	_buildroot-rootfs _debian-rootfs \
-	_image-one _verify-one
+	_image-one _verify-one \
+	list-boards new-board validate-board info
 
 BOARD ?=
 ROOTFS ?=
 SDK_VOLUME ?=
+
+# Load SDK_VOLUME and SOURCE_MANIFEST from board profile when BOARD is set
+ifneq ($(strip $(BOARD)),)
+  _BOARD_CONF := configs/boards/$(BOARD).conf
+  ifneq ($(wildcard $(_BOARD_CONF)),)
+    _SOURCE_MANIFEST := $(shell grep '^SOURCE_MANIFEST=' $(_BOARD_CONF) | cut -d= -f2- | tr -d '"')
+    # Auto-derive SDK_VOLUME from manifest if not explicitly set
+    ifeq ($(SDK_VOLUME),)
+      ifneq ($(_SOURCE_MANIFEST),)
+        SDK_VOLUME := rk3588-sdk-$(shell echo '$(_SOURCE_MANIFEST)' | sed 's/^rk3588-//;s/\.xml$$//')
+      endif
+    endif
+  endif
+endif
+
 DEBIAN_RELEASE ?= 13
-ROOTFS_USERNAME ?= rk3588
-ROOTFS_PASSWORD ?= rk3588
+ROOTFS_USERNAME ?= user
+ROOTFS_PASSWORD ?= password
 ROOTFS_HOSTNAME ?=
 DEBIAN_FEATURES ?=
 WIFIBT_CHIP ?=
@@ -41,11 +53,11 @@ QEMU_CPUS ?= 2
 
 help:
 	@printf '%s\n' \
-		'RK3588 full system image build' \
+		'SBC Linux image build' \
 		'' \
 		'ROCK 5C Debian 13 complete build and simulated boot test:' \
 		'  make build' \
-		'  make fetch-rock5c' \
+		'  make fetch BOARD=rk3588s-rock-5c' \
 		'  make build-all BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c ROOTFS=debian DEBIAN_RELEASE=13' \
 		'  make test-debian-qemu BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c DEBIAN_RELEASE=13' \
 		'' \
@@ -59,38 +71,18 @@ help:
 		'  make import-local-sdk SDK_PATH=/absolute/path SDK_VOLUME=rk3588-sdk-local' \
 		'  make sync-wifibt-assets SDK_PATH=/path/to/full-bsp [WIFIBT_CHIP=AP6275S|ALL_AP]' \
 		'  make verify-sdk-volume SDK_VOLUME=rk3588-sdk-local' \
-		'  make verify-cokepi-sdk SDK_VOLUME=rk3588-sdk-cokepi-rkr9' \
 		'' \
 		'Fetch SDK (each uses a separate volume):' \
-		'  make fetch-510                     Rockchip Linux 5.10 -> rk3588-sdk-rockchip-5.10' \
-		'  make fetch-61                      Rockchip Linux 6.1 -> rk3588-sdk-rockchip-6.1' \
-		'  make fetch-66                      Rockchip Linux 6.6 -> rk3588-sdk-rockchip-6.6' \
-		'  make fetch-firefly                 Firefly AIO-3588 -> rk3588-sdk-firefly' \
-		'  make fetch-radxa                   Radxa Rock 5B -> rk3588-sdk-radxa' \
-		'  make fetch-rock5c                  Radxa Rock 5C -> rk3588-sdk-rock5c' \
-		'  make fetch-orangepi                OrangePi 5 -> rk3588-sdk-orangepi' \
-		'  make fetch-muse                    MUSE RK3588 (kernel fork) -> rk3588-sdk-muse-5.10' \
+		'  make fetch BOARD=<board>           Fetch SDK based on board profile manifest' \
 		'  make fetch-custom SDK_VOLUME=... MANIFEST=...   Custom local manifest' \
 		'  make update SDK_VOLUME=<volume>    Update an existing SDK' \
 		'' \
 		'Switch active SDK volume (writes .env SDK_VOLUME only):' \
 		'  make use-volume                  Interactive volume picker' \
-		'  make use-volume-rockchip-5.10      -> rk3588-sdk-rockchip-5.10' \
-		'  make use-volume-rockchip-6.1       -> rk3588-sdk-rockchip-6.1' \
-		'  make use-volume-rockchip-6.6       -> rk3588-sdk-rockchip-6.6' \
-		'  make use-volume-firefly           -> rk3588-sdk-firefly' \
-		'  make use-volume-radxa             -> rk3588-sdk-radxa' \
-		'  make use-volume-rock5c            -> rk3588-sdk-rock5c' \
-		'  make use-volume-orangepi          -> rk3588-sdk-orangepi' \
-		'  make use-volume-muse              -> rk3588-sdk-muse-5.10' \
 		'' \
 		'Switch active board (writes .env BOARD only):' \
-		'  make use-board                    Interactive board picker' \
-		'  make use-board-evb1               -> rk3588-evb1-lp4-v10-linux' \
-		'  make use-board-rock5c             -> rk3588s-rock-5c' \
-		'  make use-board-cokepi-plus        -> rk3588-cokepi-plus-lp4-v10' \
-		'  make use-board-cokepi-model       -> rk3588s-cokepi-model-lp4-v10' \
-		'  make use-board-muse               -> rk3588-muse' \
+		'  make use-board                   Interactive board picker' \
+		'  make use-board BOARD=<board>     Switch to a specific board without prompt' \
 		'' \
 		'Switch active root filesystem (writes .env ROOTFS only):' \
 		'  make use-rootfs                  Interactive rootfs picker' \
@@ -98,6 +90,12 @@ help:
 		'  make use-rootfs-debian            -> debian' \
 		'  make use-rootfs-all               -> all' \
 		'  make use-current                  Show current SDK_VOLUME, BOARD, and ROOTFS' \
+		'' \
+		'Board Management:' \
+		'  make list-boards                   List all available board profiles' \
+		'  make new-board BOARD=<name>        Create a new board profile from TEMPLATE' \
+		'  make validate-board BOARD=<name>   Validate a board profile syntax' \
+		'  make info                          Show current build environment info' \
 		'' \
 		'Build components (configured values may come from .env or CLI):' \
 		'  make build-kernel [BOARD=...] [SDK_VOLUME=...]' \
@@ -166,33 +164,6 @@ verify-sdk-volume: require-sdk-volume
 		}; \
 		printf "SDK volume %s is ready at /home/builder/sdk\n" "$(SDK_VOLUME)"'
 
-verify-cokepi-sdk: verify-sdk-volume
-	@docker run --rm --user 1000:1000 \
-		--mount type=volume,src="$(SDK_VOLUME)",dst=/home/builder/sdk \
-		--entrypoint /bin/bash rk3588-build:latest -Eeuo pipefail -c \
-		'files=( \
-			device/rockchip/.chips/rk3588/rockchip_rk3588_cokepi_lp4_defconfig \
-			device/rockchip/.chips/rk3588/rockchip_rk3588s_cokepi_lp4_defconfig \
-			kernel/arch/arm64/configs/cokepi_main_defconfig \
-			kernel/arch/arm64/boot/dts/rockchip/rk3588-cpp-hdmi.dts \
-			kernel/arch/arm64/boot/dts/rockchip/rk3588s-cpm-hdmi1.dts \
-			u-boot/configs/rk3588_defconfig \
-		); \
-		for file in "$${files[@]}"; do \
-			test -f "/home/builder/sdk/$$file" || { \
-				echo "Missing CokePi SDK file: $$file" >&2; exit 1; \
-			}; \
-		done; \
-		grep -Fq '\''RK_KERNEL_CFG="cokepi_main_defconfig"'\'' \
-			/home/builder/sdk/device/rockchip/.chips/rk3588/rockchip_rk3588_cokepi_lp4_defconfig; \
-		grep -Fq '\''RK_KERNEL_CFG="cokepi_main_defconfig"'\'' \
-			/home/builder/sdk/device/rockchip/.chips/rk3588/rockchip_rk3588s_cokepi_lp4_defconfig; \
-		grep -Fq '\''model = "Rockchip RK3588 CokePi Plus LP4 V10 Board";'\'' \
-			/home/builder/sdk/kernel/arch/arm64/boot/dts/rockchip/rk3588-cpp-hdmi.dts; \
-		grep -Fq '\''model = "Rockchip RK3588S CokePi Model LP4 V10 Board";'\'' \
-			/home/builder/sdk/kernel/arch/arm64/boot/dts/rockchip/rk3588s-cpm-hdmi1.dts; \
-		printf "CokePi Plus and CokePi Model HDMI definitions are ready in %s\n" "$(SDK_VOLUME)"'
-
 # Copy WiFi/BT firmware from a full BSP tree into project assets/ (host-side).
 # Usage: make sync-wifibt-assets SDK_PATH=/path/to/full-bsp [WIFIBT_CHIP=AP6275S|ALL_AP|ALL]
 # Default chip set is ALL_AP (all broadcom AP6xxx). Does not modify the SDK tree.
@@ -256,63 +227,19 @@ fetch-custom:
 		-e CUSTOM_MANIFEST_NAME=$(CUSTOM_MANIFEST_NAME) \
 		rk3588-build bash /home/builder/scripts/fetch_sources.sh
 
-fetch-510: SDK_VOLUME=rk3588-sdk-rockchip-5.10
-fetch-510:
+fetch: require-board
+	@if [ -z "$(_SOURCE_MANIFEST)" ]; then \
+		echo "ERROR: Board $(BOARD) does not define SOURCE_MANIFEST." >&2; \
+		echo "Use 'make fetch-custom' for boards without a manifest." >&2; \
+		exit 1; \
+	fi
+	@echo "Fetching SDK for $(BOARD) using manifest $(_SOURCE_MANIFEST) -> volume $(SDK_VOLUME)"
 	docker volume create $(SDK_VOLUME) >/dev/null
 	SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
-		-e MANIFEST=rk3588-linux-5.10.xml -e SDK_VOLUME=rk3588-sdk-rockchip-5.10 rk3588-build \
+		-e BOARD="$(BOARD)" \
+		-e MANIFEST=$(_SOURCE_MANIFEST) -e SDK_VOLUME=$(SDK_VOLUME) rk3588-build \
 		bash /home/builder/scripts/fetch_sources.sh
-
-fetch-61: SDK_VOLUME=rk3588-sdk-rockchip-6.1
-fetch-61:
-	docker volume create $(SDK_VOLUME) >/dev/null
-	SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
-		-e MANIFEST=rk3588-linux-6.1.xml -e SDK_VOLUME=rk3588-sdk-rockchip-6.1 rk3588-build \
-		bash /home/builder/scripts/fetch_sources.sh
-
-fetch-66: SDK_VOLUME=rk3588-sdk-rockchip-6.6
-fetch-66:
-	docker volume create $(SDK_VOLUME) >/dev/null
-	SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
-		-e MANIFEST=rk3588-linux-6.6.xml -e SDK_VOLUME=rk3588-sdk-rockchip-6.6 rk3588-build \
-		bash /home/builder/scripts/fetch_sources.sh
-
-fetch-firefly: SDK_VOLUME=rk3588-sdk-firefly
-fetch-firefly:
-	docker volume create $(SDK_VOLUME) >/dev/null
-	SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
-		-e MANIFEST=rk3588-firefly.xml -e SDK_VOLUME=rk3588-sdk-firefly rk3588-build \
-		bash /home/builder/scripts/fetch_sources.sh
-
-fetch-radxa: SDK_VOLUME=rk3588-sdk-radxa
-fetch-radxa:
-	docker volume create $(SDK_VOLUME) >/dev/null
-	SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
-		-e MANIFEST=rk3588-radxa.xml -e SDK_VOLUME=rk3588-sdk-radxa rk3588-build \
-		bash /home/builder/scripts/fetch_sources.sh
-
-fetch-rock5c: SDK_VOLUME=rk3588-sdk-rock5c
-fetch-rock5c:
-	docker volume create $(SDK_VOLUME) >/dev/null
-	SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
-		-e BOARD=rk3588s-rock-5c \
-		-e MANIFEST=rk3588-rock5c.xml -e SDK_VOLUME=rk3588-sdk-rock5c rk3588-build \
-		bash /home/builder/scripts/fetch_sources.sh
-
-fetch-orangepi: SDK_VOLUME=rk3588-sdk-orangepi
-fetch-orangepi:
-	docker volume create $(SDK_VOLUME) >/dev/null
-	SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
-		-e MANIFEST=rk3588-orangepi.xml -e SDK_VOLUME=rk3588-sdk-orangepi rk3588-build \
-		bash /home/builder/scripts/fetch_sources.sh
-
-fetch-muse: SDK_VOLUME=rk3588-sdk-muse-5.10
-fetch-muse:
-	docker volume create $(SDK_VOLUME) >/dev/null
-	SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
-		-e BOARD=rk3588-muse \
-		-e MANIFEST=rk3588-muse-5.10.xml -e SDK_VOLUME=rk3588-sdk-muse-5.10 rk3588-build \
-		bash /home/builder/scripts/fetch_sources.sh
+	@$(MAKE) --no-print-directory _use_sdk_switch SWITCH_VOL="$(SDK_VOLUME)"
 
 
 # ---- Switch active SDK volume (writes .env SDK_VOLUME only) ----
@@ -363,23 +290,6 @@ use-volume:
 	fi; \
 	$(MAKE) --no-print-directory _use_sdk_switch SWITCH_VOL="$$selected"
 
-use-volume-rockchip-5.10: SWITCH_VOL=rk3588-sdk-rockchip-5.10
-use-volume-rockchip-5.10: _use_sdk_switch
-use-volume-rockchip-6.1: SWITCH_VOL=rk3588-sdk-rockchip-6.1
-use-volume-rockchip-6.1: _use_sdk_switch
-use-volume-rockchip-6.6: SWITCH_VOL=rk3588-sdk-rockchip-6.6
-use-volume-rockchip-6.6: _use_sdk_switch
-use-volume-firefly: SWITCH_VOL=rk3588-sdk-firefly
-use-volume-firefly: _use_sdk_switch
-use-volume-radxa: SWITCH_VOL=rk3588-sdk-radxa
-use-volume-radxa: _use_sdk_switch
-use-volume-rock5c: SWITCH_VOL=rk3588-sdk-rock5c
-use-volume-rock5c: _use_sdk_switch
-use-volume-orangepi: SWITCH_VOL=rk3588-sdk-orangepi
-use-volume-orangepi: _use_sdk_switch
-use-volume-muse: SWITCH_VOL=rk3588-sdk-muse-5.10
-use-volume-muse: _use_sdk_switch
-
 # ---- Switch active board (writes .env BOARD only) ----
 _use_board_switch:
 	@if [ -z "$(SWITCH_BOARD)" ]; then echo "Internal target"; exit 1; fi
@@ -399,58 +309,51 @@ _use_board_switch:
 	@echo "SDK_VOLUME is unchanged. Use make use-volume or make use-volume-* to set the SDK volume."
 
 use-board:
-	@boards="$$(ls -1 configs/boards/*.conf 2>/dev/null | sed 's|.*/||; s|\.conf$$||' | sort)"; \
-	if [ -z "$$boards" ]; then \
-		echo "ERROR: no board profiles found in configs/boards/" >&2; \
-		exit 1; \
-	fi; \
-	current="$$( [ -f .env ] && grep '^BOARD=' .env | cut -d= -f2- || true )"; \
-	echo "Available board profiles:"; \
-	i=0; \
-	for board in $$boards; do \
-		i=$$((i+1)); \
-		mark=""; \
-		[ "$$board" = "$$current" ] && mark=" (current)"; \
-		desc=""; \
-		if [ -f "configs/boards/$$board.conf" ]; then \
-			desc="$$(grep -E '^BOARD_DESCRIPTION=' "configs/boards/$$board.conf" | head -1 | cut -d= -f2- | sed 's/^"//; s/"$$//')"; \
-		fi; \
-		if [ -n "$$desc" ]; then \
-			printf '  %d) %s - %s%s\n' "$$i" "$$board" "$$desc" "$$mark"; \
-		else \
-			printf '  %d) %s%s\n' "$$i" "$$board" "$$mark"; \
-		fi; \
-	done; \
-	printf 'Select board [1-%d]: ' "$$i" >&2; \
-	if ! { read -r choice <>/dev/tty; } 2>/dev/null; then read -r choice; fi; \
-	selected=""; \
-	if printf '%s' "$$choice" | grep -Eq '^[0-9]+$$'; then \
-		j=0; \
-		for board in $$boards; do \
-			j=$$((j+1)); \
-			if [ "$$j" -eq "$$choice" ]; then selected="$$board"; break; fi; \
-		done; \
+	@if [ -n "$(strip $(BOARD))" ]; then \
+		$(MAKE) --no-print-directory _use_board_switch SWITCH_BOARD="$(BOARD)"; \
 	else \
+		boards="$$(ls -1 configs/boards/*.conf 2>/dev/null | sed 's|.*/||; s|\.conf$$||' | grep -v '^TEMPLATE$$' | sort)"; \
+		if [ -z "$$boards" ]; then \
+			echo "ERROR: no board profiles found in configs/boards/" >&2; \
+			exit 1; \
+		fi; \
+		current="$$( [ -f .env ] && grep '^BOARD=' .env | cut -d= -f2- || true )"; \
+		echo "Available board profiles:"; \
+		i=0; \
 		for board in $$boards; do \
-			if [ "$$board" = "$$choice" ]; then selected="$$board"; break; fi; \
+			i=$$((i+1)); \
+			mark=""; \
+			[ "$$board" = "$$current" ] && mark=" (current)"; \
+			desc=""; \
+			if [ -f "configs/boards/$$board.conf" ]; then \
+				desc="$$(grep -E '^BOARD_DESCRIPTION=' "configs/boards/$$board.conf" | head -1 | cut -d= -f2- | sed 's/^"//; s/"$$//')"; \
+			fi; \
+			if [ -n "$$desc" ]; then \
+				printf '  %d) %s - %s%s\n' "$$i" "$$board" "$$desc" "$$mark"; \
+			else \
+				printf '  %d) %s%s\n' "$$i" "$$board" "$$mark"; \
+			fi; \
 		done; \
-	fi; \
-	if [ -z "$$selected" ]; then \
-		echo "ERROR: invalid selection: $$choice" >&2; \
-		exit 1; \
-	fi; \
-	$(MAKE) --no-print-directory _use_board_switch SWITCH_BOARD="$$selected"
-
-use-board-evb1: SWITCH_BOARD=rk3588-evb1-lp4-v10-linux
-use-board-evb1: _use_board_switch
-use-board-rock5c: SWITCH_BOARD=rk3588s-rock-5c
-use-board-rock5c: _use_board_switch
-use-board-cokepi-plus: SWITCH_BOARD=rk3588-cokepi-plus-lp4-v10
-use-board-cokepi-plus: _use_board_switch
-use-board-cokepi-model: SWITCH_BOARD=rk3588s-cokepi-model-lp4-v10
-use-board-cokepi-model: _use_board_switch
-use-board-muse: SWITCH_BOARD=rk3588-muse
-use-board-muse: _use_board_switch
+		printf 'Select board [1-%d]: ' "$$i" >&2; \
+		if ! { read -r choice <>/dev/tty; } 2>/dev/null; then read -r choice; fi; \
+		selected=""; \
+		if printf '%s' "$$choice" | grep -Eq '^[0-9]+$$'; then \
+			j=0; \
+			for board in $$boards; do \
+				j=$$((j+1)); \
+				if [ "$$j" -eq "$$choice" ]; then selected="$$board"; break; fi; \
+			done; \
+		else \
+			for board in $$boards; do \
+				if [ "$$board" = "$$choice" ]; then selected="$$board"; break; fi; \
+			done; \
+		fi; \
+		if [ -z "$$selected" ]; then \
+			echo "ERROR: invalid selection: $$choice" >&2; \
+			exit 1; \
+		fi; \
+		$(MAKE) --no-print-directory _use_board_switch SWITCH_BOARD="$$selected"; \
+	fi
 
 # ---- Switch active root filesystem (writes .env ROOTFS only) ----
 _use_rootfs_switch:
@@ -623,12 +526,12 @@ debian-preflight: build-debian-builder
 		--pull never \
 		-e SDK_VOLUME=$(SDK_VOLUME) \
 		--entrypoint /bin/sh debian-rootfs \
-		-c 'printf "RK3588_DEBIAN_ARCH=%s\n" "$$(dpkg --print-architecture)"') || { \
+		-c 'printf "DEBIAN_ARCH=%s\n" "$$(dpkg --print-architecture)"') || { \
 			echo "ERROR: Cannot run the linux/arm64 Debian builder." >&2; \
 			exit 1; \
 		}; \
 	arch=$$(printf '%s\n' "$$probe_output" | \
-		sed -n 's/^RK3588_DEBIAN_ARCH=//p' | tail -1); \
+		sed -n 's/^DEBIAN_ARCH=//p' | tail -1); \
 	test "$$arch" = "arm64" || { \
 		echo "ERROR: Debian builder architecture probe returned '$${arch:-no result}', expected arm64." >&2; \
 		exit 1; \
@@ -727,6 +630,61 @@ check:
 status:
 	SDK_VOLUME=$(if $(SDK_VOLUME),$(SDK_VOLUME),rk3588-sdk-status) docker compose ps
 	docker volume ls --filter name=rk3588
+
+list-boards:
+	@echo "Available board profiles:"
+	@for conf in configs/boards/*.conf; do \
+		board=$$(basename "$$conf" .conf); \
+		[ "$$board" = "TEMPLATE" ] && continue; \
+		desc=$$(grep -E '^BOARD_DESCRIPTION=' "$$conf" | head -1 | cut -d= -f2- | sed 's/^"//' | sed 's/"$$//' ); \
+		if [ -n "$$desc" ]; then \
+			printf '  %-40s %s\n' "$$board" "$$desc"; \
+		else \
+			printf '  %s\n' "$$board"; \
+		fi; \
+	done
+
+new-board:
+	@if [ -z "$(strip $(BOARD))" ]; then \
+		echo "Usage: make new-board BOARD=<name>" >&2; \
+		exit 1; \
+	fi
+	@if [ -f "configs/boards/$(BOARD).conf" ]; then \
+		echo "ERROR: Board profile already exists: configs/boards/$(BOARD).conf" >&2; \
+		exit 1; \
+	fi
+	@cp configs/boards/TEMPLATE.conf "configs/boards/$(BOARD).conf"
+	@echo "Created board profile: configs/boards/$(BOARD).conf"
+	@echo "Edit the file to set your board's parameters, then run:"
+	@echo "  make validate-board BOARD=$(BOARD)"
+
+validate-board: require-board
+	SDK_VOLUME=$$(if [ -n "$(SDK_VOLUME)" ]; then echo "$(SDK_VOLUME)"; else echo "rk3588-sdk-validate"; fi) \
+		docker compose run --rm --no-deps -T \
+		-e BOARD="$(BOARD)" \
+		rk3588-build bash -c 'source /home/builder/scripts/lib/common.sh && load_board_profile && echo "Board profile $(BOARD) is valid."'
+
+info:
+	@echo "=== Build Environment ==="
+	@if [ -f .env ]; then \
+		echo "Configuration from .env:"; \
+		grep -E '^[A-Z]' .env 2>/dev/null | sed 's/^/  /' || echo "  (empty)"; \
+	else \
+		echo "  No .env file found"; \
+	fi
+	@echo ""
+	@if [ -n "$(strip $(BOARD))" ] && [ -f "configs/boards/$(BOARD).conf" ]; then \
+		echo "Board: $(BOARD)"; \
+		desc=$$(grep -E '^BOARD_DESCRIPTION=' "configs/boards/$(BOARD).conf" | head -1 | cut -d= -f2- | sed 's/^"//' | sed 's/"$$//'); \
+		[ -n "$$desc" ] && echo "  Description: $$desc"; \
+		manifest=$$(grep '^SOURCE_MANIFEST=' "configs/boards/$(BOARD).conf" | head -1 | cut -d= -f2- | tr -d '"'); \
+		[ -n "$$manifest" ] && echo "  Manifest: $$manifest"; \
+	else \
+		echo "Board: (not set)"; \
+	fi
+	@echo "SDK Volume: $(if $(SDK_VOLUME),$(SDK_VOLUME),(not set))"
+	@echo "Root FS: $(if $(ROOTFS),$(ROOTFS),(not set))"
+	@echo "Debian Release: $(DEBIAN_RELEASE)"
 
 clean:
 	SDK_VOLUME=$(if $(SDK_VOLUME),$(SDK_VOLUME),rk3588-sdk-clean) docker compose down --remove-orphans

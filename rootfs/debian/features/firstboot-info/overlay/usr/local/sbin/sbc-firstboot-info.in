@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-INFO=/var/lib/rk3588-board-info
+INFO=/var/lib/sbc-board-info
 {
     echo "board=@BOARD@"
     echo "board_description=@BOARD_DESCRIPTION@"

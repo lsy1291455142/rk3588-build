@@ -7,7 +7,7 @@ SDK_DIR="${SDK_DIR:-/home/builder/sdk}"
 CONFIG_DIR="${CONFIG_DIR:-${PROJECT_DIR}/configs}"
 ROOTFS_CONFIG_DIR="${ROOTFS_CONFIG_DIR:-${PROJECT_DIR}/rootfs}"
 OUTPUT_DIR="${OUTPUT_DIR:-/home/builder/output}"
-BUILD_BASE_DIR="${BUILD_BASE_DIR:-${SDK_DIR}/.rk3588-build}"
+BUILD_BASE_DIR="${BUILD_BASE_DIR:-${SDK_DIR}/.sbc-build}"
 
 log_info() {
     printf '[INFO] %s\n' "$*" >&2
@@ -65,17 +65,48 @@ is_positive_integer() {
     [[ "$1" =~ ^[1-9][0-9]*$ ]]
 }
 
+# Source the bootloader layout abstraction layer.
+# shellcheck source=bootloader_layouts.sh
+source "${COMMON_DIR}/bootloader_layouts.sh"
+
+# Board-specific hooks (optional). If configs/boards/<board>.hooks.sh exists,
+# it is sourced after the board profile is loaded. Hook functions:
+#   pre_build_kernel, post_build_kernel
+#   pre_build_uboot, post_build_uboot
+#   pre_build_rootfs, post_build_rootfs
+#   pre_make_image, post_make_image
+#   pre_fetch_sources, post_fetch_sources
+_load_board_hooks() {
+    local hooks_file="${CONFIG_DIR}/boards/${BOARD}.hooks.sh"
+    if [ -f "${hooks_file}" ]; then
+        log_info "Loading board hooks: ${hooks_file}"
+        # shellcheck disable=SC1090
+        source "${hooks_file}"
+    fi
+}
+
+# Run a named hook if the function exists. Silent no-op otherwise.
+run_hook() {
+    local hook_name="$1"
+    shift
+    if declare -F "${hook_name}" >/dev/null 2>&1; then
+        log_info "Running hook: ${hook_name}"
+        "${hook_name}" "$@"
+    fi
+}
+
 load_board_profile() {
     BOARD="${BOARD:-}"
-    [ -n "${BOARD}" ] || die "BOARD is required. Example: BOARD=rk3588s-rock-5c"
+    [ -n "${BOARD}" ] || die "BOARD is required. Use 'make list-boards' to see available boards, or set BOARD in .env"
     validate_token "BOARD" "${BOARD}"
 
     BOARD_PROFILE="${CONFIG_DIR}/boards/${BOARD}.conf"
-    require_file "${BOARD_PROFILE}" "board profile"
+    require_file "${BOARD_PROFILE}" "board profile '${BOARD}'. Available boards: $(ls -1 \"${CONFIG_DIR}/boards/\"*.conf 2>/dev/null | sed 's|.*/||; s|\.conf$||' | grep -v '^TEMPLATE$' | tr '\n' ' ')"
 
     # shellcheck disable=SC1090
     source "${BOARD_PROFILE}"
     validate_board_profile
+    _load_board_hooks
 }
 
 validate_board_profile() {
@@ -86,6 +117,11 @@ validate_board_profile() {
     if [ "${BOOTLOADER_LAYOUT:-}" = "rockchip-gpt-extlinux-v1" ]; then
         BOOTLOADER_LAYOUT="rockchip-gpt-idblock-extlinux-v1"
     fi
+
+    case "${BOOTLOADER_LAYOUT:-}" in
+        rockchip-gpt-idblock-extlinux-v1) ;;
+        *) die "Unsupported BOOTLOADER_LAYOUT=${BOOTLOADER_LAYOUT:-<empty>}. Known layouts: rockchip-gpt-idblock-extlinux-v1" ;;
+    esac
 
     local required_fields=(
         BOARD_DESCRIPTION
@@ -154,6 +190,14 @@ validate_board_profile() {
                 die "${field} must be a full Git commit SHA in ${BOARD_PROFILE}"
         done
     fi
+
+    # Set defaults for optional configuration variables
+    DTB_STRIP_BOOTARGS="${DTB_STRIP_BOOTARGS:-yes}"
+    WIFIBT_FIRMWARE_SYMLINKS="${WIFIBT_FIRMWARE_SYMLINKS:-rockchip-vendor}"
+    OUTPUT_IMAGE_PREFIX="${OUTPUT_IMAGE_PREFIX:-${BOARD}}"
+    EXTLINUX_LABEL="${EXTLINUX_LABEL:-${BOARD}}"
+    KERNEL_DTBO="${KERNEL_DTBO:-}"
+    DEBIAN_EXTRA_PACKAGES="${DEBIAN_EXTRA_PACKAGES:-}"
 }
 
 validate_git_revision() {
@@ -202,8 +246,8 @@ validate_rootfs_selection() {
 }
 
 validate_rootfs_credentials() {
-    ROOTFS_USERNAME="${ROOTFS_USERNAME:-rk3588}"
-    ROOTFS_PASSWORD="${ROOTFS_PASSWORD:-rk3588}"
+    ROOTFS_USERNAME="${ROOTFS_USERNAME:-user}"
+    ROOTFS_PASSWORD="${ROOTFS_PASSWORD:-password}"
 
     [[ "${ROOTFS_USERNAME}" =~ ^[a-z_][a-z0-9_-]*$ ]] ||
         die "ROOTFS_USERNAME is not a valid Linux account name"
@@ -245,6 +289,7 @@ resolve_debian_features() {
     local -a requested=()
     local -a expanded=()
     local -A seen=()
+    DEBIAN_CUSTOM_PACKAGES=()
 
     raw="${DEBIAN_FEATURES:-}"
     raw="${raw//[[:space:]]/}"
@@ -271,70 +316,47 @@ resolve_debian_features() {
         [ -n "${token}" ] || continue
         case "${token}" in
             all)
-                expanded+=(nm hwdebug tools firstboot-info wifibt)
+                DEBIAN_CUSTOM_PACKAGES+=(network-manager wpasupplicant i2c-tools usbutils pciutils mmc-utils tmux htop strace)
+                DEBIAN_HAS_FIRSTBOOT_INFO=1
+                DEBIAN_HAS_WIFIBT=1
                 ;;
             nm|network-manager|networkmanager)
-                expanded+=(nm)
+                DEBIAN_CUSTOM_PACKAGES+=(network-manager)
                 ;;
             hwdebug|hw-debug|debug-hw)
-                expanded+=(hwdebug)
+                DEBIAN_CUSTOM_PACKAGES+=(i2c-tools usbutils pciutils mmc-utils)
                 ;;
             tools|devtools)
-                expanded+=(tools)
+                DEBIAN_CUSTOM_PACKAGES+=(tmux htop strace)
                 ;;
             firstboot-info|firstboot|motd)
-                expanded+=(firstboot-info)
+                DEBIAN_HAS_FIRSTBOOT_INFO=1
                 ;;
             wifibt|wifi|wifi-bt|wifi_bt)
-                expanded+=(wifibt)
+                DEBIAN_HAS_WIFIBT=1
                 ;;
             *)
-                die "Unsupported DEBIAN_FEATURES token: ${token} (expected nm, hwdebug, tools, firstboot-info, wifibt, all)"
+                # Direct APT package name
+                DEBIAN_CUSTOM_PACKAGES+=("${token}")
                 ;;
         esac
     done
 
-    DEBIAN_FEATURE_LIST=""
-    DEBIAN_HAS_NM=0
-    DEBIAN_HAS_HWDEBUG=0
-    DEBIAN_HAS_TOOLS=0
-    DEBIAN_HAS_FIRSTBOOT_INFO=0
-    DEBIAN_HAS_WIFIBT=0
-    for token in "${expanded[@]}"; do
-        [ -z "${seen[${token}]+x}" ] || continue
-        seen["${token}"]=1
-        case "${token}" in
-            nm) DEBIAN_HAS_NM=1 ;;
-            hwdebug) DEBIAN_HAS_HWDEBUG=1 ;;
-            tools) DEBIAN_HAS_TOOLS=1 ;;
-            firstboot-info) DEBIAN_HAS_FIRSTBOOT_INFO=1 ;;
-            wifibt) DEBIAN_HAS_WIFIBT=1 ;;
-        esac
-        if [ -n "${DEBIAN_FEATURE_LIST}" ]; then
-            DEBIAN_FEATURE_LIST+=","
-        fi
-        DEBIAN_FEATURE_LIST+="${token}"
+    # Deduplicate custom packages
+    local -A seen_pkgs=()
+    local -a deduped=()
+    for pkg in "${DEBIAN_CUSTOM_PACKAGES[@]}"; do
+        [ -n "${pkg}" ] || continue
+        [ -z "${seen_pkgs[${pkg}]+x}" ] || continue
+        seen_pkgs["${pkg}"]=1
+        deduped+=("${pkg}")
     done
-    DEBIAN_FEATURES="${DEBIAN_FEATURE_LIST}"
+    DEBIAN_CUSTOM_PACKAGES=("${deduped[@]}")
+    DEBIAN_FEATURES="$(IFS=,; printf '%s' "${DEBIAN_CUSTOM_PACKAGES[*]}")"
 }
 
 debian_feature_packages() {
-    local packages=()
-    if [ "${DEBIAN_HAS_NM:-0}" = "1" ]; then
-        # wpasupplicant is only a Recommends of network-manager and is NOT
-        # pulled in by mmdebstrap --variant=minbase, yet NetworkManager needs
-        # it as the WiFi supplicant backend. Without it nmtui shows wired only.
-        packages+=(network-manager wpasupplicant)
-    fi
-    if [ "${DEBIAN_HAS_HWDEBUG:-0}" = "1" ]; then
-        packages+=(i2c-tools usbutils pciutils mmc-utils)
-    fi
-    if [ "${DEBIAN_HAS_TOOLS:-0}" = "1" ]; then
-        packages+=(tmux htop strace)
-    fi
-    # firstboot-info is scripts/MOTD only; no extra packages.
-    # wifibt installs firmware blobs (not deb packages).
-    printf '%s\n' "${packages[@]}"
+    printf '%s\n' "${DEBIAN_CUSTOM_PACKAGES[@]}"
 }
 
 # WiFi/BT firmware install for Debian rootfs.
@@ -611,7 +633,10 @@ install_wifibt_firmware() {
     fi
 
     dest_fw="${root_dir}/lib/firmware"
-    install -d "${dest_fw}" "${root_dir}/system/etc"
+    install -d "${dest_fw}"
+    if [ "${WIFIBT_FIRMWARE_SYMLINKS:-rockchip-vendor}" = "rockchip-vendor" ]; then
+        install -d "${root_dir}/system/etc"
+    fi
 
     while IFS= read -r chip_dir; do
         [ -n "${chip_dir}" ] || continue
@@ -635,9 +660,20 @@ install_wifibt_firmware() {
         return 0
     fi
 
-    # Rockchip bcmdhd looks under /vendor/etc/firmware; mirror official post-wifibt.sh.
-    ln -sfn /lib/firmware "${root_dir}/system/etc/firmware"
-    ln -sfn /system "${root_dir}/vendor"
+    # Rockchip bcmdhd / AIC drivers look under /vendor/etc/firmware.
+    # Controlled by WIFIBT_FIRMWARE_SYMLINKS in board profile.
+    case "${WIFIBT_FIRMWARE_SYMLINKS:-rockchip-vendor}" in
+        rockchip-vendor)
+            ln -sfn /lib/firmware "${root_dir}/system/etc/firmware"
+            ln -sfn /system "${root_dir}/vendor"
+            ;;
+        none)
+            log_info "WIFIBT_FIRMWARE_SYMLINKS=none; skipping vendor symlinks"
+            ;;
+        *)
+            die "Unsupported WIFIBT_FIRMWARE_SYMLINKS=${WIFIBT_FIRMWARE_SYMLINKS}"
+            ;;
+    esac
 
     # Compatibility names used by CONFIG_BCMDHD_*_PATH defaults.
     primary_fw="$(find "${dest_fw}" -maxdepth 1 -type f -name 'fw_bcm*.bin' ! -name '*_mfg*' ! -name '*_apsta*' 2>/dev/null | sort | head -n 1 || true)"
@@ -650,6 +686,30 @@ install_wifibt_firmware() {
     fi
 
     log_info "WiFi/BT firmware installed: chip=${WIFIBT_CHIP} source=${WIFIBT_RESOLVED_SOURCE} files=${count}"
+}
+
+# Automatically install custom user firmware from assets/firmware/ and configs/boards/${BOARD}/firmware/
+install_custom_firmware() {
+    local root_dir="$1"
+    local dest_fw="${root_dir}/lib/firmware"
+    local fw_dir
+
+    install -d "${dest_fw}"
+
+    for fw_dir in "${PROJECT_DIR}/assets/firmware" \
+                   "${CONFIG_DIR}/boards/${BOARD}/firmware"; do
+        if [ -d "${fw_dir}" ] && [ -n "$(ls -A "${fw_dir}" 2>/dev/null)" ]; then
+            log_info "Installing custom firmware from ${fw_dir}"
+            cp -rpf "${fw_dir}"/* "${dest_fw}/"
+        fi
+    done
+}
+
+# Single unified firmware installation entrypoint
+install_firmware() {
+    local root_dir="$1"
+    install_wifibt_firmware "${root_dir}"
+    install_custom_firmware "${root_dir}"
 }
 
 rootfs_variant() {
@@ -727,6 +787,25 @@ debian_rootfs_dir() {
     printf '%s\n' "${PROJECT_DIR}/rootfs/debian"
 }
 
+# Execute modular plugins under rootfs/debian/plugins/*.sh
+run_debian_plugins() {
+    local root_dir="$1"
+    local plugin
+    local plugin_dir="${PROJECT_DIR}/rootfs/debian/plugins"
+    [ -d "${plugin_dir}" ] || return 0
+
+    for plugin in "${plugin_dir}"/*.sh; do
+        [ -f "${plugin}" ] || continue
+        log_info "Running rootfs plugin: $(basename "${plugin}")"
+        # shellcheck disable=SC1090
+        source "${plugin}"
+        if declare -F plugin_apply >/dev/null 2>&1; then
+            plugin_apply "${root_dir}"
+            unset -f plugin_apply
+        fi
+    done
+}
+
 # Expand @PLACEHOLDER@ tokens using current board/rootfs shell variables.
 expand_overlay_template_text() {
     local content="$1"
@@ -735,7 +814,7 @@ expand_overlay_template_text() {
 
     content="${content//@BOARD@/${BOARD:-}}"
     content="${content//@BOARD_DESCRIPTION@/${BOARD_DESCRIPTION:-}}"
-    content="${content//@ROOTFS_HOSTNAME@/${ROOTFS_HOSTNAME:-rk3588}}"
+    content="${content//@ROOTFS_HOSTNAME@/${ROOTFS_HOSTNAME:-${BOARD:-sbc}}}"
     content="${content//@KERNEL_DTB@/${KERNEL_DTB:-}}"
     content="${content//@DEBIAN_FEATURES@/${features_value}}"
     content="${content//@CONSOLE_DEVICE@/${CONSOLE_DEVICE:-}}"

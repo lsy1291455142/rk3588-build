@@ -178,18 +178,7 @@ read_image_magic() {
     dd if="$1" bs=1 count=4 status=none
 }
 
-[ "$(read_image_magic "${DOWNLOAD_LOADER_IMAGE}")" = "LDR " ] ||
-    die "download-loader.bin is not an LDR container"
-[ "$(read_image_magic "${IDBLOCK_IMAGE}")" = "RKNS" ] ||
-    die "idblock.img is not an RKNS image"
-[ "$(metadata_value "${UBOOT_BUILD_INFO}" idblock_format)" = "RKNS" ] ||
-    die "U-Boot metadata does not record an RKNS IDBlock"
-[ "$(metadata_value "${IMAGE_BUILD_INFO}" idblock_format)" = "RKNS" ] ||
-    die "Image metadata does not record an RKNS IDBlock"
-compare_embedded_file "${IDBLOCK_IMAGE}" "${IDBLOCK_SECTOR}" "${WORK_DIR}/idblock.img"
-[ "$(read_image_magic "${WORK_DIR}/idblock.img")" = "RKNS" ] ||
-    die "Raw image does not contain an RKNS IDBlock at sector ${IDBLOCK_SECTOR}"
-compare_embedded_file "${UBOOT_IMAGE}" "${UBOOT_SECTOR}" "${WORK_DIR}/uboot.img"
+bootloader_layout_verify "${IMAGE_PATH}" "${COMMON_OUTPUT}" "${WORK_DIR}"
 
 BOOT_OFFSET=$((BOOT_FIRST_EXPECTED * 512))
 MTOOLS_IMAGE="${IMAGE_PATH}@@${BOOT_OFFSET}"
@@ -254,37 +243,37 @@ else
     debugfs -R "stat /usr/lib/systemd/systemd" \
         "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -q 'Inode:' ||
         die "Debian rootfs lacks systemd init"
-    debugfs -R "cat /usr/local/sbin/rk3588-firstboot" \
+    debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
         "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
         grep -Fq "sgdisk -e \"\$rootdisk\"" ||
         die "Debian rootfs lacks the first-boot GPT repair"
-    debugfs -R "cat /usr/local/sbin/rk3588-firstboot" \
+    debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
         "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
         grep -Fq "partnum=\"\$(cat \"\$sys_block/partition\")\"" ||
         die "Debian rootfs does not derive the root partition from sysfs"
-    debugfs -R "cat /usr/local/sbin/rk3588-firstboot" \
+    debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
         "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
         grep -Fq "growpart \"\$rootdisk\" \"\$partnum\"" ||
         die "Debian rootfs lacks the first-boot partition growth"
-    debugfs -R "cat /usr/local/sbin/rk3588-firstboot" \
+    debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
         "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
         grep -Fq "resize2fs \"\$rootdev\"" ||
         die "Debian rootfs lacks the first-boot filesystem growth"
-    debugfs -R "cat /etc/systemd/system/rk3588-firstboot.service" \
+    debugfs -R "cat /etc/systemd/system/sbc-firstboot.service" \
         "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
         grep -Fq 'WantedBy=multi-user.target' ||
         die "Debian rootfs lacks the first-boot resize service"
-    if debugfs -R "cat /etc/systemd/system/rk3588-firstboot.service" \
+    if debugfs -R "cat /etc/systemd/system/sbc-firstboot.service" \
         "${WORK_DIR}/rootfs.ext4" 2>/dev/null | grep -Fq 'Before=ssh.service'; then
         die "Debian first-boot resize must not block SSH startup"
     fi
-    debugfs -R "cat /etc/systemd/system/rk3588-firstboot.service" \
+    debugfs -R "cat /etc/systemd/system/sbc-firstboot.service" \
         "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
         grep -Fq 'TimeoutStartSec=10min' ||
         die "Debian first-boot resize service lacks a startup timeout"
-    debugfs -R "cat /etc/systemd/system/rk3588-firstboot.service" \
+    debugfs -R "cat /etc/systemd/system/sbc-firstboot.service" \
         "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-        grep -Fq 'ExecStart=-/usr/local/sbin/rk3588-firstboot' ||
+        grep -Fq 'ExecStart=-/usr/local/sbin/sbc-firstboot' ||
         die "Debian first-boot resize failure can degrade system startup"
     debugfs -R "cat /etc/systemd/system/ssh.service.d/10-hostkeys.conf" \
         "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
@@ -326,7 +315,7 @@ else
     for enabled_path in \
         /etc/systemd/system/sysinit.target.wants/systemd-resolved.service \
         /etc/systemd/system/multi-user.target.wants/ssh.service \
-        /etc/systemd/system/multi-user.target.wants/rk3588-firstboot.service \
+        /etc/systemd/system/multi-user.target.wants/sbc-firstboot.service \
         "/etc/systemd/system/getty.target.wants/serial-getty@${CONSOLE%%,*}.service"; do
         debugfs -R "stat ${enabled_path}" "${WORK_DIR}/rootfs.ext4" 2>&1 |
             grep -q 'Inode:' || die "Debian rootfs does not enable ${enabled_path##*/}"
@@ -339,12 +328,12 @@ else
     esac
     case ",${DEBIAN_FEATURES_META}," in
         *,firstboot-info,*)
-            debugfs -R "stat /usr/local/sbin/rk3588-firstboot-info" \
+            debugfs -R "stat /usr/local/sbin/sbc-firstboot-info" \
                 "${WORK_DIR}/rootfs.ext4" 2>&1 |
                 grep -q 'Inode:' || die "Debian firstboot-info feature lacks helper"
-            debugfs -R "cat /usr/local/sbin/rk3588-firstboot" \
+            debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
                 "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-                grep -Fq 'rk3588-firstboot-info' ||
+                grep -Fq 'sbc-firstboot-info' ||
                 die "Debian firstboot does not invoke firstboot-info"
             ;;
     esac

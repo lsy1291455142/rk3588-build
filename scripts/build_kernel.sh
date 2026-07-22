@@ -108,6 +108,7 @@ make_args=(
 )
 
 log_step "Configuring kernel for ${BOARD}"
+run_hook pre_build_kernel
 make "${make_args[@]}" "${KERNEL_DEFCONFIG}"
 (
     cd "${KERNEL_SOURCE}"
@@ -178,20 +179,45 @@ require_file "${KERNEL_DTB_PATH}" "board DTB"
 # Rockchip U-Boot merges /chosen/bootargs from the DTB after extlinux APPEND
 # and replaces duplicate keys such as root=. Keep extlinux authoritative so
 # the packaged image always boots the rootfs partition selected by its label.
-fdtget -l "${KERNEL_DTB_PATH}" / >/dev/null ||
-    die "Built board DTB is invalid: ${KERNEL_DTB_PATH}"
-if fdtget -t s "${KERNEL_DTB_PATH}" /chosen bootargs >/dev/null 2>&1; then
-    log_info "Removing /chosen/bootargs from packaged ${KERNEL_DTB}"
-    fdtput -d "${KERNEL_DTB_PATH}" /chosen bootargs
-fi
-if fdtget -t s "${KERNEL_DTB_PATH}" /chosen bootargs >/dev/null 2>&1; then
-    die "Packaged DTB still defines /chosen/bootargs: ${KERNEL_DTB_PATH}"
+# Controlled by DTB_STRIP_BOOTARGS in board profile (default: yes).
+if [ "${DTB_STRIP_BOOTARGS:-yes}" = "yes" ]; then
+    fdtget -l "${KERNEL_DTB_PATH}" / >/dev/null ||
+        die "Built board DTB is invalid: ${KERNEL_DTB_PATH}"
+    if fdtget -t s "${KERNEL_DTB_PATH}" /chosen bootargs >/dev/null 2>&1; then
+        log_info "Removing /chosen/bootargs from packaged ${KERNEL_DTB}"
+        fdtput -d "${KERNEL_DTB_PATH}" /chosen bootargs
+    fi
+    if fdtget -t s "${KERNEL_DTB_PATH}" /chosen bootargs >/dev/null 2>&1; then
+        die "Packaged DTB still defines /chosen/bootargs: ${KERNEL_DTB_PATH}"
+    fi
+else
+    log_info "DTB_STRIP_BOOTARGS=no; preserving /chosen/bootargs in ${KERNEL_DTB}"
 fi
 
 install -m 0644 "${KERNEL_IMAGE}" "${COMMON_OUTPUT}/Image"
 install -m 0644 "${KERNEL_DTB_PATH}" "${COMMON_OUTPUT}/${KERNEL_DTB}"
 install -m 0644 "${KERNEL_BUILD}/.config" "${COMMON_OUTPUT}/kernel.config"
 printf '%s\n' "${KERNEL_RELEASE}" >"${COMMON_OUTPUT}/kernel-release"
+
+if [ -n "${KERNEL_DTBO:-}" ]; then
+    mkdir -p "${COMMON_OUTPUT}/overlays"
+    for dtbo in ${KERNEL_DTBO}; do
+        dtbo_src=""
+        for candidate in "${KERNEL_BUILD}/arch/arm64/boot/dts/rockchip/overlay/${dtbo}" \
+                         "${KERNEL_BUILD}/arch/arm64/boot/dts/rockchip/${dtbo}"; do
+            if [ -f "${candidate}" ]; then
+                dtbo_src="${candidate}"
+                break
+            fi
+        done
+        if [ -n "${dtbo_src}" ]; then
+            install -m 0644 "${dtbo_src}" "${COMMON_OUTPUT}/overlays/${dtbo}"
+            log_info "Installed DTBO overlay: ${dtbo}"
+        else
+            log_warn "KERNEL_DTBO specified ${dtbo} but file was not found under Kbuild output"
+        fi
+    done
+fi
 tar --numeric-owner --owner=0 --group=0 -C "${MODULES_STAGE}" \
     -cpf "${COMMON_OUTPUT}/modules.tar" lib
 
@@ -211,3 +237,4 @@ write_common_metadata "${COMMON_OUTPUT}/kernel-build-info.txt" \
     "jobs=${JOBS_RESOLVED}"
 
 log_info "Kernel artifacts: ${COMMON_OUTPUT}"
+run_hook post_build_kernel

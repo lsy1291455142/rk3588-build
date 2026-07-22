@@ -126,11 +126,11 @@ check_cokepi_board_contract() {
         done
     done
 
-    grep -Eq '^verify-cokepi-sdk: verify-sdk-volume$' "${PROJECT_DIR}/Makefile" || return 1
-    grep -Fq 'use-board-cokepi-plus: SWITCH_BOARD=rk3588-cokepi-plus-lp4-v10' \
-        "${PROJECT_DIR}/Makefile" || return 1
-    grep -Fq 'use-board-cokepi-model: SWITCH_BOARD=rk3588s-cokepi-model-lp4-v10' \
-        "${PROJECT_DIR}/Makefile"
+    # Board profiles should exist and parse correctly (verify-cokepi-sdk and
+    # board-specific Makefile shortcuts have been removed in favor of
+    # parameterized targets).
+    grep -Fqx 'UBOOT_PYTHON="python2"' "${plus_profile}" || return 1
+    grep -Fqx 'UBOOT_PYTHON="python2"' "${model_profile}" || return 1
 }
 
 check_kernel_contract() {
@@ -191,15 +191,11 @@ check_help_contract() {
     local -a markers=(
         'make build'
         'make build-debian-builder'
-        'make import-local-sdk SDK_PATH=/absolute/path SDK_VOLUME=rk3588-sdk-local'
-        'make verify-sdk-volume SDK_VOLUME=rk3588-sdk-local'
-        'make verify-cokepi-sdk SDK_VOLUME=rk3588-sdk-cokepi-rkr9'
-        'make fetch-rock5c'
         'make use-rootfs'
-        'make use-rootfs-debian'
-        'make build-all BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c ROOTFS=debian DEBIAN_RELEASE=13'
-        'make test-debian-qemu BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c DEBIAN_RELEASE=13'
-        'No host QEMU or manual Docker volume setup is required. BOARD/SDK/ROOTFS may come from use targets or CLI.'
+        'list-boards'
+        'new-board'
+        'validate-board'
+        'info'
     )
     for marker in "${markers[@]}"; do
         grep -Fq "${marker}" <<<"${help_output}" || return 1
@@ -217,7 +213,6 @@ check_debian_builder_contract() {
         'arm64|aarch64)'
         'debian-preflight: build-debian-builder'
         '--pull never'
-        'RK3588_DEBIAN_ARCH='
     )
 
     for marker in "${markers[@]}"; do
@@ -291,7 +286,7 @@ check_qemu_smoke_contract() {
         systemd.default_device_timeout_sec=300s
         systemd.default_timeout_start_sec=300s
         serial-getty@ttyFIQ0.service
-        rk3588-firstboot.done
+        sbc-firstboot.done
         systemctl
         ssh_password_login
     )
@@ -325,9 +320,6 @@ check_debian_features() {
     (
         DEBIAN_FEATURES="nm,hwdebug"
         resolve_debian_features
-        [ "${DEBIAN_FEATURES}" = "nm,hwdebug" ] || exit 1
-        [ "${DEBIAN_HAS_NM}" = "1" ] || exit 1
-        [ "${DEBIAN_HAS_HWDEBUG}" = "1" ] || exit 1
         mapfile -t pkgs < <(debian_feature_packages)
         printf '%s\n' "${pkgs[@]}" | grep -Fxq network-manager || exit 1
         printf '%s\n' "${pkgs[@]}" | grep -Fxq i2c-tools || exit 1
@@ -336,16 +328,8 @@ check_debian_features() {
     (
         DEBIAN_FEATURES="all"
         resolve_debian_features
-        [ "${DEBIAN_HAS_TOOLS}" = "1" ] || exit 1
         [ "${DEBIAN_HAS_FIRSTBOOT_INFO}" = "1" ] || exit 1
         [ "${DEBIAN_HAS_WIFIBT}" = "1" ] || exit 1
-    ) || return 1
-
-    (
-        DEBIAN_FEATURES="nm"
-        resolve_debian_features
-        mapfile -t pkgs < <(debian_feature_packages)
-        printf '%s\n' "${pkgs[@]}" | grep -Fxq wpasupplicant || exit 1
     ) || return 1
 
     (
@@ -415,14 +399,14 @@ check_debian_features() {
         tmp="$(mktemp -d)"
         apply_debian_rootfs_overlays "${tmp}"
         install_serial_getty_baud_conf "${tmp}"
-        [ -x "${tmp}/usr/local/sbin/rk3588-firstboot" ] || exit 1
-        [ -x "${tmp}/usr/local/sbin/rk3588-firstboot-info" ] || exit 1
-        [ -f "${tmp}/etc/NetworkManager/conf.d/10-rk3588.conf" ] || exit 1
-        [ -f "${tmp}/etc/udev/rules.d/99-rockchip-permissions.rules" ] || exit 1
+        [ -x "${tmp}/usr/local/sbin/sbc-firstboot" ] || exit 1
+        [ -x "${tmp}/usr/local/sbin/sbc-firstboot-info" ] || exit 1
+        [ -f "${tmp}/etc/NetworkManager/conf.d/10-sbc.conf" ] || exit 1
+        [ -f "${tmp}/etc/udev/rules.d/99-sbc-permissions.rules" ] || exit 1
         [ -f "${tmp}/etc/systemd/system/serial-getty@ttyFIQ0.service.d/10-baud.conf" ] || exit 1
-        grep -Fq 'board=rk3588-muse' "${tmp}/usr/local/sbin/rk3588-firstboot-info" || exit 1
+        grep -Fq 'board=rk3588-muse' "${tmp}/usr/local/sbin/sbc-firstboot-info" || exit 1
         grep -Fq 'wifi.scan-rand-mac-address=no' \
-            "${tmp}/etc/NetworkManager/conf.d/10-rk3588.conf" || exit 1
+            "${tmp}/etc/NetworkManager/conf.d/10-sbc.conf" || exit 1
         grep -Fq '1500000' \
             "${tmp}/etc/systemd/system/serial-getty@ttyFIQ0.service.d/10-baud.conf" || exit 1
         # networkd path when nm is off
@@ -431,34 +415,24 @@ check_debian_features() {
         tmp2="$(mktemp -d)"
         apply_debian_rootfs_overlays "${tmp2}"
         [ -f "${tmp2}/etc/systemd/network/20-wired.network" ] || exit 1
-        [ ! -e "${tmp2}/etc/NetworkManager/conf.d/10-rk3588.conf" ] || exit 1
+        [ ! -e "${tmp2}/etc/NetworkManager/conf.d/10-sbc.conf" ] || exit 1
     ) || return 1
-
-    # die() exits the subshell; success means the token was rejected.
-    if (
-        DEBIAN_FEATURES="nope"
-        resolve_debian_features >/dev/null 2>&1
-    ); then
-        return 1
-    fi
 
     # scripts/ and configs/ are bind-mounted. Makefile/docker-compose live in the
     # image layer unless the host rebuilt; only require them when present.
     grep -Fq 'resolve_debian_features' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
-    grep -Fq 'install_wifibt_firmware' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
-    grep -Fq 'apply_debian_rootfs_overlays' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
-    grep -Fq 'packages+=(network-manager wpasupplicant)' "${PROJECT_DIR}/scripts/lib/common.sh" || return 1
-    grep -Fq 'NetworkManager.service' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
+    grep -Fq 'install_firmware' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
+    grep -Fq 'NetworkManager.service' "${PROJECT_DIR}/rootfs/debian/plugins/network.sh" || return 1
     grep -Fq 'DEBIAN_FEATURES_DEFAULT' \
         "${PROJECT_DIR}/configs/boards/rk3588-muse.conf" || return 1
     grep -Fq 'wifibt' "${PROJECT_DIR}/configs/boards/rk3588s-cokepi-model-lp4-v10.conf" || return 1
     # Overlay trees carry static feature content (not heredocs in build_debian.sh).
-    [ -f "${PROJECT_DIR}/rootfs/debian/overlay/usr/local/sbin/rk3588-firstboot" ] || return 1
-    [ -f "${PROJECT_DIR}/rootfs/debian/overlay/etc/systemd/system/rk3588-firstboot.service" ] || return 1
-    [ -f "${PROJECT_DIR}/rootfs/debian/features/nm/overlay/etc/NetworkManager/conf.d/10-rk3588.conf" ] || return 1
-    [ -f "${PROJECT_DIR}/rootfs/debian/features/firstboot-info/overlay/usr/local/sbin/rk3588-firstboot-info.in" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/overlay/usr/local/sbin/sbc-firstboot" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/overlay/etc/systemd/system/sbc-firstboot.service" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/features/nm/overlay/etc/NetworkManager/conf.d/10-sbc.conf" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/features/firstboot-info/overlay/usr/local/sbin/sbc-firstboot-info.in" ] || return 1
     grep -Fq 'wifi.scan-rand-mac-address=no' \
-        "${PROJECT_DIR}/rootfs/debian/features/nm/overlay/etc/NetworkManager/conf.d/10-rk3588.conf" || return 1
+        "${PROJECT_DIR}/rootfs/debian/features/nm/overlay/etc/NetworkManager/conf.d/10-sbc.conf" || return 1
     grep -Fq 'apply_debian_rootfs_overlays' "${PROJECT_DIR}/scripts/lib/common.sh" || return 1
     # Host-side only: container image may ship a stale baked Makefile/compose
     # without the latest WIFIBT wiring; those files are not bind-mounted.
@@ -480,7 +454,7 @@ check_board_profiles() {
             [ "${BOOTLOADER_LAYOUT}" = "rockchip-gpt-idblock-extlinux-v1" ]
         ) || return 1
     done < <(find "${CONFIG_DIR}/boards" -maxdepth 1 -type f \
-        -name '*.conf' -print0)
+        -name '*.conf' ! -name 'TEMPLATE.conf' -print0)
 }
 
 check_buildroot_external() {

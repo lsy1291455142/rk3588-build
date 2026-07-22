@@ -1,5 +1,5 @@
-# Rockchip multimedia / GPU device nodes — allow video group access.
-ACTION=="remove", GOTO="rk3588_permissions_end"
+# SBC multimedia / GPU device nodes — allow video group access.
+ACTION=="remove", GOTO="sbc_permissions_end"
 
 # VPU / MPP
 KERNEL=="avsd", MODE="0660", GROUP="video"
@@ -14,7 +14,7 @@ KERNEL=="hevc[_-]service", MODE="0660", GROUP="video"
 # RGA
 KERNEL=="rga", MODE="0660", GROUP="video"
 
-# Mali GPU
+# GPU
 KERNEL=="mali*", MODE="0660", GROUP="video"
 
 # DMA heaps used by multimedia pipelines
@@ -25,4 +25,4 @@ KERNEL=="system-dma32", MODE="0660", GROUP="video"
 KERNEL=="system-uncached", MODE="0660", GROUP="video"
 KERNEL=="system-uncached-dma32", MODE="0660", GROUP="video"
 
-LABEL="rk3588_permissions_end"
+LABEL="sbc_permissions_end"

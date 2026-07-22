@@ -101,7 +101,7 @@ def run_guest_checks(child, kernel_release, debian_release, password):
         ("architecture", "test \"$(uname -m)\" = aarch64"),
         ("kernel_release", f"test \"$(uname -r)\" = '{kernel_release}'"),
         ("root_rw", "findmnt -n -o OPTIONS / | tr ',' '\\n' | grep -qx rw"),
-        ("firstboot", "test -e /var/lib/rk3588-firstboot.done"),
+        ("firstboot", "test -e /var/lib/sbc-firstboot.done"),
         (
             "root_resize",
             "rootsize=$(df -BM --output=size / | tail -1 | tr -dc '0-9'); "
@@ -134,7 +134,7 @@ def run_guest_checks(child, kernel_release, debian_release, password):
 
     child.sendline(
         "ready=0; for i in $(seq 1 180); do "
-        "if test -e /var/lib/rk3588-firstboot.done && "
+        "if test -e /var/lib/sbc-firstboot.done && "
         "test \"$(systemctl is-system-running 2>/dev/null)\" = running; "
         "then ready=1; break; fi; sleep 1; done; "
         "printf '__RK3588_BOOT_READY__=%s\\n' \"$ready\""

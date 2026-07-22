@@ -1,32 +1,25 @@
 # 新增板型
 
-新增一块 RK3588/RK3588S 开发板只需要创建一个板级 profile 文件，不需要修改任何脚本。
+新增一块开发板只需要创建一个板级配置文件（以及可选的构建钩子文件），不需要修改任何构建脚本或 Makefile。
 
 ## 步骤
 
-### 1. 确定 SDK 来源
+### 1. 使用脚手架生成板型配置
 
-确认你的板子用哪个 SDK：
-
-- 如果是 Rockchip 官方 BSP → `make fetch-510` / `fetch-61` / `fetch-66`
-- 如果是厂商 fork → 用对应的 `fetch-*` 或 `fetch-custom`
-- 如果是私有 SDK → `make import-local-sdk`
-
-### 2. 创建板级 profile
-
-复制最接近的现有 profile：
+使用 `make new-board` 命令自动生成配置模版：
 
 ```bash
-cp configs/boards/rk3588-evb1-lp4-v10-linux.conf \
-   configs/boards/my-board.conf
+make new-board BOARD=my-board
 ```
 
-### 3. 编辑字段
+这会在 `configs/boards/` 下从 `TEMPLATE.conf` 创建 `my-board.conf`。
 
-打开 `configs/boards/my-board.conf`，逐项修改：
+### 2. 编辑配置字段
+
+打开 `configs/boards/my-board.conf`，按注释提示填入具体参数：
 
 ```bash
-# 板子描述（显示在 make use-board 列表中）
+# 板子描述（显示在 make list-boards / make use-board 列表中）
 BOARD_DESCRIPTION="My Board (RK3588)"
 
 # 内核
@@ -36,10 +29,10 @@ KERNEL_DTB="my-board.dtb"                      # 设备树二进制文件名
 # U-Boot
 UBOOT_DEFCONFIG="rk3588_defconfig"             # U-Boot defconfig
 UBOOT_BOARD="rk3588"                           # Rockchip make.sh 的板名参数
-UBOOT_BUILD_SYSTEM="rockchip-make-sh"          # 固定值
+UBOOT_BUILD_SYSTEM="rockchip-make-sh"          # 启动链构建系统
 UBOOT_PYTHON="python3"                         # python2 或 python3
 
-# 引导布局（固定值）
+# 引导布局
 BOOTLOADER_LAYOUT="rockchip-gpt-idblock-extlinux-v1"
 DOWNLOAD_LOADER_GLOBS="rk3588*loader*.bin;MiniLoaderAll.bin"
 UBOOT_IMAGE_NAMES="uboot.img;u-boot.img"
@@ -50,61 +43,50 @@ UBOOT_SECTOR=16384
 CONSOLE="ttyFIQ0,1500000n8"
 EXTRA_KERNEL_ARGS="earlycon=uart8250,mmio32,0xfeb50000 consoleblank=0"
 
-# 磁盘几何
+# 磁盘尺寸
 IMAGE_SIZE_MIB=4096      # 总镜像大小
 BOOT_START_MIB=16        # boot 分区起始（必须 >= 16）
 BOOT_SIZE_MIB=256        # boot 分区大小
-ROOTFS_SIZE_MIB=2048     # rootfs 初始大小（首次启动会扩容）
+ROOTFS_SIZE_MIB=2048     # rootfs 初始大小（首次启动会自动扩容）
 ```
 
-### 4. 确认 DTB 文件名
+### 3. 校验配置
 
-DTB 文件名必须与内核源码中的 `.dts` 文件对应：
+使用 `make validate-board` 命令验证配置格式：
 
 ```bash
-# 在 SDK kernel 目录中查找
-ls sdk/kernel/arch/arm64/boot/dts/rockchip/my-board*.dts
+make validate-board BOARD=my-board
 ```
 
-`KERNEL_DTB` 填 `.dtb` 文件名（不含路径）。
+### 4. 可选：添加源码 Manifest
 
-### 5. 确认 U-Boot defconfig
+在 `manifests/` 目录创建 `my-board.xml`，并在 `my-board.conf` 中填入 `SOURCE_MANIFEST="my-board.xml"`。
+
+拉取代码时使用：
 
 ```bash
-ls sdk/u-boot/configs/ | grep my-board
+make fetch BOARD=my-board
 ```
 
-如果板子没有专用 defconfig，用通用的 `rk3588_defconfig`。
+### 5. 可选：配置构建钩子（Hooks）
 
-### 6. 可选：锁定源码版本
-
-如果需要可复现构建，在 profile 中添加：
+如果需要为该板型添加特殊的预处理或后处理逻辑，在 `configs/boards/` 下创建 `my-board.hooks.sh`：
 
 ```bash
-SOURCE_MANIFEST="my-board.xml"
-EXPECTED_KERNEL_REVISION="完整的40位commit SHA"
-EXPECTED_UBOOT_REVISION="..."
-EXPECTED_RKBIN_REVISION="..."
-EXPECTED_BUILDROOT_REVISION="..."
+pre_build_kernel()  { log_info "执行内核构建前钩子"; }
+post_build_kernel() { log_info "执行内核构建后钩子"; }
+pre_build_uboot()   { log_info "执行 U-Boot 构建前钩子"; }
+post_build_uboot()  { log_info "执行 U-Boot 构建后钩子"; }
+pre_build_rootfs()  { log_info "执行 rootfs 构建前钩子"; }
+post_build_rootfs() { log_info "执行 rootfs 构建后钩子"; }
+pre_make_image()    { log_info "执行镜像组装前钩子"; }
+post_make_image()   { log_info "执行镜像组装后钩子"; }
 ```
 
-同时在 `manifests/` 里创建对应的 manifest XML，revision 也用完整 SHA。
-
-### 7. 可选：Debian 默认值
+### 6. 开始构建
 
 ```bash
-DEBIAN_FEATURES_DEFAULT="nm,hwdebug,firstboot-info"
-ROOTFS_HOSTNAME_DEFAULT="myboard"
-```
-
-### 8. 验证
-
-```bash
-# 项目自检（会校验新 profile 的格式）
-make check
-
-# 构建
-make build-all BOARD=my-board SDK_VOLUME=my-sdk ROOTFS=debian
+make build-all BOARD=my-board ROOTFS=debian
 ```
 
 ## 字段参考
@@ -116,9 +98,9 @@ make build-all BOARD=my-board SDK_VOLUME=my-sdk ROOTFS=debian
 | `KERNEL_DTB` | 是 | DTB 文件名，必须以 `.dtb` 结尾 |
 | `UBOOT_DEFCONFIG` | 是 | U-Boot defconfig 文件名 |
 | `UBOOT_BOARD` | 是 | Rockchip `make.sh` 的板名参数 |
-| `UBOOT_BUILD_SYSTEM` | 是 | 当前只支持 `rockchip-make-sh` |
-| `UBOOT_PYTHON` | 是 | `python2` 或 `python3` |
-| `BOOTLOADER_LAYOUT` | 是 | 当前只支持 `rockchip-gpt-idblock-extlinux-v1` |
+| `UBOOT_BUILD_SYSTEM` | 是 | 引导程序构建方式（如 `rockchip-make-sh`） |
+| `UBOOT_PYTHON` | 是 | FIT 生成器 Python 版本（`python2` 或 `python3`） |
+| `BOOTLOADER_LAYOUT` | 是 | 启动链布局格式（如 `rockchip-gpt-idblock-extlinux-v1`） |
 | `DOWNLOAD_LOADER_GLOBS` | 是 | loader 文件匹配模式，分号分隔 |
 | `UBOOT_IMAGE_NAMES` | 是 | U-Boot 镜像匹配模式，分号分隔 |
 | `CONSOLE` | 是 | 串口设备和波特率 |
@@ -133,3 +115,5 @@ make build-all BOARD=my-board SDK_VOLUME=my-sdk ROOTFS=debian
 | `EXPECTED_*_REVISION` | 否 | 锁定源码 commit（需配合 SOURCE_MANIFEST） |
 | `DEBIAN_FEATURES_DEFAULT` | 否 | Debian 默认功能集 |
 | `ROOTFS_HOSTNAME_DEFAULT` | 否 | 默认主机名 |
+| `DTB_STRIP_BOOTARGS` | 否 | 是否剥离 DTB 中的 /chosen/bootargs（默认 `yes`） |
+| `WIFIBT_FIRMWARE_SYMLINKS` | 否 | WiFi 固件软链接策略（`rockchip-vendor` 或 `none`） |

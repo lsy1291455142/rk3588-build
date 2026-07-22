@@ -27,12 +27,14 @@ UBOOT_PYTHON_VERSION="$("${UBOOT_PYTHON}" -c \
 
 # Some BSPs invoke bare `python`, while others use PYTHON or an explicit
 # python2/python3 shebang. Scope the bare command to this U-Boot build only.
-UBOOT_PYTHON_SHIM_DIR="$(mktemp -d "${TMPDIR:-/tmp}/rk3588-uboot-python.XXXXXX")"
+UBOOT_PYTHON_SHIM_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sbc-uboot-python.XXXXXX")"
 trap 'rm -rf -- "${UBOOT_PYTHON_SHIM_DIR}"' EXIT
 ln -s "${UBOOT_PYTHON_PATH}" "${UBOOT_PYTHON_SHIM_DIR}/python"
 
 require_dir "${UBOOT_DIR}" "U-Boot source"
-require_dir "${RKBIN_DIR}" "rkbin source"
+if [ "${UBOOT_BUILD_SYSTEM}" = "rockchip-make-sh" ]; then
+    require_dir "${RKBIN_DIR}" "rkbin source"
+fi
 require_file "${UBOOT_DIR}/configs/${UBOOT_DEFCONFIG}" "U-Boot defconfig"
 require_file "${UBOOT_DIR}/make.sh" "Rockchip U-Boot make.sh"
 
@@ -130,6 +132,7 @@ validate_extlinux_boot_contract() {
         die "U-Boot binary does not contain the extlinux configuration path"
 }
 
+run_hook pre_build_uboot
 log_step "Building Rockchip boot chain for ${BOARD}"
 log_info "U-Boot compiler: ${UBOOT_CC_PATH}"
 log_info "U-Boot Python: ${UBOOT_PYTHON_PATH} (${UBOOT_PYTHON_VERSION})"
@@ -236,3 +239,4 @@ write_common_metadata "${COMMON_OUTPUT}/uboot-build-info.txt" \
     "jobs=${JOBS_RESOLVED}"
 
 log_info "U-Boot artifacts: ${COMMON_OUTPUT}"
+run_hook post_build_uboot

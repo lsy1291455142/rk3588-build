@@ -20,9 +20,9 @@
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `ROOTFS_USERNAME` | `rk3588` | 非 root 用户名 |
-| `ROOTFS_PASSWORD` | `rk3588` | 用户和 root 密码 |
-| `ROOTFS_HOSTNAME` | `rk3588` | 主机名 |
+| `ROOTFS_USERNAME` | `user` | 非 root 用户名 |
+| `ROOTFS_PASSWORD` | `password` | 用户和 root 密码 |
+| `ROOTFS_HOSTNAME` | `(板型名)` | 主机名 |
 
 ## Debian 变量
 
@@ -30,6 +30,7 @@
 |---|---|---|
 | `DEBIAN_RELEASE` | `13` | Debian 版本：11、12 或 13 |
 | `DEBIAN_FEATURES` | （空） | 功能集：`nm,hwdebug,tools,firstboot-info,wifibt,all` |
+| `DEBIAN_EXTRA_PACKAGES` | （空） | 预装额外的 APT 软件包（如 `htop i2c-tools python3-pip docker.io`） |
 | `WIFIBT_CHIP` | `none`（板级可改） | WiFi/BT 模组：`AIC8800D80` / `AP6275S` / `ALL_AP` / `ALL` 等；`none` 表示软跳过 |
 | `WIFIBT_SOURCE` | `sdk-or-assets` | 固件来源：`sdk`、`assets` 或 `sdk-or-assets`（先 SDK 后 assets） |
 | `WIFIBT_REQUIRED` | `no` | `yes` 时找不到固件则失败；`no` 只警告 |

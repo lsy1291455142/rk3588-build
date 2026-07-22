@@ -1,8 +1,8 @@
 #!/bin/sh
-[ -r /var/lib/rk3588-board-info ] || exit 0
+[ -r /var/lib/sbc-board-info ] || exit 0
 echo
 echo "RK3588 board info:"
-sed 's/^/  /' /var/lib/rk3588-board-info
+sed 's/^/  /' /var/lib/sbc-board-info
 if command -v nmtui >/dev/null 2>&1; then
     echo "  network: use nmtui or nmcli"
 fi

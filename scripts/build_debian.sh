@@ -12,6 +12,7 @@ resolve_debian_release
 # Board profile may set DEBIAN_FEATURES_DEFAULT / ROOTFS_HOSTNAME_DEFAULT.
 # Empty DEBIAN_FEATURES means "use board default if any".
 # Force minbase with DEBIAN_FEATURES=none (or minbase/off).
+DEBIAN_FEATURES="${DEBIAN_PACKAGES:-${DEBIAN_FEATURES:-}}"
 case "${DEBIAN_FEATURES:-}" in
     '')
         if [ -n "${DEBIAN_FEATURES_DEFAULT:-}" ]; then
@@ -22,8 +23,11 @@ case "${DEBIAN_FEATURES:-}" in
         DEBIAN_FEATURES=""
         ;;
 esac
+if [ -n "${DEBIAN_EXTRA_PACKAGES:-}" ]; then
+    DEBIAN_FEATURES="${DEBIAN_FEATURES:+$DEBIAN_FEATURES,}${DEBIAN_EXTRA_PACKAGES}"
+fi
 if [ -z "${ROOTFS_HOSTNAME:-}" ]; then
-    ROOTFS_HOSTNAME="${ROOTFS_HOSTNAME_DEFAULT:-rk3588}"
+    ROOTFS_HOSTNAME="${ROOTFS_HOSTNAME_DEFAULT:-${BOARD:-sbc}}"
 fi
 resolve_debian_features
 require_cmd mmdebstrap dpkg chroot systemctl tar truncate mkfs.ext4 \
@@ -39,9 +43,9 @@ DEBIAN_BUILD="$(board_build_dir "debian-${DEBIAN_RELEASE}")"
 ROOT_DIR="${DEBIAN_BUILD}/root"
 MODULES_TAR="${COMMON_OUTPUT}/modules.tar"
 KERNEL_RELEASE_FILE="${COMMON_OUTPUT}/kernel-release"
-ROOTFS_USERNAME="${ROOTFS_USERNAME:-rk3588}"
-ROOTFS_PASSWORD="${ROOTFS_PASSWORD:-rk3588}"
-ROOTFS_HOSTNAME="${ROOTFS_HOSTNAME:-rk3588}"
+ROOTFS_USERNAME="${ROOTFS_USERNAME:-user}"
+ROOTFS_PASSWORD="${ROOTFS_PASSWORD:-password}"
+ROOTFS_HOSTNAME="${ROOTFS_HOSTNAME:-${BOARD:-sbc}}"
 CONSOLE_DEVICE="${CONSOLE%%,*}"
 CONSOLE_SPEED="${CONSOLE#*,}"
 CONSOLE_SPEED="${CONSOLE_SPEED%%[!0-9]*}"
@@ -95,10 +99,12 @@ mapfile -t FEATURE_PACKAGES < <(debian_feature_packages)
 if [ "${#FEATURE_PACKAGES[@]}" -gt 0 ]; then
     PACKAGES+=("${FEATURE_PACKAGES[@]}")
 fi
+
 # Deduplicate while preserving order.
 declare -A PACKAGE_SEEN=()
 DEDUPED_PACKAGES=()
 for pkg in "${PACKAGES[@]}"; do
+    [ -n "${pkg}" ] || continue
     [ -z "${PACKAGE_SEEN[${pkg}]+x}" ] || continue
     PACKAGE_SEEN["${pkg}"]=1
     DEDUPED_PACKAGES+=("${pkg}")
@@ -111,14 +117,21 @@ else
     log_info "Debian features: (none; minbase)"
 fi
 
+APT_CACHE_DIR="${APT_CACHE_DIR:-/var/cache/apt/archives}"
+
 run_mmdebstrap() {
     local -a sources=("$@")
+    local -a apt_opts=('--aptopt=Acquire::Languages "none"')
+    if [ -d "${APT_CACHE_DIR}" ] && [ -w "${APT_CACHE_DIR}" ]; then
+        log_info "Using persistent APT cache: ${APT_CACHE_DIR}"
+        apt_opts+=("--aptopt=Dir::Cache::Archives=\"${APT_CACHE_DIR}\"")
+    fi
     mmdebstrap \
         --architectures=arm64 \
         --variant=minbase \
         "--components=${DEBIAN_COMPONENTS// /,}" \
         "--include=${PACKAGE_LIST}" \
-        --aptopt='Acquire::Languages "none"' \
+        "${apt_opts[@]}" \
         "${DEBIAN_CODENAME}" "${ROOT_DIR}" "${sources[@]}"
 }
 
@@ -129,6 +142,7 @@ REGULAR_SOURCES=(
 )
 
 log_step "Building Debian ${DEBIAN_RELEASE} (${DEBIAN_CODENAME}) rootfs"
+run_hook pre_build_rootfs
 if ! run_mmdebstrap "${REGULAR_SOURCES[@]}"; then
     if [ "${DEBIAN_RELEASE}" != "11" ] ||
         [ "${DEBIAN_ALLOW_ARCHIVE_FALLBACK}" != "yes" ]; then
@@ -181,8 +195,8 @@ depmod -b "${ROOT_DIR}" "${KERNEL_RELEASE}"
 chroot "${ROOT_DIR}" /bin/true ||
     die "Debian userspace is not executable after installing kernel modules"
 
-# Optional WiFi/BT firmware (feature: wifibt). Uses SDK external/rkwifibt or assets/.
-install_wifibt_firmware "${ROOT_DIR}"
+# Firmware installation (Wi-Fi/BT + custom assets/firmware/)
+install_firmware "${ROOT_DIR}"
 
 enable_unit() {
     local unit="$1"
@@ -227,19 +241,12 @@ enable_unit() {
     die "Unable to enable Debian systemd unit: ${unit}"
 }
 
-if [ "${DEBIAN_HAS_NM}" = "1" ]; then
-    enable_unit NetworkManager.service
-else
-    enable_unit systemd-networkd.service
-fi
-enable_unit systemd-resolved.service
-enable_unit ssh.service
-enable_unit rk3588-firstboot.service
-enable_unit "serial-getty@${CONSOLE_DEVICE}.service"
+# Run modular rootfs plugins under rootfs/debian/plugins/*.sh
+run_debian_plugins "${ROOT_DIR}"
 
 VERIFY_UNITS=(
     multi-user.target
-    rk3588-firstboot.service
+    sbc-firstboot.service
     "serial-getty@${CONSOLE_DEVICE}.service"
     ssh.service
     systemd-resolved.service
@@ -290,6 +297,8 @@ debugfs -R "stat /usr/lib/systemd/systemd" "${ROOTFS_IMAGE}" 2>&1 |
 debugfs -R "cat /etc/shadow" "${ROOTFS_IMAGE}" 2>/dev/null |
     grep -Eq '^root:[^!*:][^:]*:' ||
     die "Debian root account is not enabled"
+
+run_hook post_build_rootfs
 
 write_common_metadata "${VARIANT_OUTPUT}/rootfs-build-info.txt" \
     "source_manifest=${SOURCE_MANIFEST:-}" \

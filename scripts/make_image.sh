@@ -20,16 +20,12 @@ VARIANT_OUTPUT="$(variant_output_dir)"
 IMAGE_STEM="$(image_stem)"
 KERNEL_IMAGE="${COMMON_OUTPUT}/Image"
 DTB_IMAGE="${COMMON_OUTPUT}/${KERNEL_DTB}"
-IDBLOCK_IMAGE="${COMMON_OUTPUT}/idblock.img"
-UBOOT_IMAGE="${COMMON_OUTPUT}/uboot.img"
 ROOTFS_IMAGE="${VARIANT_OUTPUT}/rootfs.ext4"
 KERNEL_RELEASE_FILE="${COMMON_OUTPUT}/kernel-release"
 ZSTD_LEVEL="${ZSTD_LEVEL:-6}"
 
 require_file "${KERNEL_IMAGE}" "kernel Image; run build-kernel first"
 require_file "${DTB_IMAGE}" "board DTB; run build-kernel first"
-require_file "${IDBLOCK_IMAGE}" "Rockchip RKNS IDBlock; run build-uboot first"
-require_file "${UBOOT_IMAGE}" "U-Boot image; run build-uboot first"
 require_file "${ROOTFS_IMAGE}" "root filesystem; run build-rootfs first"
 require_file "${KERNEL_RELEASE_FILE}" "kernel release"
 if ! [[ "${ZSTD_LEVEL}" =~ ^[1-9][0-9]*$ ]] ||
@@ -55,32 +51,34 @@ BOOT_FIRST_SECTOR=$((BOOT_START_MIB * 2048))
 BOOT_SECTORS=$((BOOT_SIZE_MIB * 2048))
 BOOT_LAST_SECTOR=$((BOOT_FIRST_SECTOR + BOOT_SECTORS - 1))
 ROOT_FIRST_SECTOR=$((BOOT_LAST_SECTOR + 1))
-ROOT_LAST_SECTOR=$((IMAGE_SECTORS - 34))
+[ "${ROOT_FIRST_SECTOR}" -lt "${ROOT_LAST_SECTOR}" ] ||
+    die "Boot partition geometry invalid (BOOT_START_MIB + BOOT_SIZE_MIB exceeds IMAGE_SIZE_MIB)"
 ROOT_PARTITION_BYTES=$(((ROOT_LAST_SECTOR - ROOT_FIRST_SECTOR + 1) * 512))
 ROOTFS_BYTES="$(stat -c '%s' "${ROOTFS_IMAGE}")"
-IDBLOCK_BYTES="$(stat -c '%s' "${IDBLOCK_IMAGE}")"
-UBOOT_BYTES="$(stat -c '%s' "${UBOOT_IMAGE}")"
 
 [ "${ROOTFS_BYTES}" -le "${ROOT_PARTITION_BYTES}" ] ||
     die "rootfs.ext4 exceeds root partition (${ROOTFS_BYTES} > ${ROOT_PARTITION_BYTES})"
-[ "$(dd if="${IDBLOCK_IMAGE}" bs=1 count=4 status=none)" = "RKNS" ] ||
-    die "idblock.img is not a Rockchip RKNS IDBlock"
-[ "${IDBLOCK_BYTES}" -le "$(((UBOOT_SECTOR - IDBLOCK_SECTOR) * 512))" ] ||
-    die "idblock.img exceeds the reserved IDBlock area"
-[ "${UBOOT_BYTES}" -le "$(((BOOT_FIRST_SECTOR - UBOOT_SECTOR) * 512))" ] ||
-    die "uboot.img exceeds the reserved U-Boot area"
+bootloader_layout_validate_artifacts "${COMMON_OUTPUT}"
 
 mkdir -p "${EXTLINUX_DIR}"
-cat >"${EXTLINUX_CONF}" <<EOF
-DEFAULT rk3588
-TIMEOUT 10
+{
+    printf 'DEFAULT %s\n' "${EXTLINUX_LABEL}"
+    printf 'TIMEOUT 10\n\n'
+    printf 'LABEL %s\n' "${EXTLINUX_LABEL}"
+    printf '    LINUX /Image\n'
+    printf '    FDT /%s\n' "${KERNEL_DTB}"
+    if [ -n "${KERNEL_DTBO:-}" ]; then
+        dtbo_line="    FDTOVERLAYS"
+        for dtbo in ${KERNEL_DTBO}; do
+            dtbo_line="${dtbo_line} /overlays/${dtbo}"
+        done
+        printf '%s\n' "${dtbo_line}"
+    fi
+    printf '    APPEND root=PARTLABEL=rootfs rootwait rw console=%s %s\n' \
+        "${CONSOLE}" "${EXTRA_KERNEL_ARGS:-}"
+} >"${EXTLINUX_CONF}"
 
-LABEL rk3588
-    LINUX /Image
-    FDT /${KERNEL_DTB}
-    APPEND root=PARTLABEL=rootfs rootwait rw console=${CONSOLE} ${EXTRA_KERNEL_ARGS:-}
-EOF
-
+run_hook pre_make_image
 log_step "Creating GPT image ${IMAGE_STEM}.img"
 truncate -s "${IMAGE_SIZE_MIB}M" "${DISK_IMAGE}"
 sgdisk --clear --set-alignment=1 \
@@ -97,11 +95,20 @@ mcopy -i "${BOOT_IMAGE}" "${KERNEL_IMAGE}" ::/Image
 mcopy -i "${BOOT_IMAGE}" "${DTB_IMAGE}" "::/${KERNEL_DTB}"
 mcopy -i "${BOOT_IMAGE}" "${EXTLINUX_CONF}" ::/extlinux/extlinux.conf
 
+if [ -n "${KERNEL_DTBO:-}" ]; then
+    mmd -i "${BOOT_IMAGE}" ::/overlays
+    for dtbo in ${KERNEL_DTBO}; do
+        if [ -f "${COMMON_OUTPUT}/overlays/${dtbo}" ]; then
+            mcopy -i "${BOOT_IMAGE}" "${COMMON_OUTPUT}/overlays/${dtbo}" "::/overlays/${dtbo}"
+            log_info "Copied DTBO to boot partition: ${dtbo}"
+        else
+            log_warn "KERNEL_DTBO file missing from artifacts: ${dtbo}"
+        fi
+    done
+fi
+
 log_step "Writing boot chain and filesystems"
-dd if="${IDBLOCK_IMAGE}" of="${DISK_IMAGE}" bs=512 seek="${IDBLOCK_SECTOR}" \
-    conv=notrunc status=none
-dd if="${UBOOT_IMAGE}" of="${DISK_IMAGE}" bs=512 seek="${UBOOT_SECTOR}" \
-    conv=notrunc status=none
+bootloader_layout_write "${DISK_IMAGE}" "${COMMON_OUTPUT}"
 dd if="${BOOT_IMAGE}" of="${DISK_IMAGE}" bs=1M seek="${BOOT_START_MIB}" \
     conv=notrunc status=none
 dd if="${ROOTFS_IMAGE}" of="${DISK_IMAGE}" bs=1M \
@@ -138,11 +145,7 @@ write_common_metadata "${FINAL_METADATA}.tmp" \
     "compressed_sha256=${ZSTD_SHA256}" \
     "boot_partition=1:${BOOT_FIRST_SECTOR}:${BOOT_LAST_SECTOR}:fat32:BOOT" \
     "root_partition=2:${ROOT_FIRST_SECTOR}:${ROOT_LAST_SECTOR}:ext4:rootfs" \
-    "idblock_sector=${IDBLOCK_SECTOR}" \
-    "idblock_format=RKNS" \
-    "idblock_sha256=$(sha256sum "${IDBLOCK_IMAGE}" | awk '{print $1}')" \
-    "uboot_sector=${UBOOT_SECTOR}" \
-    "uboot_sha256=$(sha256sum "${UBOOT_IMAGE}" | awk '{print $1}')" \
+    $(bootloader_layout_write_metadata "${COMMON_OUTPUT}") \
     "kernel_release=$(cat "${KERNEL_RELEASE_FILE}")" \
     "kernel_dtb=${KERNEL_DTB}" \
     "rootfs_source_sha256=$(sha256sum "${ROOTFS_IMAGE}" | awk '{print $1}')"
@@ -151,3 +154,4 @@ mv "${FINAL_METADATA}.tmp" "${FINAL_METADATA}"
 log_info "Raw image: ${FINAL_IMAGE}"
 log_info "Compressed image: ${FINAL_ZSTD}"
 log_info "Checksums: ${FINAL_SHA256}"
+run_hook post_make_image

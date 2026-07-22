@@ -1,6 +1,6 @@
 # RK3588 Linux BSP Docker Build Environment
 
-在 Docker 里基于厂商 BSP 源码，为 RK3588 / RK3588S 开发板构建可直接烧录启动的 GPT 磁盘镜像。
+基于 Docker 容器化的 SBC Linux 系统镜像构建工具，为 RK3588 / RK3588S 开发板构建可直接烧录启动的 GPT 磁盘镜像。
 
 整条流水线在一个命令里完成：拉取 SDK → 编译 U-Boot → 编译内核 → 生成根文件系统（Buildroot 或 Debian）→ 组装 GPT 镜像 → 校验镜像 → 可选 QEMU 冒烟启动测试。宿主机只需要 Docker 和 GNU Make，不需要安装交叉工具链、QEMU 或任何 Rockchip 专有工具。
 
@@ -13,21 +13,29 @@
 
 ## 能做什么
 
+- 配置驱动的多板型支持 — 新增板子只需创建一个 `.conf` 配置文件
 - 用 `repo` manifest 锁定 kernel / u-boot / rkbin / buildroot 四个组件的来源与版本
-- 用 Rockchip 官方 `make.sh` 构建 U-Boot 引导链（IDBlock + uboot.img + download loader）
 - 用板级 defconfig 加共享 fragment 构建内核，产出 Image、DTB 和模块包
-- 用 Buildroot external tree 或 mmdebstrap 生成最小化根文件系统；Debian 可选功能集（`nm`/`wifibt` 等），WiFi 固件可从完整 BSP 同步到 `assets/` 而不污染最小 SDK
+- 用 Buildroot external tree 或 mmdebstrap 生成最小化根文件系统；Debian 可选功能集（`nm`/`wifibt` 等）
 - 按 GPT 布局组装裸镜像，内置 extlinux 启动配置、SHA-256 校验和与构建元数据
+- 支持板级构建钩子（hooks），可在构建各阶段插入自定义逻辑
 - 用 QEMU virt 机器对 Debian 镜像做完整的串口登录 + SSH + systemd 健康检查
 
-## 五分钟跑通（ROCK 5C + Debian 13）
+## 快速开始
+
+### 查看支持的板型
 
 ```bash
-make build                # 构建 Docker 构建器镜像（一次性）
-make fetch-rock5c         # 拉取 ROCK 5C SDK 到独立 volume（一次性）
+make list-boards
+```
+
+### 完整构建（以 ROCK 5C + Debian 13 为例）
+
+```bash
+make build                           # 构建 Docker 构建器镜像（一次性）
+make fetch BOARD=rk3588s-rock-5c     # 拉取 SDK 到独立 volume（一次性）
 make build-all \
   BOARD=rk3588s-rock-5c \
-  SDK_VOLUME=rk3588-sdk-rock5c \
   ROOTFS=debian DEBIAN_RELEASE=13
 ```
 
@@ -38,15 +46,23 @@ make build-all \
 - `rk3588s-rock-5c-debian-13.sha256` — 校验和
 - `image-build-info.txt` — 完整的构建元数据（各组件 commit、分区布局、哈希）
 
-默认账号 `rk3588` / `rk3588`，root 密码同为 `rk3588`。首次启动自动扩容根分区并开启 SSH。
+默认账号 `user` / `password`，root 密码同为 `password`。首次启动自动扩容根分区并开启 SSH。
 
-跑 QEMU 冒烟测试（串口登录、systemd 健康、SSH 密码登录全验证）：
+### QEMU 冒烟测试
 
 ```bash
 make test-debian-qemu \
   BOARD=rk3588s-rock-5c \
-  SDK_VOLUME=rk3588-sdk-rock5c \
   DEBIAN_RELEASE=13
+```
+
+### 交互式配置
+
+```bash
+make use-board              # 交互式选择板型
+make use-volume             # 交互式选择 SDK volume
+make use-rootfs             # 交互式选择根文件系统类型
+make info                   # 查看当前配置
 ```
 
 ## 已支持的板型
@@ -59,7 +75,89 @@ make test-debian-qemu \
 | `rk3588s-cokepi-model-lp4-v10` | CokePi Model (RK3588S) | cokepi_main_defconfig | 需本地 CokePi SDK |
 | `rk3588-muse` | MUSE RK3588 (eMMC) | rockchip_linux_defconfig | kernel 来自 MUSEInstitute fork |
 
-新增板型：复制最接近的 `configs/boards/*.conf`，改字段即可。详见 `docs/boards/add-board.md`。
+运行 `make list-boards` 查看完整列表。
+
+## 如何添加新板子
+
+这是本工具的核心设计 — 添加新板子**无需修改任何构建脚本或 Makefile**。
+
+### 步骤 1: 创建配置文件
+
+```bash
+make new-board BOARD=my-board
+# 编辑 configs/boards/my-board.conf
+```
+
+### 步骤 2: 填写配置
+
+打开生成的 `configs/boards/my-board.conf`，按注释提示填写：
+
+- **`BOARD_DESCRIPTION`** — 板型描述
+- **`KERNEL_DEFCONFIG`** / **`KERNEL_DTB`** — 内核配置
+- **`UBOOT_DEFCONFIG`** / **`UBOOT_BOARD`** — U-Boot 配置
+- **`CONSOLE`** — 串口配置（如 `ttyFIQ0,1500000n8`）
+- **`BOOTLOADER_LAYOUT`** — 启动链布局（Rockchip 统一用 `rockchip-gpt-idblock-extlinux-v1`）
+- 磁盘/分区尺寸、扇区偏移等
+
+完整配置变量说明见 `configs/boards/TEMPLATE.conf`。
+
+### 步骤 3: 验证配置
+
+```bash
+make validate-board BOARD=my-board
+```
+
+### 步骤 4: 添加 SDK manifest（如需要）
+
+在 `manifests/` 下创建对应的 `.xml` manifest 文件，并在 board.conf 中设置 `SOURCE_MANIFEST`。
+
+### 步骤 5: 构建钩子（可选）
+
+如果需要在构建流程中执行板级特殊逻辑，创建 `configs/boards/my-board.hooks.sh`：
+
+```bash
+# 可用钩子函数（均可选，不需要的不用定义）：
+pre_build_kernel()    { echo "自定义内核预处理"; }
+post_build_kernel()   { echo "自定义内核后处理"; }
+pre_build_uboot()     { echo "自定义 U-Boot 预处理"; }
+post_build_uboot()    { echo "自定义 U-Boot 后处理"; }
+pre_build_rootfs()    { echo "自定义 rootfs 预处理"; }
+post_build_rootfs()   { echo "自定义 rootfs 后处理"; }
+pre_make_image()      { echo "自定义镜像组装预处理"; }
+post_make_image()     { echo "自定义镜像组装后处理"; }
+```
+
+## 高级定制：添加预装软件包与固件
+
+### 1. 预装额外的 APT 软件包 (Debian)
+
+无需修改源码脚本，有三种极简方式添加：
+
+- **方式 A (命令行直接指定)**:
+  ```bash
+  make build-all BOARD=rk3588s-rock-5c DEBIAN_EXTRA_PACKAGES="htop i2c-tools python3-pip"
+  ```
+- **方式 B (在 `.env` 中全局指定)**:
+  ```ini
+  DEBIAN_EXTRA_PACKAGES=htop i2c-tools network-manager-gnome docker.io
+  ```
+- **方式 C (在板级配置中固定)**:
+  在 `configs/boards/<my-board>.conf` 中增加：
+  ```bash
+  DEBIAN_EXTRA_PACKAGES="htop i2c-tools python3-pip"
+  ```
+
+### 2. 预装自定义硬件固件 (Firmware)
+
+把任何固件文件或文件夹放进项目根目录的 `assets/firmware/`，构建时会自动同步到 Rootfs 的 `/lib/firmware/`：
+
+```
+assets/firmware/
+├── my_custom_firmware.bin
+└── rtl_bt/
+```
+
+若是板型专属固件，也可放在 `configs/boards/<board>/firmware/` 下。
 
 ## 文档
 
@@ -105,10 +203,15 @@ rk3588-build/
 ├── docker-compose.yml        # 服务与 volume 编排
 ├── manifests/                # repo manifest（每个 SDK 来源一个 XML）
 ├── configs/
-│   ├── boards/               # 板级 profile（每板一个 .conf）
+│   ├── boards/               # 板级 profile（每板一个 .conf + 可选 .hooks.sh）
+│   │   ├── TEMPLATE.conf     # 配置模板（新增板型的起点）
+│   │   ├── rk3588s-rock-5c.conf
+│   │   └── ...
 │   └── kernel/               # 共享内核 config fragment
 ├── scripts/
-│   ├── lib/                  # 公共 shell 库 + QEMU 冒烟测试驱动
+│   ├── lib/
+│   │   ├── common.sh         # 公共 shell 库（配置加载、钩子、overlay）
+│   │   └── bootloader_layouts.sh  # 启动链布局抽象层
 │   ├── fetch_sources.sh      # SDK 拉取与更新
 │   ├── build_kernel.sh       # 内核编译
 │   ├── build_uboot.sh        # U-Boot 引导链编译
@@ -116,11 +219,10 @@ rk3588-build/
 │   ├── build_debian.sh       # Debian rootfs (mmdebstrap)
 │   ├── make_image.sh         # GPT 镜像组装
 │   ├── verify_image.sh       # 镜像深度校验
-│   ├── test_debian_qemu.sh   # QEMU 冒烟测试
-│   ├── import_local_sdk.sh   # 导入本地已有 SDK
-│   ├── entrypoint.sh         # 容器入口
-│   └── check.sh              # 项目自检（make check）
-├── rootfs/buildroot/         # Buildroot external tree
+│   └── test_debian_qemu.sh   # QEMU 冒烟测试
+├── rootfs/
+│   ├── buildroot/            # Buildroot external tree
+│   └── debian/               # Debian overlay (通用 + feature + 板级)
 ├── patches/                  # 可选本地补丁（手动应用）
 ├── docs/                     # VitePress 文档站点
 └── output/                   # 所有构建产物（按板型和 rootfs 分目录）

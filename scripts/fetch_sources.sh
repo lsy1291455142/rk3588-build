@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# RK3588 SDK 源码拉取脚本
+# SDK 源码拉取脚本
 # 使用 repo + manifest 拉取完整 SDK
 # =============================================================================
 
@@ -97,7 +97,7 @@ fetch_sdk_with_local_manifest() {
 
     log_step "准备 manifest 仓库..."
     # 创建临时 git 仓库作为 manifest 源 (repo 要求 manifest-url 是 git 仓库)
-    local tmp_manifest_repo="/tmp/rk3588-manifest-repo"
+    local tmp_manifest_repo="/tmp/sbc-manifest-repo"
     if [ -d "${tmp_manifest_repo}" ]; then
         rm -rf "${tmp_manifest_repo}"
     fi
@@ -175,13 +175,13 @@ main() {
     if [ "$1" = "update" ]; then
         log_step "===== 正在更新 SDK 仓库 ====="
         if [ ! -d "${SDK_DIR}/.repo" ]; then
-            log_error "未检测到已初始化的 SDK 仓库 (没有发现 .repo 目录)。请先运行对应的 make fetch-* 或 fetch-custom。"
+            log_error "未检测到已初始化的 SDK 仓库 (没有发现 .repo 目录)。请先运行 make fetch BOARD=<board> 或 make fetch-custom。"
             exit 1
         fi
 
         # 无论如何，先准备好临时 manifest 仓库，防止容器重启后 /tmp 目录丢失导致 repo sync 报错
         log_info "正在准备本地 manifest 仓库镜像..."
-        local tmp_manifest_repo="/tmp/rk3588-manifest-repo"
+        local tmp_manifest_repo="/tmp/sbc-manifest-repo"
         if [ -d "${tmp_manifest_repo}" ]; then
             rm -rf "${tmp_manifest_repo}"
         fi
@@ -275,7 +275,7 @@ main() {
             log_info "板级锁定源码版本校验通过: ${BOARD}"
         fi
         echo ""
-        log_info "🎉 RK3588 SDK 拉取成功!"
+        log_info "🎉 SDK 拉取成功!"
         echo ""
         echo -e "${BOLD}  SDK 目录结构:${NC}"
         echo "  ${SDK_DIR}/"
@@ -287,9 +287,9 @@ main() {
         echo "  ├── docs/        文档"
         fi
         echo ""
-        echo -e "${BOLD}  快速开始编译:${NC}"
-        echo "  kernel:  cd kernel && make rockchip_linux_defconfig && make -j\${JOBS}"
-        echo "  u-boot:  cd u-boot && ./make.sh rk3588"
+        echo -e "${BOLD}  后续操作:${NC}"
+        echo "  make use-board    选择目标板子"
+        echo "  make build-all    一键构建完整镜像"
     else
         log_error "部分组件拉取失败, 请检查网络或 manifest 配置"
         exit 1
