@@ -99,7 +99,7 @@ ssh rk3588@<board-ip>
 
 ## 首次启动信息（Debian）
 
-默认启用 firstboot-info 插件时，首次启动完成后串口会打印一段板型摘要，后续每次登录的 MOTD 也会显示板型信息（可用 `DEBIAN_FIRSTBOOT_INFO=no` 关闭）。
+当 `DEBIAN_OVERLAYS` 包含 `firstboot-info`（板级默认通常包含）时，首次启动完成后串口会打印一段板型摘要，后续每次登录的 MOTD 也会显示板型信息。不需要时可从 overlay 列表中去掉 `firstboot-info`，或设 `DEBIAN_OVERLAYS=none`。
 
 ## 修改默认账号密码
 

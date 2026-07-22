@@ -53,6 +53,7 @@ CokePi Plus 和 Model 共用 SDK 但 DTB 不同，必须按板子丝印选择 pr
 | `EXPECTED_RKBIN_REVISION` | 锁定 rkbin commit |
 | `EXPECTED_BUILDROOT_REVISION` | 锁定 buildroot commit |
 | `DEBIAN_PACKAGES_DEFAULT` | Debian 默认额外 APT 包名列表 |
+| `DEBIAN_OVERLAYS_DEFAULT` | Debian 默认可选 overlay 插件列表 |
 | `ROOTFS_HOSTNAME_DEFAULT` | 默认主机名 |
 
 新增板型：复制最接近的 profile 改字段即可。详见 `docs/boards/add-board.md`。
@@ -81,26 +82,27 @@ CokePi Plus 和 Model 共用 SDK 但 DTB 不同，必须按板子丝印选择 pr
 
 板级专用的内核选项放在 BSP defconfig 或额外的板级适配中，不要堆进共享 baseline。
 
-## Debian 软件包与插件
+## Debian 软件包与可选 Overlay
 
 `DEBIAN_PACKAGES` 写真实 APT 包名（逗号/空格分隔）。无 `nm`/`hwdebug` 等 feature 别名。
-WiFi/BT 固件由 `WIFIBT_CHIP` 控制；网络栈与 firstboot 由 `rootfs/debian/plugins/` 处理。
+可选附件由 `DEBIAN_OVERLAYS` 选择 `rootfs/debian/overlays/` 插件；WiFi/BT 固件由 `WIFIBT_CHIP` + `wifibt` overlay 控制。
 
 优先级：命令行 `DEBIAN_PACKAGES` > 板级 `DEBIAN_PACKAGES_DEFAULT` > minbase。`DEBIAN_PACKAGES=none` 强制 minbase。
+`DEBIAN_OVERLAYS` 同理：命令行 > 板级 `DEBIAN_OVERLAYS_DEFAULT` > 无插件；`none` 强制关闭。
 
 ```bash
 make build-rootfs DEBIAN_PACKAGES=network-manager,wpasupplicant,i2c-tools
-make build-rootfs DEBIAN_PACKAGES=none
-make build-rootfs DEBIAN_PACKAGES=network-manager,wpasupplicant WIFIBT_CHIP=AP6275S
+make build-rootfs DEBIAN_PACKAGES=none DEBIAN_OVERLAYS=none
+make build-rootfs DEBIAN_PACKAGES=network-manager,wpasupplicant \
+  DEBIAN_OVERLAYS=base,console,firstboot,network,wifibt WIFIBT_CHIP=AP6275S
 make sync-wifibt-assets SDK_PATH=/path/to/full-bsp WIFIBT_CHIP=AP6275S
 ```
 
-构建元数据记录 `debian_packages` / `network_stack`。
+构建元数据记录 `debian_packages` / `debian_overlays` / `network_stack`。
 
-## Debian overlay / 插件
+## Debian overlay 布局
 
-- `rootfs/debian/overlay/` — 始终应用
-- `rootfs/debian/boards/<board>/overlay/` — 板级覆盖
-- `rootfs/debian/plugins/` — 网络 / firstboot / wifibt 等插件
+- `rootfs/debian/boards/<board>/overlay/` — 板级覆盖（始终）
+- `rootfs/debian/overlays/<name>/` — 可选插件（`plugin.sh` + 静态文件）
 
 详见 `rootfs/debian/README.md` 与 `docs/usage/debian-features.md`。

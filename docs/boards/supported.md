@@ -69,7 +69,7 @@ Profile：`rk3588-muse`
 
 MUSE RK3588 开发板（eMMC 启动，LPDDR4X，RK806 + RK860x 电源管理）。内核来自 MUSEInstitute fork 的 `develop-5.10` 分支。
 
-Debian 默认 `DEBIAN_PACKAGES_DEFAULT="network-manager,wpasupplicant,i2c-tools,usbutils,pciutils,mmc-utils"`，hostname 默认 `muse`。
+Debian 默认 `DEBIAN_PACKAGES_DEFAULT="network-manager,wpasupplicant,i2c-tools,usbutils,pciutils,mmc-utils"`，`DEBIAN_OVERLAYS_DEFAULT` 含 base/console/firstboot/network/wifibt，hostname 默认 `muse`。
 
 ```bash
 make fetch BOARD=rk3588-muse

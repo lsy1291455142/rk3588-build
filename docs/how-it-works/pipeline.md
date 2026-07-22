@@ -91,21 +91,22 @@
 流程：
 
 1. 解析 `DEBIAN_RELEASE`（11/12/13 → bullseye/bookworm/trixie）
-2. 解析 `DEBIAN_PACKAGES`（真实 APT 包名列表）
-3. 用 `mmdebstrap --variant=minbase` 构建最小化 Debian rootfs，并安装基础包 + feature 包
+2. 解析 `DEBIAN_PACKAGES`（真实 APT 包名列表）与 `DEBIAN_OVERLAYS`（可选插件列表）
+3. 用 `mmdebstrap --variant=minbase` 构建最小化 Debian rootfs，并安装基础包 + 额外包
 4. 创建用户/密码，写入 hostname
-5. 应用 `rootfs/debian/` 分层 overlay（通用 → networkd 或 nm → feature → board）
-6. 安装串口 getty 波特率 drop-in（路径依赖 `CONSOLE_DEVICE`）
-7. 安装内核模块并 `depmod`；运行 plugins（含 wifibt 固件）
-8. 运行 plugins 并启用 systemd unit（NM 或 networkd、resolved、ssh、firstboot、serial-getty）
-9. 校验 systemd / SSH / usrmerge 布局
-10. 打包 `rootfs.ext4` 与 `rootfs.tar`
+5. 应用板级 `rootfs/debian/boards/<board>/overlay/`（若有）
+6. 安装内核模块并 `depmod`；安装 `assets/firmware` / 板级 firmware
+7. 按 `DEBIAN_OVERLAYS` 顺序运行 `rootfs/debian/overlays/<name>/plugin.sh`（网络/firstboot/console/wifibt 等）
+8. 校验已启用的 systemd unit / usrmerge 布局（有 sshd 时校验 ssh）
+9. 打包 `rootfs.ext4` 与 `rootfs.tar`
 
 输出到 `output/<board>/debian-<release>/`：`rootfs.ext4`、`rootfs.tar`、`rootfs-build-info.txt`。
 
-### Debian 软件包
+### Debian 软件包与 Overlay
 
-`DEBIAN_PACKAGES` 是逗号/空格分隔的真实 APT 包名。写什么装什么；网络/firstboot/wifibt 由插件处理。不指定时用板级 `DEBIAN_PACKAGES_DEFAULT`，否则 minbase。`DEBIAN_PACKAGES=none` 强制 minbase。
+`DEBIAN_PACKAGES` 是逗号/空格分隔的真实 APT 包名。写什么装什么。不指定时用板级 `DEBIAN_PACKAGES_DEFAULT`，否则 minbase。`DEBIAN_PACKAGES=none` 强制 minbase。
+
+`DEBIAN_OVERLAYS` 选择可选附件插件（`base`/`console`/`firstboot`/`firstboot-info`/`network`/`wifibt`）。空则用板级 `DEBIAN_OVERLAYS_DEFAULT`；`none` 强制无插件；`all` 启用全部。
 
 ## 阶段四：image 与 verify-image
 

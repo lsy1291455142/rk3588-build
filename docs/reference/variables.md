@@ -30,6 +30,7 @@
 |---|---|---|
 | `DEBIAN_RELEASE` | `13` | Debian 版本：11、12 或 13 |
 | `DEBIAN_PACKAGES` | （空） | 额外 APT 包名（逗号/空格）；空=板级默认/minbase；`none`=强制 minbase |
+| `DEBIAN_OVERLAYS` | （空） | 可选 overlay 插件列表；空=板级默认；`none`=关闭；`all`=全部 |
 | `DEBIAN_EXTRA_PACKAGES` | （空） | 预装额外的 APT 软件包（如 `htop i2c-tools python3-pip docker.io`） |
 | `WIFIBT_CHIP` | `none`（板级可改） | WiFi/BT 模组：`AIC8800D80` / `AP6275S` / `ALL_AP` / `ALL` 等；`none` 表示软跳过 |
 | `WIFIBT_SOURCE` | `sdk-or-assets` | 固件来源：`sdk`、`assets` 或 `sdk-or-assets`（先 SDK 后 assets） |
@@ -40,13 +41,15 @@
 
 `DEBIAN_PACKAGES` 为空时：如果板级 profile 设了 `DEBIAN_PACKAGES_DEFAULT` 则用板级默认，否则 minbase。设为 `none` / `minbase` / `off` / `-` 强制 minbase。写真实包名，例如 `network-manager,wpasupplicant,i2c-tools`。
 
-WiFi/BT 固件由 `WIFIBT_CHIP` 控制（插件），不是软件包 token。最小 SDK 没有 `external/rkwifibt` 时，先：
+`DEBIAN_OVERLAYS` 为空时用板级 `DEBIAN_OVERLAYS_DEFAULT`；`none`/`off`/`-` 强制无插件；`all` 启用 `rootfs/debian/overlays/*`。示例：`base,console,firstboot,network`。
+
+WiFi/BT 固件由 `WIFIBT_CHIP` 控制，且仅在 `wifibt` overlay 选中时安装。最小 SDK 没有 `external/rkwifibt` 时，先：
 
 ```bash
 make sync-wifibt-assets SDK_PATH=/path/to/full-bsp WIFIBT_CHIP=AP6275S
 ```
 
-再 `make build-rootfs ... DEBIAN_PACKAGES=network-manager,wpasupplicant WIFIBT_CHIP=AP6275S`。
+再 `make build-rootfs ... DEBIAN_PACKAGES=network-manager,wpasupplicant DEBIAN_OVERLAYS=base,console,firstboot,network,wifibt WIFIBT_CHIP=AP6275S`。
 
 ## 构建变量
 
@@ -90,6 +93,7 @@ ROOTFS=debian
 # 可选覆盖
 DEBIAN_RELEASE=13
 DEBIAN_PACKAGES=network-manager,wpasupplicant,i2c-tools
+DEBIAN_OVERLAYS=base,console,firstboot,firstboot-info,network,wifibt
 WIFIBT_CHIP=AP6275S
 WIFIBT_SOURCE=sdk-or-assets
 WIFIBT_REQUIRED=no

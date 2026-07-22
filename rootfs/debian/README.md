@@ -1,20 +1,23 @@
 # Debian rootfs layout
 
-Static files and optional plugins live here. `scripts/build_debian.sh`
-installs packages and runs dynamic steps; configuration should prefer overlays
-and plugins over heredocs in the build script.
+This tree holds optional attachments for the Debian rootfs. The build core in
+`scripts/build_debian.sh` stays pure: packages, users, modules, and image pack.
+Everything policy-shaped (ssh lab conf, console, firstboot, network stack, WiFi
+firmware) is an optional overlay plugin selected by `DEBIAN_OVERLAYS`.
 
 ## Layout
 
 | Path | When applied |
 |---|---|
-| `overlay/` | Always (minbase and package builds) |
-| `boards/<board>/overlay/` | When `BOARD` matches a directory name |
-| `plugins/*.sh` | Always, after packages + base overlay |
-| `plugins/<name>/overlay*` | Applied by the matching plugin |
+| `boards/<board>/overlay/` | Always, when `BOARD` matches a directory name |
+| `overlays/<name>/plugin.sh` | When selected via `DEBIAN_OVERLAYS` |
+| `overlays/<name>/overlay/` (or `overlay-*`) | Applied by that plugin |
 
-Apply order: base `overlay` → board overlay → plugins (sorted by filename).
+Apply order: board overlay → selected overlay plugins (list order).
 Later trees overwrite earlier files at the same relative path.
+
+Core build does **not** always copy a global `overlay/`. Attachments only land
+when their plugin is selected.
 
 ## Packages
 
@@ -29,28 +32,44 @@ DEBIAN_PACKAGES=network-manager,wpasupplicant,i2c-tools,htop
 DEBIAN_PACKAGES=none   # force minbase only
 ```
 
-## Plugins
+## Overlay plugins
 
-Plugins under `plugins/*.sh` export `plugin_apply root_dir` and own optional
-project behavior:
+Selection: `DEBIAN_OVERLAYS` (or board `DEBIAN_OVERLAYS_DEFAULT` when empty).
 
-| Plugin | Role |
+| Value | Meaning |
 |---|---|
-| `00-systemd-base.sh` | Enable ssh, firstboot, serial-getty, resolved |
-| `10-firstboot-info.sh` | Board banner / MOTD overlay (disable with `DEBIAN_FIRSTBOOT_INFO=no`) |
-| `network.sh` | If `/usr/sbin/NetworkManager` exists → NM conf + enable; else networkd overlay + enable |
-| `20-wifibt.sh` | Install WiFi/BT firmware when `WIFIBT_CHIP` is set |
+| (empty) | Board default if set, else none |
+| `none` / `off` / `-` | No optional overlays |
+| `all` | Every `overlays/*/plugin.sh` |
+| `base,console,network` | Explicit ordered list |
 
-Add a new plugin by dropping `plugins/NN-name.sh` (and optional overlay files
-next to it). Keep package names out of plugins; packages come only from
-`DEBIAN_PACKAGES`.
+Built-ins:
+
+| Overlay | Role |
+|---|---|
+| `base` | SSH password/root conf, hostkey ExecStartPre, udev GPU perms; enable ssh + resolved |
+| `console` | Serial-getty baud drop-in + enable `serial-getty@CONSOLE_DEVICE` |
+| `firstboot` | Grow rootfs oneshot service/script |
+| `firstboot-info` | MOTD / first-boot banner templates |
+| `network` | If NetworkManager binary present → NM conf+enable; else networkd overlay+enable |
+| `wifibt` | Install WiFi/BT firmware via `WIFIBT_CHIP` |
+
+Each plugin exports `plugin_apply root_dir`. Add a new overlay by creating
+`overlays/<name>/plugin.sh` (plus optional static files). Keep package names out
+of plugins; packages come only from `DEBIAN_PACKAGES`.
+
+```bash
+make build-rootfs DEBIAN_OVERLAYS=base,console,firstboot,network
+make build-rootfs DEBIAN_OVERLAYS=none
+make build-rootfs DEBIAN_OVERLAYS=all
+```
 
 ## Templates
 
 Files ending in `.in` are treated as templates. Placeholders use `@NAME@` form
 and are expanded at install time (for example `@BOARD@`, `@ROOTFS_HOSTNAME@`,
-`@CONSOLE_SPEED@`, `@DEBIAN_PACKAGES@`). The installed path drops the `.in`
-suffix.
+`@CONSOLE_SPEED@`, `@DEBIAN_PACKAGES@`, `@DEBIAN_OVERLAYS@`). The installed path
+drops the `.in` suffix.
 
 Executable bit is preserved from the source file (`chmod +x` on scripts).
 
@@ -60,9 +79,8 @@ Executable bit is preserved from the source file (`chmod +x` on scripts).
 - User/password/hostname generation
 - Kernel modules extract + `depmod`
 - Custom firmware from `assets/firmware` / board `firmware/`
+- Overlay selection + `plugin_apply` dispatch
 - systemd unit enable helpers + image packing
-- Paths that depend on runtime variables without a fixed tree path
-  (for example `serial-getty@${CONSOLE_DEVICE}.service.d`)
 
 ## Board overlay example
 

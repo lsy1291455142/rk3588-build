@@ -282,7 +282,7 @@ resolve_debian_release() {
 # Optional extra APT packages for Debian rootfs. Empty keeps minbase-only packages.
 # Values are exact package names (comma/space separated). No feature aliases.
 # Legacy aliases (nm, hwdebug, tools, firstboot-info, wifibt, all) are rejected.
-# Project behavior (NM conf, firstboot banner, WiFi firmware) lives in plugins.
+# Project behavior (NM conf, firstboot banner, WiFi firmware) lives in overlays/.
 resolve_debian_packages() {
     local raw token pkg
     local -a requested=()
@@ -317,7 +317,7 @@ resolve_debian_packages() {
         [ -n "${token}" ] || continue
         case "${token}" in
             nm|hwdebug|hw-debug|debug-hw|tools|devtools|firstboot-info|firstboot|motd|wifibt|wifi|wifi-bt|wifi_bt|all)
-                die "DEBIAN_PACKAGES no longer accepts feature alias '${token}'. Use real apt package names (e.g. network-manager,wpasupplicant,i2c-tools). WiFi firmware is controlled by WIFIBT_CHIP; firstboot/network policy live in rootfs/debian/plugins/."
+                die "DEBIAN_PACKAGES no longer accepts feature alias '${token}'. Use real apt package names (e.g. network-manager,wpasupplicant,i2c-tools). WiFi firmware is controlled by WIFIBT_CHIP; firstboot/network policy live in rootfs/debian/overlays/."
                 ;;
             networkmanager)
                 die "Use apt package name 'network-manager' (not '${token}')."
@@ -701,7 +701,7 @@ install_custom_firmware() {
 }
 
 # Custom firmware blobs (assets/firmware + board firmware).
-# WiFi/BT firmware is installed by rootfs/debian/plugins/20-wifibt.sh.
+# WiFi/BT firmware is installed by rootfs/debian/overlays/wifibt/plugin.sh.
 install_firmware() {
     local root_dir="$1"
     install_custom_firmware "${root_dir}"
@@ -774,38 +774,102 @@ metadata_value() {
 
 
 # ---------------------------------------------------------------------------
-# Debian rootfs overlays (static files + feature/board trees)
-# Layout: rootfs/debian/{overlay,boards/*/overlay,plugins/*}
-# Files ending in .in are templates with @VAR@ placeholders.
+# Debian optional overlays (pure build core + selectable attachment plugins)
+# Layout:
+#   rootfs/debian/overlays/<name>/plugin.sh   required entry
+#   rootfs/debian/overlays/<name>/overlay/    optional static files
+#   rootfs/debian/boards/<board>/overlay/     board-specific files (always if present)
+# Selection: DEBIAN_OVERLAYS / DEBIAN_OVERLAYS_DEFAULT (comma/space list).
+# Special: none|off|- = no optional overlays; all = every overlays/*/plugin.sh
 # ---------------------------------------------------------------------------
 debian_rootfs_dir() {
     printf '%s\n' "${PROJECT_DIR}/rootfs/debian"
 }
 
-# Execute modular plugins under rootfs/debian/plugins/*.sh
-run_debian_plugins() {
-    local root_dir="$1"
-    local plugin
-    local plugin_dir="${PROJECT_DIR}/rootfs/debian/plugins"
-    [ -d "${plugin_dir}" ] || return 0
+debian_overlays_dir() {
+    printf '%s\n' "$(debian_rootfs_dir)/overlays"
+}
 
-    for plugin in "${plugin_dir}"/*.sh; do
-        [ -f "${plugin}" ] || continue
-        log_info "Running rootfs plugin: $(basename "${plugin}")"
-        # shellcheck disable=SC1090
-        source "${plugin}"
-        if declare -F plugin_apply >/dev/null 2>&1; then
-            plugin_apply "${root_dir}"
-            unset -f plugin_apply
-        fi
+# Known built-in overlay plugin names (discoverability / defaults).
+debian_known_overlay_names() {
+    local d name
+    d="$(debian_overlays_dir)"
+    [ -d "${d}" ] || return 0
+    for name in "${d}"/*/plugin.sh; do
+        [ -f "${name}" ] || continue
+        basename "$(dirname "${name}")"
+    done | sort
+}
+
+# Resolve DEBIAN_OVERLAYS into ordered unique list DEBIAN_OVERLAY_LIST / DEBIAN_OVERLAYS.
+resolve_debian_overlays() {
+    local raw token
+    local -a requested=()
+    local -a resolved=()
+    local -A seen=()
+    local d name
+
+    raw="${DEBIAN_OVERLAYS:-}"
+    raw="${raw//[[:space:]]/,}"
+    raw="${raw//+/,}"
+    raw="${raw//;/,}"
+    while [[ "${raw}" == *,,* ]]; do
+        raw="${raw//,,/,}"
     done
+    raw="${raw#,}"
+    raw="${raw%,}"
+
+    case "${raw}" in
+        none|off|-)
+            raw=""
+            ;;
+        all)
+            raw=""
+            while IFS= read -r name; do
+                [ -n "${name}" ] || continue
+                raw="${raw:+${raw},}${name}"
+            done < <(debian_known_overlay_names)
+            ;;
+    esac
+
+    DEBIAN_OVERLAY_LIST=()
+    if [ -z "${raw}" ]; then
+        DEBIAN_OVERLAYS=""
+        return 0
+    fi
+
+    IFS=',' read -r -a requested <<<"${raw}"
+    d="$(debian_overlays_dir)"
+    for token in "${requested[@]}"; do
+        token="${token//[[:space:]]/}"
+        [ -n "${token}" ] || continue
+        [ -z "${seen[${token}]+x}" ] || continue
+        if [ ! -f "${d}/${token}/plugin.sh" ]; then
+            die "Unknown Debian overlay '${token}' (expected ${d}/${token}/plugin.sh). Available: $(debian_known_overlay_names | tr '\n' ' ')"
+        fi
+        seen["${token}"]=1
+        resolved+=("${token}")
+    done
+    DEBIAN_OVERLAY_LIST=("${resolved[@]}")
+    DEBIAN_OVERLAYS="$(IFS=,; printf '%s' "${DEBIAN_OVERLAY_LIST[*]}")"
+}
+
+debian_overlay_enabled() {
+    local want="$1"
+    local name
+    for name in "${DEBIAN_OVERLAY_LIST[@]+"${DEBIAN_OVERLAY_LIST[@]}"}"; do
+        [ "${name}" = "${want}" ] && return 0
+    done
+    return 1
 }
 
 # Expand @PLACEHOLDER@ tokens using current board/rootfs shell variables.
 expand_overlay_template_text() {
     local content="$1"
     local packages_value="${DEBIAN_PACKAGES:-${DEBIAN_FEATURES:-none}}"
+    local overlays_value="${DEBIAN_OVERLAYS:-none}"
     [ -n "${packages_value}" ] || packages_value="none"
+    [ -n "${overlays_value}" ] || overlays_value="none"
 
     content="${content//@BOARD@/${BOARD:-}}"
     content="${content//@BOARD_DESCRIPTION@/${BOARD_DESCRIPTION:-}}"
@@ -813,6 +877,7 @@ expand_overlay_template_text() {
     content="${content//@KERNEL_DTB@/${KERNEL_DTB:-}}"
     content="${content//@DEBIAN_FEATURES@/${packages_value}}"
     content="${content//@DEBIAN_PACKAGES@/${packages_value}}"
+    content="${content//@DEBIAN_OVERLAYS@/${overlays_value}}"
     content="${content//@CONSOLE_DEVICE@/${CONSOLE_DEVICE:-}}"
     content="${content//@CONSOLE_SPEED@/${CONSOLE_SPEED:-}}"
     content="${content//@ROOTFS_USERNAME@/${ROOTFS_USERNAME:-}}"
@@ -839,7 +904,6 @@ apply_rootfs_overlay_tree() {
             mkdir -p "$(dirname "${dest}")"
             content="$(cat "${src}")"
             expand_overlay_template_text "${content}" >"${dest}"
-            # Match source mode for templates (scripts are typically 0755).
             mode="$(stat -c '%a' "${src}" 2>/dev/null || printf '644')"
             chmod "${mode}" "${dest}"
         else
@@ -850,19 +914,13 @@ apply_rootfs_overlay_tree() {
     done < <(find "${overlay_src}" -type f -print0 | sort -z)
 }
 
-# Apply core Debian overlays for the current BOARD.
-# Network/firstboot/wifibt extras are applied by rootfs/debian/plugins/*.
-apply_debian_rootfs_overlays() {
+# Apply board-only static tree (no optional plugins). Core build stays pure.
+apply_debian_board_overlay() {
     local root_dir="$1"
     local base board_overlay
 
-    [ -n "${root_dir}" ] || die "apply_debian_rootfs_overlays: root_dir required"
+    [ -n "${root_dir}" ] || die "apply_debian_board_overlay: root_dir required"
     base="$(debian_rootfs_dir)"
-    [ -d "${base}" ] || die "Debian rootfs overlay base missing: ${base}"
-
-    log_info "Applying Debian overlays from ${base}"
-    apply_rootfs_overlay_tree "${root_dir}" "${base}/overlay"
-
     board_overlay="${base}/boards/${BOARD}/overlay"
     if [ -d "${board_overlay}" ]; then
         log_info "Applying board overlay: ${BOARD}"
@@ -870,17 +928,59 @@ apply_debian_rootfs_overlays() {
     fi
 }
 
-# serial-getty drop-in path depends on CONSOLE_DEVICE; install from template.
+# Run selected optional overlay plugins (order = DEBIAN_OVERLAY_LIST).
+run_debian_overlay_plugins() {
+    local root_dir="$1"
+    local name plugin
+    local d
+    d="$(debian_overlays_dir)"
+
+    [ -n "${root_dir}" ] || die "run_debian_overlay_plugins: root_dir required"
+    # resolve_debian_overlays always initializes DEBIAN_OVERLAY_LIST.
+    if [ "${#DEBIAN_OVERLAY_LIST[@]}" -eq 0 ]; then
+        log_info "Debian overlays: (none)"
+        return 0
+    fi
+
+    log_info "Debian overlays: ${DEBIAN_OVERLAYS}"
+    for name in "${DEBIAN_OVERLAY_LIST[@]}"; do
+        plugin="${d}/${name}/plugin.sh"
+        [ -f "${plugin}" ] || die "Missing overlay plugin: ${plugin}"
+        log_info "Running overlay plugin: ${name}"
+        # shellcheck disable=SC1090
+        source "${plugin}"
+        if declare -F plugin_apply >/dev/null 2>&1; then
+            plugin_apply "${root_dir}"
+            unset -f plugin_apply
+        else
+            die "Overlay ${name} does not define plugin_apply()"
+        fi
+    done
+}
+
+# Back-compat names used by older call sites / tests.
+apply_debian_rootfs_overlays() {
+    apply_debian_board_overlay "$@"
+}
+
+run_debian_plugins() {
+    run_debian_overlay_plugins "$@"
+}
+
+# Legacy helper: serial-getty conf is owned by the console overlay plugin now.
 install_serial_getty_baud_conf() {
     local root_dir="$1"
-    local template dest content
-    template="$(debian_rootfs_dir)/templates/serial-getty-baud.conf.in"
-    [ -f "${template}" ] || die "Missing serial-getty template: ${template}"
-    dest="${root_dir}/etc/systemd/system/serial-getty@${CONSOLE_DEVICE}.service.d/10-baud.conf"
-    mkdir -p "$(dirname "${dest}")"
-    content="$(cat "${template}")"
-    expand_overlay_template_text "${content}" >"${dest}"
-    chmod 0644 "${dest}"
+    if debian_overlay_enabled console; then
+        # Invoked only when console overlay not already applied; no-op otherwise.
+        local plugin
+        plugin="$(debian_overlays_dir)/console/plugin.sh"
+        # shellcheck disable=SC1090
+        source "${plugin}"
+        if declare -F plugin_apply >/dev/null 2>&1; then
+            plugin_apply "${root_dir}"
+            unset -f plugin_apply
+        fi
+    fi
 }
 
 write_common_metadata() {

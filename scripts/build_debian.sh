@@ -31,6 +31,21 @@ if [ -z "${ROOTFS_HOSTNAME:-}" ]; then
     ROOTFS_HOSTNAME="${ROOTFS_HOSTNAME_DEFAULT:-${BOARD:-sbc}}"
 fi
 resolve_debian_packages
+
+# Optional overlay plugins (pure attachments). Empty uses board default if any.
+DEBIAN_OVERLAYS="${DEBIAN_OVERLAYS:-}"
+case "${DEBIAN_OVERLAYS}" in
+    '')
+        if [ -n "${DEBIAN_OVERLAYS_DEFAULT:-}" ]; then
+            DEBIAN_OVERLAYS="${DEBIAN_OVERLAYS_DEFAULT}"
+        fi
+        ;;
+    none|off|-)
+        DEBIAN_OVERLAYS=""
+        ;;
+esac
+resolve_debian_overlays
+
 require_cmd mmdebstrap dpkg chroot systemctl tar truncate mkfs.ext4 \
     tune2fs e2fsck blkid debugfs depmod realpath
 
@@ -175,14 +190,15 @@ printf 'root:%s\n' "${ROOTFS_PASSWORD}" |
     chroot "${ROOT_DIR}" chpasswd
 chroot "${ROOT_DIR}" passwd -u root
 
-# Static configs live under rootfs/debian/ overlays (see rootfs/debian/README.md).
-# Packages and dynamic values stay here; file content should not grow as heredocs.
-apply_debian_rootfs_overlays "${ROOT_DIR}"
-install_serial_getty_baud_conf "${ROOT_DIR}"
+# Board-specific static files only (optional overlays run later as plugins).
+apply_debian_board_overlay "${ROOT_DIR}"
 
 rm -f "${ROOT_DIR}"/etc/ssh/ssh_host_* "${ROOT_DIR}/etc/machine-id"
 : >"${ROOT_DIR}/etc/machine-id"
-ln -snf /run/systemd/resolve/stub-resolv.conf "${ROOT_DIR}/etc/resolv.conf"
+if debian_overlay_enabled base || [ -f "${ROOT_DIR}/lib/systemd/system/systemd-resolved.service" ] ||
+    [ -f "${ROOT_DIR}/usr/lib/systemd/system/systemd-resolved.service" ]; then
+    ln -snf /run/systemd/resolve/stub-resolv.conf "${ROOT_DIR}/etc/resolv.conf"
+fi
 
 if [ ! -L "${ROOT_DIR}/lib" ] ||
     [ "$(readlink "${ROOT_DIR}/lib")" != "usr/lib" ]; then
@@ -196,7 +212,7 @@ depmod -b "${ROOT_DIR}" "${KERNEL_RELEASE}"
 chroot "${ROOT_DIR}" /bin/true ||
     die "Debian userspace is not executable after installing kernel modules"
 
-# Custom firmware blobs (WiFi/BT firmware is applied by plugins/20-wifibt.sh)
+# Custom firmware blobs (WiFi/BT firmware is applied by overlays/wifibt plugin)
 install_firmware "${ROOT_DIR}"
 
 enable_unit() {
@@ -242,27 +258,38 @@ enable_unit() {
     die "Unable to enable Debian systemd unit: ${unit}"
 }
 
-# Run modular rootfs plugins under rootfs/debian/plugins/*.sh
-run_debian_plugins "${ROOT_DIR}"
+# Optional overlay plugins (network/firstboot/console/wifibt/...).
+run_debian_overlay_plugins "${ROOT_DIR}"
 
-VERIFY_UNITS=(
-    multi-user.target
-    sbc-firstboot.service
-    "serial-getty@${CONSOLE_DEVICE}.service"
-    ssh.service
-    systemd-resolved.service
-)
-if [ -f "${ROOT_DIR}/usr/sbin/NetworkManager" ]; then
+VERIFY_UNITS=(multi-user.target)
+if [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/sbc-firstboot.service" ] ||
+    [ -f "${ROOT_DIR}/etc/systemd/system/sbc-firstboot.service" ]; then
+    if [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/sbc-firstboot.service" ]; then
+        VERIFY_UNITS+=(sbc-firstboot.service)
+    fi
+fi
+if [ -e "${ROOT_DIR}/etc/systemd/system/getty.target.wants/serial-getty@${CONSOLE_DEVICE}.service" ]; then
+    VERIFY_UNITS+=("serial-getty@${CONSOLE_DEVICE}.service")
+fi
+if [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/ssh.service" ]; then
+    VERIFY_UNITS+=(ssh.service)
+fi
+if [ -e "${ROOT_DIR}/etc/systemd/system/sysinit.target.wants/systemd-resolved.service" ]; then
+    VERIFY_UNITS+=(systemd-resolved.service)
+fi
+if [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/NetworkManager.service" ]; then
     VERIFY_UNITS+=(NetworkManager.service)
-else
+elif [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/systemd-networkd.service" ]; then
     VERIFY_UNITS+=(systemd-networkd.service)
 fi
 chroot "${ROOT_DIR}" systemd-analyze verify --man=no "${VERIFY_UNITS[@]}"
-chroot "${ROOT_DIR}" ssh-keygen -A
-install -d -m 0755 "${ROOT_DIR}/run/sshd"
-chroot "${ROOT_DIR}" sshd -t
-rm -rf "${ROOT_DIR}/run/sshd"
-rm -f "${ROOT_DIR}"/etc/ssh/ssh_host_*
+if [ -x "${ROOT_DIR}/usr/sbin/sshd" ] || [ -x "${ROOT_DIR}/usr/bin/sshd" ]; then
+    chroot "${ROOT_DIR}" ssh-keygen -A
+    install -d -m 0755 "${ROOT_DIR}/run/sshd"
+    chroot "${ROOT_DIR}" sshd -t
+    rm -rf "${ROOT_DIR}/run/sshd"
+    rm -f "${ROOT_DIR}"/etc/ssh/ssh_host_*
+fi
 
 rm -rf "${ROOT_DIR}/var/lib/apt/lists/"* \
     "${ROOT_DIR}/var/cache/apt/archives/"*.deb \
@@ -310,8 +337,9 @@ write_common_metadata "${VARIANT_OUTPUT}/rootfs-build-info.txt" \
     "debian_codename=${DEBIAN_CODENAME}" \
     "debian_packages=${DEBIAN_PACKAGES:-}" \
     "debian_features=${DEBIAN_PACKAGES:-}" \
+    "debian_overlays=${DEBIAN_OVERLAYS:-}" \
     "hostname=${ROOTFS_HOSTNAME}" \
-    "network_stack=$([ -f "${ROOT_DIR}/usr/sbin/NetworkManager" ] && printf NetworkManager || printf systemd-networkd)" \
+    "network_stack=$(if [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/NetworkManager.service" ]; then printf NetworkManager; elif [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/systemd-networkd.service" ]; then printf systemd-networkd; else printf none; fi)" \
     "wifibt_chip=${WIFIBT_CHIP:-none}" \
     "wifibt_source=${WIFIBT_RESOLVED_SOURCE:-skipped}" \
     "wifibt_files=${WIFIBT_FILE_COUNT:-0}" \

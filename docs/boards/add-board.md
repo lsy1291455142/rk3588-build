@@ -114,6 +114,7 @@ make build-all BOARD=my-board ROOTFS=debian
 | `SOURCE_MANIFEST` | 否 | 对应的 manifest 文件名 |
 | `EXPECTED_*_REVISION` | 否 | 锁定源码 commit（需配合 SOURCE_MANIFEST） |
 | `DEBIAN_PACKAGES_DEFAULT` | 否 | Debian 默认额外 APT 包名 |
+| `DEBIAN_OVERLAYS_DEFAULT` | 否 | Debian 默认可选 overlay 插件 |
 | `ROOTFS_HOSTNAME_DEFAULT` | 否 | 默认主机名 |
 | `DTB_STRIP_BOOTARGS` | 否 | 是否剥离 DTB 中的 /chosen/bootargs（默认 `yes`） |
 | `WIFIBT_FIRMWARE_SYMLINKS` | 否 | WiFi 固件软链接策略（`rockchip-vendor` 或 `none`） |

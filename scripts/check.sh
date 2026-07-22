@@ -340,6 +340,41 @@ check_debian_features() {
         return 1
     fi
 
+    # Overlay selection: none / all / explicit list / unknown.
+    (
+        DEBIAN_OVERLAYS="none"
+        resolve_debian_overlays
+        [ "${DEBIAN_OVERLAYS}" = "" ] || exit 1
+        [ "${#DEBIAN_OVERLAY_LIST[@]}" -eq 0 ] || exit 1
+    ) || return 1
+
+    (
+        DEBIAN_OVERLAYS="all"
+        resolve_debian_overlays
+        mapfile -t known < <(debian_known_overlay_names)
+        [ "${#DEBIAN_OVERLAY_LIST[@]}" -eq "${#known[@]}" ] || exit 1
+        printf '%s\n' "${DEBIAN_OVERLAY_LIST[@]}" | grep -Fxq base || exit 1
+        printf '%s\n' "${DEBIAN_OVERLAY_LIST[@]}" | grep -Fxq network || exit 1
+    ) || return 1
+
+    (
+        DEBIAN_OVERLAYS="base,console,firstboot"
+        resolve_debian_overlays
+        [ "${DEBIAN_OVERLAYS}" = "base,console,firstboot" ] || exit 1
+        debian_overlay_enabled base || exit 1
+        debian_overlay_enabled console || exit 1
+        debian_overlay_enabled firstboot || exit 1
+        debian_overlay_enabled network && exit 1
+        true
+    ) || return 1
+
+    if (
+        DEBIAN_OVERLAYS="base,not-a-real-overlay"
+        resolve_debian_overlays
+    ) 2>/dev/null; then
+        return 1
+    fi
+
     (
         WIFIBT_CHIP="AP6275S"
         WIFIBT_SOURCE="assets"
@@ -386,32 +421,25 @@ check_debian_features() {
         ) || return 1
     fi
 
-    # Core overlay + plugin overlays (host unit test, no packages).
+    # Selected overlay plugins (host unit test, no packages).
     (
         BOARD="rk3588-muse"
         BOARD_DESCRIPTION="overlay unit test"
         ROOTFS_HOSTNAME="muse"
         KERNEL_DTB="rk3588-muse.dtb"
         DEBIAN_PACKAGES="network-manager,wpasupplicant"
+        DEBIAN_OVERLAYS="base,console,firstboot,firstboot-info,network"
         CONSOLE_DEVICE="ttyFIQ0"
         CONSOLE_SPEED="1500000"
         resolve_debian_packages
+        resolve_debian_overlays
         tmp="$(mktemp -d)"
-        apply_debian_rootfs_overlays "${tmp}"
-        install_serial_getty_baud_conf "${tmp}"
+        apply_debian_board_overlay "${tmp}"
         # Simulate installed NetworkManager binary for the network plugin path.
         install -d "${tmp}/usr/sbin"
         : >"${tmp}/usr/sbin/NetworkManager"
-        # shellcheck disable=SC1091
-        source "${PROJECT_DIR}/rootfs/debian/plugins/10-firstboot-info.sh"
-        plugin_apply "${tmp}"
-        unset -f plugin_apply
-        # shellcheck disable=SC1091
-        source "${PROJECT_DIR}/rootfs/debian/plugins/network.sh"
-        # enable_unit is defined by build_debian; stub for host test.
         enable_unit() { :; }
-        plugin_apply "${tmp}"
-        unset -f plugin_apply
+        run_debian_overlay_plugins "${tmp}"
         [ -x "${tmp}/usr/local/sbin/sbc-firstboot" ] || exit 1
         [ -x "${tmp}/usr/local/sbin/sbc-firstboot-info" ] || exit 1
         [ -f "${tmp}/etc/NetworkManager/conf.d/10-sbc.conf" ] || exit 1
@@ -424,34 +452,50 @@ check_debian_features() {
             "${tmp}/etc/systemd/system/serial-getty@ttyFIQ0.service.d/10-baud.conf" || exit 1
         # networkd path when NetworkManager binary is absent
         tmp2="$(mktemp -d)"
-        apply_debian_rootfs_overlays "${tmp2}"
+        DEBIAN_OVERLAYS="network"
+        resolve_debian_overlays
         enable_unit() { :; }
-        # shellcheck disable=SC1091
-        source "${PROJECT_DIR}/rootfs/debian/plugins/network.sh"
-        plugin_apply "${tmp2}"
-        unset -f plugin_apply
+        run_debian_overlay_plugins "${tmp2}"
         [ -f "${tmp2}/etc/systemd/network/20-wired.network" ] || exit 1
         [ ! -e "${tmp2}/etc/NetworkManager/conf.d/10-sbc.conf" ] || exit 1
+        # none must leave attachment files out
+        tmp3="$(mktemp -d)"
+        DEBIAN_OVERLAYS="none"
+        resolve_debian_overlays
+        enable_unit() { :; }
+        run_debian_overlay_plugins "${tmp3}"
+        [ ! -e "${tmp3}/usr/local/sbin/sbc-firstboot" ] || exit 1
+        [ ! -e "${tmp3}/etc/udev/rules.d/99-sbc-permissions.rules" ] || exit 1
+        rm -rf "${tmp}" "${tmp2}" "${tmp3}"
     ) || return 1
 
     grep -Fq 'resolve_debian_packages' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
+    grep -Fq 'resolve_debian_overlays' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
+    grep -Fq 'run_debian_overlay_plugins' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
     grep -Fq 'install_firmware' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
-    grep -Fq 'NetworkManager.service' "${PROJECT_DIR}/rootfs/debian/plugins/network.sh" || return 1
+    grep -Fq 'NetworkManager.service' "${PROJECT_DIR}/rootfs/debian/overlays/network/plugin.sh" || return 1
     grep -Fq 'DEBIAN_PACKAGES_DEFAULT' \
         "${PROJECT_DIR}/configs/boards/rk3588-muse.conf" || return 1
+    grep -Fq 'DEBIAN_OVERLAYS_DEFAULT' \
+        "${PROJECT_DIR}/configs/boards/rk3588-muse.conf" || return 1
     grep -Fq 'WIFIBT_CHIP' "${PROJECT_DIR}/configs/boards/rk3588s-cokepi-model-lp4-v10.conf" || return 1
-    [ -f "${PROJECT_DIR}/rootfs/debian/overlay/usr/local/sbin/sbc-firstboot" ] || return 1
-    [ -f "${PROJECT_DIR}/rootfs/debian/overlay/etc/systemd/system/sbc-firstboot.service" ] || return 1
-    [ -f "${PROJECT_DIR}/rootfs/debian/plugins/network/overlay-nm/etc/NetworkManager/conf.d/10-sbc.conf" ] || return 1
-    [ -f "${PROJECT_DIR}/rootfs/debian/plugins/firstboot-info/overlay/usr/local/sbin/sbc-firstboot-info.in" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/overlays/firstboot/overlay/usr/local/sbin/sbc-firstboot" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/overlays/firstboot/overlay/etc/systemd/system/sbc-firstboot.service" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/overlays/network/overlay-nm/etc/NetworkManager/conf.d/10-sbc.conf" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/overlays/firstboot-info/overlay/usr/local/sbin/sbc-firstboot-info.in" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/overlays/base/plugin.sh" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/overlays/console/plugin.sh" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/plugin.sh" ] || return 1
     grep -Fq 'wifi.scan-rand-mac-address=no' \
-        "${PROJECT_DIR}/rootfs/debian/plugins/network/overlay-nm/etc/NetworkManager/conf.d/10-sbc.conf" || return 1
-    grep -Fq 'apply_debian_rootfs_overlays' "${PROJECT_DIR}/scripts/lib/common.sh" || return 1
+        "${PROJECT_DIR}/rootfs/debian/overlays/network/overlay-nm/etc/NetworkManager/conf.d/10-sbc.conf" || return 1
+    grep -Fq 'run_debian_overlay_plugins' "${PROJECT_DIR}/scripts/lib/common.sh" || return 1
     if [ -f "${PROJECT_DIR}/Makefile" ] && [ -d "${PROJECT_DIR}/.git" ]; then
         grep -Fq 'sync-wifibt-assets' "${PROJECT_DIR}/Makefile" || return 1
+        grep -Fq 'DEBIAN_OVERLAYS' "${PROJECT_DIR}/Makefile" || return 1
     fi
     if [ -f "${PROJECT_DIR}/docker-compose.yml" ] && [ -d "${PROJECT_DIR}/.git" ]; then
         grep -Fq 'WIFIBT_CHIP' "${PROJECT_DIR}/docker-compose.yml" || return 1
+        grep -Fq 'DEBIAN_OVERLAYS' "${PROJECT_DIR}/docker-compose.yml" || return 1
     fi
 }
 

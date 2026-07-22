@@ -243,128 +243,162 @@ else
     debugfs -R "stat /usr/lib/systemd/systemd" \
         "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -q 'Inode:' ||
         die "Debian rootfs lacks systemd init"
-    debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
-        "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-        grep -Fq "sgdisk -e \"\$rootdisk\"" ||
-        die "Debian rootfs lacks the first-boot GPT repair"
-    debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
-        "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-        grep -Fq "partnum=\"\$(cat \"\$sys_block/partition\")\"" ||
-        die "Debian rootfs does not derive the root partition from sysfs"
-    debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
-        "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-        grep -Fq "growpart \"\$rootdisk\" \"\$partnum\"" ||
-        die "Debian rootfs lacks the first-boot partition growth"
-    debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
-        "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-        grep -Fq "resize2fs \"\$rootdev\"" ||
-        die "Debian rootfs lacks the first-boot filesystem growth"
-    debugfs -R "cat /etc/systemd/system/sbc-firstboot.service" \
-        "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-        grep -Fq 'WantedBy=multi-user.target' ||
-        die "Debian rootfs lacks the first-boot resize service"
-    if debugfs -R "cat /etc/systemd/system/sbc-firstboot.service" \
-        "${WORK_DIR}/rootfs.ext4" 2>/dev/null | grep -Fq 'Before=ssh.service'; then
-        die "Debian first-boot resize must not block SSH startup"
-    fi
-    debugfs -R "cat /etc/systemd/system/sbc-firstboot.service" \
-        "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-        grep -Fq 'TimeoutStartSec=10min' ||
-        die "Debian first-boot resize service lacks a startup timeout"
-    debugfs -R "cat /etc/systemd/system/sbc-firstboot.service" \
-        "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-        grep -Fq 'ExecStart=-/usr/local/sbin/sbc-firstboot' ||
-        die "Debian first-boot resize failure can degrade system startup"
-    debugfs -R "cat /etc/systemd/system/ssh.service.d/10-hostkeys.conf" \
-        "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-        grep -Fq 'ExecStartPre=/usr/bin/ssh-keygen -A' ||
-        die "Debian SSH service does not generate missing host keys"
-    CONSOLE_SPEED="${CONSOLE#*,}"
-    CONSOLE_SPEED="${CONSOLE_SPEED%%[!0-9]*}"
-    debugfs -R "cat /etc/systemd/system/serial-getty@${CONSOLE%%,*}.service.d/10-baud.conf" \
-        "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-        grep -Fq -- "--keep-baud ${CONSOLE_SPEED},115200" ||
-        die "Debian serial getty does not preserve the board console speed"
-    debugfs -R "stat /usr/sbin/sgdisk" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-        grep -q 'Inode:' || die "Debian rootfs lacks sgdisk"
-    debugfs -R "stat /usr/bin/growpart" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-        grep -q 'Inode:' || die "Debian rootfs lacks growpart"
+
     ROOTFS_META="${VARIANT_OUTPUT}/rootfs-build-info.txt"
-    NETWORK_STACK="systemd-networkd"
-    DEBIAN_FEATURES_META=""
+    NETWORK_STACK=""
+    DEBIAN_PACKAGES_META=""
+    DEBIAN_OVERLAYS_META=""
     if [ -f "${ROOTFS_META}" ]; then
         NETWORK_STACK="$(metadata_value "${ROOTFS_META}" network_stack || true)"
-        DEBIAN_FEATURES_META="$(metadata_value "${ROOTFS_META}" debian_packages || true)"
-        if [ -z "${DEBIAN_FEATURES_META}" ]; then
-            DEBIAN_FEATURES_META="$(metadata_value "${ROOTFS_META}" debian_features || true)"
+        DEBIAN_PACKAGES_META="$(metadata_value "${ROOTFS_META}" debian_packages || true)"
+        if [ -z "${DEBIAN_PACKAGES_META}" ]; then
+            DEBIAN_PACKAGES_META="$(metadata_value "${ROOTFS_META}" debian_features || true)"
         fi
-        NETWORK_STACK="${NETWORK_STACK:-systemd-networkd}"
+        DEBIAN_OVERLAYS_META="$(metadata_value "${ROOTFS_META}" debian_overlays || true)"
     fi
-    if [ "${NETWORK_STACK}" = "NetworkManager" ]; then
-        NET_UNIT_PATH=/etc/systemd/system/multi-user.target.wants/NetworkManager.service
-        debugfs -R "stat ${NET_UNIT_PATH}" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-            grep -q 'Inode:' || die "Debian rootfs does not enable NetworkManager"
-        debugfs -R "stat /usr/bin/nmtui" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-            grep -q 'Inode:' || die "Debian rootfs with nm feature lacks nmtui"
-        if debugfs -R "stat /etc/systemd/system/multi-user.target.wants/systemd-networkd.service" \
-            "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -q 'Inode:'; then
-            die "Debian NetworkManager rootfs must not enable systemd-networkd"
+    # Back-compat: older images without debian_overlays metadata keep previous
+    # full-attachment expectations.
+    if [ -z "${DEBIAN_OVERLAYS_META}" ] && [ -f "${ROOTFS_META}" ]; then
+        DEBIAN_OVERLAYS_META="base,console,firstboot,firstboot-info,network,wifibt"
+    fi
+    overlay_enabled() {
+        local want="$1"
+        case ",${DEBIAN_OVERLAYS_META}," in
+            *,"${want}",*) return 0 ;;
+            *) return 1 ;;
+        esac
+    }
+
+    if overlay_enabled firstboot; then
+        debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
+            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+            grep -Fq "sgdisk -e \"\$rootdisk\"" ||
+            die "Debian rootfs lacks the first-boot GPT repair"
+        debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
+            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+            grep -Fq "partnum=\"\$(cat \"\$sys_block/partition\")\"" ||
+            die "Debian rootfs does not derive the root partition from sysfs"
+        debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
+            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+            grep -Fq "growpart \"\$rootdisk\" \"\$partnum\"" ||
+            die "Debian rootfs lacks the first-boot partition growth"
+        debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
+            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+            grep -Fq "resize2fs \"\$rootdev\"" ||
+            die "Debian rootfs lacks the first-boot filesystem growth"
+        debugfs -R "cat /etc/systemd/system/sbc-firstboot.service" \
+            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+            grep -Fq 'WantedBy=multi-user.target' ||
+            die "Debian rootfs lacks the first-boot resize service"
+        if debugfs -R "cat /etc/systemd/system/sbc-firstboot.service" \
+            "${WORK_DIR}/rootfs.ext4" 2>/dev/null | grep -Fq 'Before=ssh.service'; then
+            die "Debian first-boot resize must not block SSH startup"
         fi
-    else
-        NET_UNIT_PATH=/etc/systemd/system/multi-user.target.wants/systemd-networkd.service
-        debugfs -R "stat ${NET_UNIT_PATH}" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-            grep -q 'Inode:' || die "Debian rootfs does not enable systemd-networkd"
+        debugfs -R "cat /etc/systemd/system/sbc-firstboot.service" \
+            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+            grep -Fq 'TimeoutStartSec=10min' ||
+            die "Debian first-boot resize service lacks a startup timeout"
+        debugfs -R "cat /etc/systemd/system/sbc-firstboot.service" \
+            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+            grep -Fq 'ExecStart=-/usr/local/sbin/sbc-firstboot' ||
+            die "Debian first-boot resize failure can degrade system startup"
+        debugfs -R "stat /etc/systemd/system/multi-user.target.wants/sbc-firstboot.service" \
+            "${WORK_DIR}/rootfs.ext4" 2>&1 |
+            grep -q 'Inode:' || die "Debian rootfs does not enable sbc-firstboot.service"
+        debugfs -R "stat /usr/sbin/sgdisk" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+            grep -q 'Inode:' || die "Debian rootfs lacks sgdisk"
+        debugfs -R "stat /usr/bin/growpart" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+            grep -q 'Inode:' || die "Debian rootfs lacks growpart"
+        if overlay_enabled firstboot-info ||
+            debugfs -R "stat /usr/local/sbin/sbc-firstboot-info" \
+                "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -q 'Inode:'; then
+            debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
+                "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+                grep -Fq 'sbc-firstboot-info' ||
+                die "Debian firstboot does not optionally invoke firstboot-info"
+        fi
     fi
-    for enabled_path in \
-        /etc/systemd/system/sysinit.target.wants/systemd-resolved.service \
-        /etc/systemd/system/multi-user.target.wants/ssh.service \
-        /etc/systemd/system/multi-user.target.wants/sbc-firstboot.service \
-        "/etc/systemd/system/getty.target.wants/serial-getty@${CONSOLE%%,*}.service"; do
-        debugfs -R "stat ${enabled_path}" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-            grep -q 'Inode:' || die "Debian rootfs does not enable ${enabled_path##*/}"
-    done
+
+    if overlay_enabled base; then
+        debugfs -R "cat /etc/systemd/system/ssh.service.d/10-hostkeys.conf" \
+            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+            grep -Fq 'ExecStartPre=/usr/bin/ssh-keygen -A' ||
+            die "Debian SSH service does not generate missing host keys"
+        debugfs -R "stat /etc/systemd/system/multi-user.target.wants/ssh.service" \
+            "${WORK_DIR}/rootfs.ext4" 2>&1 |
+            grep -q 'Inode:' || die "Debian rootfs does not enable ssh.service"
+        if [ "${DEBIAN_RELEASE}" != "11" ]; then
+            debugfs -R "stat /etc/systemd/system/sysinit.target.wants/systemd-resolved.service" \
+                "${WORK_DIR}/rootfs.ext4" 2>&1 |
+                grep -q 'Inode:' || die "Debian rootfs does not enable systemd-resolved.service"
+        fi
+    fi
+
+    if overlay_enabled console; then
+        CONSOLE_SPEED="${CONSOLE#*,}"
+        CONSOLE_SPEED="${CONSOLE_SPEED%%[!0-9]*}"
+        debugfs -R "cat /etc/systemd/system/serial-getty@${CONSOLE%%,*}.service.d/10-baud.conf" \
+            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+            grep -Fq -- "--keep-baud ${CONSOLE_SPEED},115200" ||
+            die "Debian serial getty does not preserve the board console speed"
+        debugfs -R "stat /etc/systemd/system/getty.target.wants/serial-getty@${CONSOLE%%,*}.service" \
+            "${WORK_DIR}/rootfs.ext4" 2>&1 |
+            grep -q 'Inode:' ||
+            die "Debian rootfs does not enable serial-getty@${CONSOLE%%,*}.service"
+    fi
+
+    if overlay_enabled network; then
+        if [ "${NETWORK_STACK}" = "NetworkManager" ] ||
+            debugfs -R "stat /usr/sbin/NetworkManager" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+                grep -q 'Inode:'; then
+            NET_UNIT_PATH=/etc/systemd/system/multi-user.target.wants/NetworkManager.service
+            debugfs -R "stat ${NET_UNIT_PATH}" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+                grep -q 'Inode:' || die "Debian rootfs does not enable NetworkManager"
+            if debugfs -R "stat /etc/systemd/system/multi-user.target.wants/systemd-networkd.service" \
+                "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -q 'Inode:'; then
+                die "Debian NetworkManager rootfs must not enable systemd-networkd"
+            fi
+        else
+            NET_UNIT_PATH=/etc/systemd/system/multi-user.target.wants/systemd-networkd.service
+            debugfs -R "stat ${NET_UNIT_PATH}" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+                grep -q 'Inode:' || die "Debian rootfs does not enable systemd-networkd"
+        fi
+    fi
+
     # Package presence checks use the recorded apt package list (exact names).
-    case ",${DEBIAN_FEATURES_META}," in
+    case ",${DEBIAN_PACKAGES_META}," in
         *,i2c-tools,*)
             debugfs -R "stat /usr/sbin/i2cdetect" "${WORK_DIR}/rootfs.ext4" 2>&1 |
                 grep -q 'Inode:' || die "Debian rootfs with i2c-tools lacks i2cdetect"
             ;;
     esac
-    # firstboot-info is a plugin (default on); verify helper when present in image tree.
-    if debugfs -R "stat /usr/local/sbin/sbc-firstboot" "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -q 'Inode:'; then
-        debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
-            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-            grep -Fq 'sbc-firstboot-info' ||
-            die "Debian firstboot does not optionally invoke firstboot-info"
-    fi
-    if debugfs -R "stat /usr/local/sbin/sbc-firstboot-info" \
-        "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -q 'Inode:'; then
-        :
-    fi
-    # WiFi firmware is driven by WIFIBT_* metadata, not package tokens.
-    WIFIBT_SOURCE_META="$(metadata_value "${ROOTFS_META}" wifibt_source || true)"
-    WIFIBT_FILES_META="$(metadata_value "${ROOTFS_META}" wifibt_files || true)"
-    case "${WIFIBT_SOURCE_META}" in
-        skipped|none|missing|empty|'')
-            ;;
-        *)
-            debugfs -R "stat /lib/firmware" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-                grep -q 'Inode:' || die "Debian wifibt install lacks /lib/firmware"
-            debugfs -R "stat /vendor" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-                grep -q 'Inode:' || die "Debian wifibt install lacks /vendor link"
-            if [ -n "${WIFIBT_FILES_META}" ] && [ "${WIFIBT_FILES_META}" != "0" ]; then
-                :
-            else
-                die "Debian wifibt metadata reports zero firmware files"
-            fi
-            ;;
-    esac
-    case ",${DEBIAN_FEATURES_META}," in
+    case ",${DEBIAN_PACKAGES_META}," in
         *,wpasupplicant,*)
             debugfs -R "stat /usr/sbin/wpa_supplicant" "${WORK_DIR}/rootfs.ext4" 2>&1 |
                 grep -q 'Inode:' || die "Debian rootfs with wpasupplicant lacks binary"
             ;;
     esac
+
+    # WiFi firmware is driven by WIFIBT_* metadata when wifibt overlay ran.
+    WIFIBT_SOURCE_META="$(metadata_value "${ROOTFS_META}" wifibt_source || true)"
+    WIFIBT_FILES_META="$(metadata_value "${ROOTFS_META}" wifibt_files || true)"
+    if overlay_enabled wifibt; then
+        case "${WIFIBT_SOURCE_META}" in
+            skipped|none|missing|empty|'')
+                ;;
+            *)
+                debugfs -R "stat /lib/firmware" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+                    grep -q 'Inode:' || die "Debian wifibt install lacks /lib/firmware"
+                debugfs -R "stat /vendor" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+                    grep -q 'Inode:' || die "Debian wifibt install lacks /vendor link"
+                if [ -n "${WIFIBT_FILES_META}" ] && [ "${WIFIBT_FILES_META}" != "0" ]; then
+                    :
+                else
+                    die "Debian wifibt metadata reports zero firmware files"
+                fi
+                ;;
+        esac
+    fi
 fi
 
 (
