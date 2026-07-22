@@ -1,14 +1,26 @@
 AIC8800D80 firmware for CokePi Model LP4 V1.0 (RK3588S).
 
-Stage from Radxa aic8800-firmware deb (host-side, not during build):
+Driver compatibility (important):
+  CokePi BSP aic8800 driver expects fw_patch_table_8800d80_u02.bin
+  AICBT_PINF_T length (info_len) <= 4.
+  Radxa 4.0/5.0 packages use info_len=6 and can overflow / kernel panic
+  with that older driver. Prefer the 3.0 firmware line.
+
+Default pin (info_len=4):
+  aic8800-firmware_3.0+git20240327.3561b08f-7_all.deb
+  https://github.com/radxa-pkg/aic8800/releases/tag/3.0%2Bgit20240327.3561b08f-7
+
+Stage (host-side, not during build):
 
   ./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
 
-Or:
+Or a specific deb:
+
   ./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh \
-    /path/to/aic8800-firmware_*.deb
+    /path/to/aic8800-firmware_3.0+git20240327.3561b08f-7_all.deb
 
 This populates lib/firmware/aic8800D80/ from the deb's
   lib/firmware/aic8800_fw/SDIO/aic8800D80/
+(with matching adid/patch/fmac from the same package).
 
 SOURCE.txt alone is not firmware; WiFi needs the staged blobs.

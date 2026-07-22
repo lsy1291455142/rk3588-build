@@ -10,7 +10,10 @@ set -Eeuo pipefail
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_DIR="${SELF_DIR}/packages"
 DEST_DIR="${SELF_DIR}/overlay/lib/firmware/aic8800D80"
-DEFAULT_URL="${AIC8800_FIRMWARE_URL:-https://github.com/radxa-pkg/aic8800/releases/download/5.0%2Bgit20260123.5f7be68d-7/aic8800-firmware_5.0+git20260123.5f7be68d-7_all.deb}"
+# CokePi BSP aic8800 driver expects patch-table AICBT_PINF_T len <= 4.
+# Radxa 4.0/5.0 firmware uses info_len=6 and can overflow/panic with that driver.
+# Default pin: 3.0 line (info_len=4). Override with AIC8800_FIRMWARE_URL or path arg.
+DEFAULT_URL="${AIC8800_FIRMWARE_URL:-https://github.com/radxa-pkg/aic8800/releases/download/3.0%2Bgit20240327.3561b08f-7/aic8800-firmware_3.0+git20240327.3561b08f-7_all.deb}"
 
 download_to() {
     local url="$1" dest="$2"
