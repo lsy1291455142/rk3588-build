@@ -15,8 +15,8 @@ resolve_debian_release
 DEBIAN_FEATURES="${DEBIAN_PACKAGES:-${DEBIAN_FEATURES:-}}"
 case "${DEBIAN_FEATURES:-}" in
     '')
-        if [ -n "${DEBIAN_FEATURES_DEFAULT:-}" ]; then
-            DEBIAN_FEATURES="${DEBIAN_FEATURES_DEFAULT}"
+        if [ -n "${DEBIAN_PACKAGES_DEFAULT:-${DEBIAN_FEATURES_DEFAULT:-}}" ]; then
+            DEBIAN_FEATURES="${DEBIAN_PACKAGES_DEFAULT:-${DEBIAN_FEATURES_DEFAULT:-}}"
         fi
         ;;
     none|minbase|off|-)
