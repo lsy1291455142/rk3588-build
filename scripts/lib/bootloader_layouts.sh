@@ -67,9 +67,6 @@ layout_rockchip_gpt_idblock_extlinux_v1_verify() {
     local uboot="${common_output}/uboot.img"
     local download_loader="${common_output}/download-loader.bin"
     local uboot_build_info="${common_output}/uboot-build-info.txt"
-    local image_build_info
-    image_build_info="$(dirname "${common_output}")"
-    # image_build_info is actually in variant_output, passed separately
 
     require_file "${download_loader}" "download-loader.bin"
     require_file "${idblock}" "idblock.img"

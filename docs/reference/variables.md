@@ -29,16 +29,33 @@
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `DEBIAN_RELEASE` | `13` | Debian 版本：11、12 或 13 |
-| `DEBIAN_PACKAGES` | （空） | 额外 APT 包名（逗号/空格）；空=板级默认/minbase；`none`=强制 minbase |
-| `DEBIAN_OVERLAYS` | （空） | 可选 overlay 插件列表；空=板级默认；`none`=关闭；`all`=全部 |
-| `DEBIAN_EXTRA_PACKAGES` | （空） | 预装额外的 APT 软件包（如 `htop i2c-tools python3-pip docker.io`） |
+| `DEBIAN_PACKAGES` | （空） | 指定 APT 包名列表（逗号/空格）；**会整体覆盖**板级 `DEBIAN_PACKAGES_DEFAULT`；`none`=仅 minbase |
+| `DEBIAN_PACKAGES_DEFAULT` | （板级配置） | 板级配置文件 (`configs/boards/*.conf`) 中预设的标准基础软件包列表 |
+| `DEBIAN_EXTRA_PACKAGES` | （空） | **追加**额外 APT 包（在现有包列表末尾追加，**不覆盖**已有包，适合临时调试） |
+| `DEBIAN_OVERLAYS` | （空） | 可选 overlay 插件列表；空=使用板级默认；`none`=关闭所有；`all`=启用全部 |
+| `DEBIAN_OVERLAYS_DEFAULT` | （板级配置） | 板级配置文件中默认启用的 Overlay 插件列表 |
 | `DEBIAN_MIRROR` | `http://deb.debian.org/debian` | Debian 主镜像源 |
 | `DEBIAN_SECURITY_MIRROR` | `http://security.debian.org/debian-security` | 安全更新源 |
 | `DEBIAN_ALLOW_ARCHIVE_FALLBACK` | `yes` | Debian 11 过期时回退到 archive.debian.org |
 
-`DEBIAN_PACKAGES` 为空时：如果板级 profile 设了 `DEBIAN_PACKAGES_DEFAULT` 则用板级默认，否则 minbase。设为 `none` / `minbase` / `off` / `-` 强制 minbase。写真实包名，例如 `network-manager,wpasupplicant,i2c-tools`。
+### 包控制变量对比说明
 
-`DEBIAN_OVERLAYS` 为空时用板级 `DEBIAN_OVERLAYS_DEFAULT`；`none`/`off`/`-` 强制无插件；`all` 启用 `rootfs/debian/overlays/*`。示例：`base,console,firstboot,network`。
+- **`DEBIAN_PACKAGES_DEFAULT`** (板级定义)：固化在该板型 `.conf` 中的标准基础包。
+- **`DEBIAN_PACKAGES`** (命令行/环境变量)：**覆盖模式**。如果传入此变量，板级 `DEBIAN_PACKAGES_DEFAULT` 会被直接替换。
+- **`DEBIAN_EXTRA_PACKAGES`** (命令行/环境变量)：**追加模式**。在最终决定的包列表末尾追加新包，不改变已有包。
+
+**示例：**
+```bash
+# 1. 默认构建：使用板级 DEBIAN_PACKAGES_DEFAULT (包含 network-manager 等)
+make build-rootfs BOARD=rk3588-muse
+
+# 2. 覆盖模式：忽略板级默认，只安装 htop 和 curl
+make build-rootfs BOARD=rk3588-muse DEBIAN_PACKAGES=htop,curl
+
+# 3. 追加模式：保留板级默认包，另外临时多装 htop 和 python3-pip
+make build-rootfs BOARD=rk3588-muse DEBIAN_EXTRA_PACKAGES=htop,python3-pip
+```
+
 
 WiFi/BT 固件走板级 `boards/<BOARD>/plugin.sh`，不在通用变量里控制。
 CokePi：`make build-rootfs` 从 `packages/*.deb` 装入 rootfs；host 可选手动：

@@ -232,15 +232,6 @@ validate_rootfs_choice() {
     esac
 }
 
-validate_rootfs_selection() {
-    [ -n "${ROOTFS:-}" ] ||
-        die "ROOTFS is required; expected buildroot, debian, or all"
-    case "${ROOTFS}" in
-        buildroot|debian|all) ;;
-        *) die "Unsupported ROOTFS=${ROOTFS}; expected buildroot, debian, or all" ;;
-    esac
-}
-
 validate_rootfs_credentials() {
     ROOTFS_USERNAME="${ROOTFS_USERNAME:-user}"
     ROOTFS_PASSWORD="${ROOTFS_PASSWORD:-password}"
@@ -342,21 +333,11 @@ resolve_debian_packages() {
     DEBIAN_FEATURES="${DEBIAN_PACKAGES}"
 }
 
-# Back-compat wrapper name used by older call sites / tests.
-resolve_debian_features() {
-    resolve_debian_packages
-}
-
 debian_package_list() {
     if [ "${#DEBIAN_CUSTOM_PACKAGES[@]}" -eq 0 ]; then
         return 0
     fi
     printf '%s\n' "${DEBIAN_CUSTOM_PACKAGES[@]}"
-}
-
-# Back-compat name.
-debian_feature_packages() {
-    debian_package_list
 }
 
 # Automatically install custom user firmware from assets/firmware/ and configs/boards/${BOARD}/firmware/

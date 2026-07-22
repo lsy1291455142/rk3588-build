@@ -28,7 +28,6 @@ UBOOT_PYTHON_VERSION="$("${UBOOT_PYTHON}" -c \
 # Some BSPs invoke bare `python`, while others use PYTHON or an explicit
 # python2/python3 shebang. Scope the bare command to this U-Boot build only.
 UBOOT_PYTHON_SHIM_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sbc-uboot-python.XXXXXX")"
-trap 'rm -rf -- "${UBOOT_PYTHON_SHIM_DIR}"' EXIT
 ln -s "${UBOOT_PYTHON_PATH}" "${UBOOT_PYTHON_SHIM_DIR}/python"
 
 require_dir "${UBOOT_DIR}" "U-Boot source"
@@ -79,10 +78,9 @@ wrap_rkbin_tools() {
     log_info "Wrapped x86-64 rkbin tools with qemu-x86_64-static"
 }
 
-# Reverse wrap_rkbin_tools: move each saved .real binary back over its shim so
-# the rkbin working tree is left exactly as found. Runs on every script exit,
-# including failures, so a build never leaves rkbin/tools dirty.
-restore_rkbin_tools() {
+# Reverse wrap_rkbin_tools and clean up python shim directory on exit.
+cleanup_uboot_build() {
+    [ -n "${UBOOT_PYTHON_SHIM_DIR:-}" ] && rm -rf -- "${UBOOT_PYTHON_SHIM_DIR}"
     local bin
     [ "${#RKBIN_WRAPPED[@]}" -eq 0 ] && return 0
     for bin in "${RKBIN_WRAPPED[@]}"; do
@@ -90,7 +88,7 @@ restore_rkbin_tools() {
     done
 }
 
-trap restore_rkbin_tools EXIT
+trap cleanup_uboot_build EXIT
 
 wrap_rkbin_tools
 

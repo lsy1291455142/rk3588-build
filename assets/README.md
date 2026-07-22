@@ -8,16 +8,9 @@ Generic firmware blobs installed by the build core into `/lib/firmware`
 (see `install_custom_firmware`). Board-specific blobs may also live under
 `configs/boards/<board>/firmware/`.
 
-## Legacy `wifibt/` (deprecated)
+## Board-local firmware staging
 
-WiFi/BT is the optional overlay plugin:
+Board-specific firmware (e.g. CokePi AIC8800) is managed by board-local plugins under
+`rootfs/debian/boards/<board>/` (e.g. `stage-aic8800-firmware.sh`).
 
-```bash
-./rootfs/debian/overlays/wifibt/sync-assets.sh --deb-aic
-# or --deb /path/to/firmware.deb
-```
-
-Prefer `overlays/wifibt/packages/*.deb` or `overlays/wifibt/firmware/<CHIP>/`.
-`assets/wifibt/` remains a legacy fallback only.
-
-See [rootfs/debian/overlays/wifibt/README.md](../rootfs/debian/overlays/wifibt/README.md).
+`assets/wifibt/` remains a legacy fallback location.
