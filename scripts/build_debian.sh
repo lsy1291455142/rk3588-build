@@ -212,8 +212,6 @@ depmod -b "${ROOT_DIR}" "${KERNEL_RELEASE}"
 chroot "${ROOT_DIR}" /bin/true ||
     die "Debian userspace is not executable after installing kernel modules"
 
-# Custom firmware blobs (assets/firmware + board firmware dirs)
-install_firmware "${ROOT_DIR}"
 
 enable_unit() {
     local unit="$1"

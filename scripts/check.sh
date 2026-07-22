@@ -491,7 +491,6 @@ PLUGIN
     grep -Fq 'resolve_debian_packages' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
     grep -Fq 'resolve_debian_overlays' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
     grep -Fq 'run_debian_overlay_plugins' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
-    grep -Fq 'install_firmware' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
     grep -Fq 'NetworkManager.service' "${PROJECT_DIR}/rootfs/debian/overlays/network/plugin.sh" || return 1
     grep -Fq 'DEBIAN_PACKAGES_DEFAULT' \
         "${PROJECT_DIR}/configs/boards/rk3588-muse.conf" || return 1

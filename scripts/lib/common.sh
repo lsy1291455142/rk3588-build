@@ -340,28 +340,6 @@ debian_package_list() {
     printf '%s\n' "${DEBIAN_CUSTOM_PACKAGES[@]}"
 }
 
-# Automatically install custom user firmware from assets/firmware/ and configs/boards/${BOARD}/firmware/
-install_custom_firmware() {
-    local root_dir="$1"
-    local dest_fw="${root_dir}/lib/firmware"
-    local fw_dir
-
-    install -d "${dest_fw}"
-
-    for fw_dir in "${PROJECT_DIR}/assets/firmware" \
-                   "${CONFIG_DIR}/boards/${BOARD}/firmware"; do
-        if [ -d "${fw_dir}" ] && [ -n "$(ls -A "${fw_dir}" 2>/dev/null)" ]; then
-            log_info "Installing custom firmware from ${fw_dir}"
-            cp -rpf "${fw_dir}"/* "${dest_fw}/"
-        fi
-    done
-}
-
-# Custom firmware blobs only (assets/firmware + board firmware).
-install_firmware() {
-    local root_dir="$1"
-    install_custom_firmware "${root_dir}"
-}
 
 rootfs_variant() {
     validate_rootfs_choice
