@@ -47,7 +47,7 @@ CokePi Plus 和 Model 共用 SDK 但 DTB 不同，必须按板子丝印选择 pr
 | 字段 | 说明 |
 |---|---|
 | `EXTRA_KERNEL_ARGS` | 额外内核命令行参数 |
-| `SOURCE_MANIFEST` | 对应 manifest 文件名（启用版本锁定） |
+| `SOURCE_MANIFEST` | 对应 `manifests/` 文件名；设置后可用 `make fetch BOARD=...` |
 | `EXPECTED_KERNEL_REVISION` | 锁定 kernel commit（完整 40 位 SHA） |
 | `EXPECTED_UBOOT_REVISION` | 锁定 u-boot commit |
 | `EXPECTED_RKBIN_REVISION` | 锁定 rkbin commit |

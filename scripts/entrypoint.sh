@@ -211,7 +211,7 @@ if [ "${FETCH_ON_START}" = "yes" ]; then
         log_error "fetch_sources.sh 不存在，跳过拉取"
     fi
 else
-    check_sdk || log_warn "提示: 运行对应的 make fetch-* 或 fetch-custom 拉取 SDK"
+    check_sdk || log_warn "提示: 运行 make fetch BOARD=<board>、make fetch-custom 或 make import-local-sdk 拉取/导入 SDK"
 fi
 
 # 如果是进入交互式 Shell，自动输出环境自检

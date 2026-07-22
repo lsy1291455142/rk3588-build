@@ -4,7 +4,7 @@
 
 ### `SDK_VOLUME is required`
 
-没有指定 SDK volume。先运行 `make fetch-*` 拉取一个 SDK，或在命令行加上 `SDK_VOLUME=...`。
+没有指定 SDK volume。先运行 `make fetch BOARD=<board>` / `make import-local-sdk`，或用 `make use-volume` / 命令行 `SDK_VOLUME=...`。
 
 ### `Cannot run the linux/arm64 Debian builder`
 
@@ -34,7 +34,7 @@ docker volume rm rk3588-sdk-不需要的
 网络问题最常见。`fetch_sources.sh` 自带 3 次重试，重试间隔递增。如果持续失败：
 
 - 检查网络连接和代理设置
-- 尝试减少并行数：`make fetch-rock5c JOBS=2`
+- 尝试减少并行数：`make fetch BOARD=rk3588s-rock-5c JOBS=2`
 - 手动进入容器重试：`make shell SDK_VOLUME=... && cd /home/builder/sdk && repo sync -j2`
 
 ### 磁盘空间不足

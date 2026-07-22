@@ -20,7 +20,7 @@ make build
 ## 3. 拉取 SDK 源码
 
 ```bash
-make fetch-rock5c
+make fetch BOARD=rk3588s-rock-5c
 ```
 
 这会用 `repo` 工具按 `manifests/rk3588-rock5c.xml` 拉取四个组件到名为 `rk3588-sdk-rock5c` 的 Docker volume：

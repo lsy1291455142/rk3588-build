@@ -1,11 +1,12 @@
 # Make 目标参考
 
-运行 `make help` 查看内置摘要。
+运行 `make` / `make menu` 进入编号菜单，或 `make help` 查看完整摘要。
 
 ## 环境与信息
 
 | 目标 | 说明 |
 |---|---|
+| `make` / `make menu` | 编号交互菜单（默认目标） |
 | `make build` | 构建主 Docker 构建器镜像 |
 | `make build-nocache` | 无缓存重新构建 |
 | `make build-debian-builder` | 预构建 ARM64 Debian rootfs 构建器（含 binfmt 注册） |
@@ -20,7 +21,7 @@
 
 | 目标 | 说明 |
 |---|---|
-| `make fetch BOARD=<name>` | 根据板型 profile 中配置的 `SOURCE_MANIFEST` 拉取对应 SDK 到独立 volume |
+| `make fetch [BOARD=<name>]` | 读取板型 `SOURCE_MANIFEST` 拉取 SDK；无 manifest 的板需用 import/fetch-custom |
 | `make fetch-custom SDK_VOLUME=... MANIFEST=...` | 自定义本地 manifest 拉取 |
 | `make fetch-custom SDK_VOLUME=... CUSTOM_MANIFEST_URL=... CUSTOM_MANIFEST_NAME=...` | 自定义远程 manifest 拉取 |
 | `make import-local-sdk SDK_PATH=... SDK_VOLUME=...` | 导入本地已有 SDK |
@@ -34,7 +35,8 @@
 
 | 目标 | 说明 |
 |---|---|
-| `make use-board [BOARD=<name>]` | 交互式选择板型；若传入 `BOARD` 则直接切换 |
+| `make use-board` | 编号选择板型（始终弹菜单） |
+| `make use-board BOARD=<name>` | 直接切换到指定板型 |
 | `make use-volume` | 交互式选择 SDK volume |
 | `make use-rootfs` | 交互式选择 rootfs |
 | `make use-rootfs-buildroot` | 切换 rootfs 为 `buildroot` |

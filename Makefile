@@ -1,8 +1,8 @@
-.DEFAULT_GOAL := help
+.DEFAULT_GOAL := menu
 
 -include .env
 
-.PHONY: help build build-nocache build-builder build-debian-builder \
+.PHONY: help menu build build-nocache build-builder build-debian-builder \
 	register-arm64-binfmt \
 	import-local-sdk sync-wifibt-assets verify-sdk-volume \
 	fetch fetch-custom update shell debian-shell \
@@ -51,9 +51,98 @@ QEMU_TIMEOUT ?= 600
 QEMU_MEMORY_MIB ?= 1024
 QEMU_CPUS ?= 2
 
+menu:
+	@board="$$( [ -f .env ] && grep '^BOARD=' .env | cut -d= -f2- || true )"; \
+	sdk="$$( [ -f .env ] && grep '^SDK_VOLUME=' .env | cut -d= -f2- || true )"; \
+	rootfs="$$( [ -f .env ] && grep '^ROOTFS=' .env | cut -d= -f2- || true )"; \
+	printf '%s\n' \
+		'=== SBC Build Menu ===' \
+		"BOARD=$${board:-(not set)}  SDK_VOLUME=$${sdk:-(not set)}  ROOTFS=$${rootfs:-(not set)}" \
+		'' \
+		'Environment / switch' \
+		'  1) build                 Build the primary Docker builder' \
+		'  2) use-volume            Interactive SDK volume picker' \
+		'  3) use-board             Interactive board picker' \
+		'  4) use-rootfs            Interactive rootfs picker' \
+		'  5) use-current           Show current BOARD/SDK/ROOTFS' \
+		'  6) info                  Show build environment details' \
+		'' \
+		'SDK' \
+		'  7) fetch                 Fetch SDK via board SOURCE_MANIFEST' \
+		'  8) update                Update an existing SDK volume' \
+		'  9) verify-sdk-volume     Verify SDK volume contents' \
+		' 10) shell                 Open builder shell' \
+		'' \
+		'Build' \
+		' 11) build-kernel          Build kernel' \
+		' 12) build-uboot           Build U-Boot' \
+		' 13) build-rootfs          Build root filesystem' \
+		' 14) build-all             Build all components' \
+		' 15) image                 Assemble disk image' \
+		' 16) verify-image          Verify disk image' \
+		' 17) pack                  Build image package' \
+		'' \
+		'Test / misc' \
+		' 18) test-debian-qemu      QEMU boot test (Debian)' \
+		' 19) check                 Run project checks' \
+		' 20) status                Show compose/volume status' \
+		' 21) list-boards           List board profiles' \
+		' 22) help                  Full command reference' \
+		' 23) clean                 Stop containers' \
+		' 24) clean-all             Remove containers, volumes, images' \
+		'  0) exit' \
+		''; >&2; \
+	printf 'Select [0-24] or target name: ' >&2; \
+	if ! { read -r choice <>/dev/tty; } 2>/dev/null; then read -r choice; fi; \
+	target=""; \
+	case "$$choice" in \
+		0|"") echo "Bye."; exit 0 ;; \
+		1) target=build ;; \
+		2) target=use-volume ;; \
+		3) target=use-board ;; \
+		4) target=use-rootfs ;; \
+		5) target=use-current ;; \
+		6) target=info ;; \
+		7) target=fetch ;; \
+		8) target=update ;; \
+		9) target=verify-sdk-volume ;; \
+		10) target=shell ;; \
+		11) target=build-kernel ;; \
+		12) target=build-uboot ;; \
+		13) target=build-rootfs ;; \
+		14) target=build-all ;; \
+		15) target=image ;; \
+		16) target=verify-image ;; \
+		17) target=pack ;; \
+		18) target=test-debian-qemu ;; \
+		19) target=check ;; \
+		20) target=status ;; \
+		21) target=list-boards ;; \
+		22) target=help ;; \
+		23) target=clean ;; \
+		24) target=clean-all ;; \
+		help|menu|build|build-nocache|build-builder|build-debian-builder| \
+		register-arm64-binfmt|import-local-sdk|sync-wifibt-assets|verify-sdk-volume| \
+		fetch|fetch-custom|update|shell|debian-shell|use-volume|use-board|use-rootfs| \
+		use-rootfs-buildroot|use-rootfs-debian|use-rootfs-all|use-current| \
+		build-kernel|build-uboot|build-rootfs|image|verify-image|pack|build-all| \
+		test-debian-all|test-debian-qemu|check|clean|clean-all|status|list-boards| \
+		new-board|validate-board|info) target="$$choice" ;; \
+		*) \
+			echo "ERROR: invalid selection: $$choice" >&2; \
+			echo "Tip: enter a number 0-24, or a make target name." >&2; \
+			exit 1 ;; \
+	esac; \
+	echo ">>> make $$target"; \
+	$(MAKE) --no-print-directory $$target
+
 help:
 	@printf '%s\n' \
 		'SBC Linux image build' \
+		'' \
+		'Interactive menu (default):' \
+		'  make                            Numbered target menu' \
+		'  make menu                       Same as above' \
 		'' \
 		'ROCK 5C Debian 13 complete build and simulated boot test:' \
 		'  make build' \
@@ -230,16 +319,29 @@ fetch-custom:
 fetch: require-board
 	@if [ -z "$(_SOURCE_MANIFEST)" ]; then \
 		echo "ERROR: Board $(BOARD) does not define SOURCE_MANIFEST." >&2; \
-		echo "Use 'make fetch-custom' for boards without a manifest." >&2; \
+		echo "This board expects a local SDK import, or a custom manifest." >&2; \
+		echo "  make import-local-sdk SDK_PATH=/path/to/sdk SDK_VOLUME=<volume>" >&2; \
+		echo "  make fetch-custom SDK_VOLUME=<volume> MANIFEST=<file.xml>" >&2; \
 		exit 1; \
 	fi
-	@echo "Fetching SDK for $(BOARD) using manifest $(_SOURCE_MANIFEST) -> volume $(SDK_VOLUME)"
-	docker volume create $(SDK_VOLUME) >/dev/null
-	SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
+	@# Prefer CLI SDK_VOLUME; otherwise always derive from SOURCE_MANIFEST
+	@# so an unrelated .env volume is not reused for a different board fetch.
+	@if [ "$(origin SDK_VOLUME)" = "command line" ] && [ -n "$(strip $(SDK_VOLUME))" ]; then \
+		fetch_vol="$(SDK_VOLUME)"; \
+	else \
+		fetch_vol="rk3588-sdk-$$(printf '%s' "$(_SOURCE_MANIFEST)" | sed 's/^rk3588-//;s/\.xml$$//')"; \
+	fi; \
+	if [ -z "$$fetch_vol" ]; then \
+		echo "ERROR: cannot determine SDK_VOLUME for fetch." >&2; \
+		exit 1; \
+	fi; \
+	echo "Fetching SDK for $(BOARD) using manifest $(_SOURCE_MANIFEST) -> volume $$fetch_vol"; \
+	docker volume create "$$fetch_vol" >/dev/null; \
+	SDK_VOLUME="$$fetch_vol" docker compose run --rm --no-deps -T \
 		-e BOARD="$(BOARD)" \
-		-e MANIFEST=$(_SOURCE_MANIFEST) -e SDK_VOLUME=$(SDK_VOLUME) rk3588-build \
-		bash /home/builder/scripts/fetch_sources.sh
-	@$(MAKE) --no-print-directory _use_sdk_switch SWITCH_VOL="$(SDK_VOLUME)"
+		-e MANIFEST=$(_SOURCE_MANIFEST) -e SDK_VOLUME="$$fetch_vol" rk3588-build \
+		bash /home/builder/scripts/fetch_sources.sh; \
+	$(MAKE) --no-print-directory _use_sdk_switch SWITCH_VOL="$$fetch_vol"
 
 
 # ---- Switch active SDK volume (writes .env SDK_VOLUME only) ----
@@ -252,13 +354,13 @@ _use_sdk_switch:
 		echo 'SDK_VOLUME=$(SWITCH_VOL)' >> .env; \
 	fi
 	@echo "Switched SDK_VOLUME to: $(SWITCH_VOL)"
-	@echo "BOARD is unchanged. Use make use-board or make use-board-* to set the board."
+	@echo "BOARD is unchanged. Use make use-board to set the board."
 
 use-volume:
 	@vols="$$(docker volume ls --filter name=rk3588-sdk --format '{{.Name}}' 2>/dev/null | sort)"; \
 	if [ -z "$$vols" ]; then \
 		echo "ERROR: no SDK volumes found." >&2; \
-		echo "Fetch one first, e.g. make fetch-rock5c" >&2; \
+		echo "Fetch/import one first, e.g. make fetch BOARD=rk3588s-rock-5c" >&2; \
 		exit 1; \
 	fi; \
 	current="$$( [ -f .env ] && grep '^SDK_VOLUME=' .env | cut -d= -f2- || true )"; \
@@ -306,10 +408,33 @@ _use_board_switch:
 		echo 'BOARD=$(SWITCH_BOARD)' >> .env; \
 	fi
 	@echo "Switched BOARD to: $(SWITCH_BOARD)"
-	@echo "SDK_VOLUME is unchanged. Use make use-volume or make use-volume-* to set the SDK volume."
+	@manifest=$$(grep '^SOURCE_MANIFEST=' "configs/boards/$(SWITCH_BOARD).conf" | head -1 | cut -d= -f2- | tr -d '"'); \
+	if [ -n "$$manifest" ]; then \
+		derived="rk3588-sdk-$$(printf '%s' "$$manifest" | sed 's/^rk3588-//;s/\.xml$$//')"; \
+		current_sdk="$$(grep '^SDK_VOLUME=' .env 2>/dev/null | cut -d= -f2- || true)"; \
+		if [ -z "$$current_sdk" ]; then \
+			if grep -q '^SDK_VOLUME=' .env 2>/dev/null; then \
+				sed -i "s|^SDK_VOLUME=.*|SDK_VOLUME=$$derived|" .env; \
+			else \
+				echo "SDK_VOLUME=$$derived" >> .env; \
+			fi; \
+			echo "SDK_VOLUME was empty; derived from SOURCE_MANIFEST: $$derived"; \
+		elif [ "$$current_sdk" != "$$derived" ]; then \
+			echo "SDK_VOLUME is unchanged: $$current_sdk"; \
+			echo "Board default volume would be: $$derived"; \
+			echo "Run 'make use-volume' if you want to switch the SDK volume."; \
+		else \
+			echo "SDK_VOLUME already matches board default: $$current_sdk"; \
+		fi; \
+	else \
+		echo "Board has no SOURCE_MANIFEST (local SDK board)."; \
+		echo "SDK_VOLUME is unchanged. Import with 'make import-local-sdk' or pick via 'make use-volume'."; \
+	fi
 
+# BOARD on command line (make use-board BOARD=xxx) switches directly.
+# Bare 'make use-board' always prompts, even if .env already has BOARD.
 use-board:
-	@if [ -n "$(strip $(BOARD))" ]; then \
+	@if [ "$(origin BOARD)" = "command line" ]; then \
 		$(MAKE) --no-print-directory _use_board_switch SWITCH_BOARD="$(BOARD)"; \
 	else \
 		boards="$$(ls -1 configs/boards/*.conf 2>/dev/null | sed 's|.*/||; s|\.conf$$||' | grep -v '^TEMPLATE$$' | sort)"; \
@@ -452,7 +577,7 @@ prepare-output:
 require-sdk-volume:
 	@if [ -z "$(SDK_VOLUME)" ]; then \
 		echo "ERROR: SDK_VOLUME is required." >&2; \
-		echo "Use a fetch-* target first, then specify SDK_VOLUME for build targets." >&2; \
+		echo "Run make fetch / make import-local-sdk, or set SDK_VOLUME in .env / CLI." >&2; \
 		echo "" >&2; \
 		echo "Available SDK volumes:" >&2; \
 		docker volume ls --filter name=rk3588-sdk --format '  {{.Name}}' 2>/dev/null; \
@@ -465,7 +590,7 @@ require-sdk-volume:
 require-board:
 	@test -n "$(strip $(BOARD))" || { \
 		echo "ERROR: BOARD is required." >&2; \
-		echo "Run a use-board-* target first, set BOARD in .env, or pass BOARD=... on the command line." >&2; \
+		echo "Run make use-board, set BOARD in .env, or pass BOARD=... on the command line." >&2; \
 		echo "" >&2; \
 		echo "Available board profiles:" >&2; \
 		ls -1 configs/boards/*.conf 2>/dev/null | sed 's|.*/||; s|\.conf$$||; s|^|  |' >&2; \
@@ -676,9 +801,9 @@ info:
 	@if [ -n "$(strip $(BOARD))" ] && [ -f "configs/boards/$(BOARD).conf" ]; then \
 		echo "Board: $(BOARD)"; \
 		desc=$$(grep -E '^BOARD_DESCRIPTION=' "configs/boards/$(BOARD).conf" | head -1 | cut -d= -f2- | sed 's/^"//' | sed 's/"$$//'); \
-		[ -n "$$desc" ] && echo "  Description: $$desc"; \
+		if [ -n "$$desc" ]; then echo "  Description: $$desc"; fi; \
 		manifest=$$(grep '^SOURCE_MANIFEST=' "configs/boards/$(BOARD).conf" | head -1 | cut -d= -f2- | tr -d '"'); \
-		[ -n "$$manifest" ] && echo "  Manifest: $$manifest"; \
+		if [ -n "$$manifest" ]; then echo "  Manifest: $$manifest"; fi; \
 	else \
 		echo "Board: (not set)"; \
 	fi

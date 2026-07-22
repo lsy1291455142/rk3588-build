@@ -126,9 +126,8 @@ check_cokepi_board_contract() {
         done
     done
 
-    # Board profiles should exist and parse correctly (verify-cokepi-sdk and
-    # board-specific Makefile shortcuts have been removed in favor of
-    # parameterized targets).
+    # Board profiles should exist and parse correctly.
+    # Local-SDK boards (CokePi) intentionally omit SOURCE_MANIFEST.
     grep -Fqx 'UBOOT_PYTHON="python2"' "${plus_profile}" || return 1
     grep -Fqx 'UBOOT_PYTHON="python2"' "${model_profile}" || return 1
 }
