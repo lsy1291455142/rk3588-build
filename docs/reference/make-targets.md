@@ -56,7 +56,6 @@
 | `make build-rootfs` | 构建 rootfs（按 `ROOTFS` 变量选路径） |
 | `make image` | 组装 GPT 镜像 + 自动校验 |
 | `make verify-image` | 单独重新校验镜像 |
-| `make pack` | `image` 的别名 |
 | `make build-all` | 依次执行 uboot → kernel → rootfs → image |
 
 所有构建目标需要指定 `BOARD`，`SDK_VOLUME` 会根据 `BOARD` 配置自动推导（亦可显式指定）。`build-rootfs`、`image`、`verify-image` 额外需要 `ROOTFS`。

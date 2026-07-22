@@ -8,7 +8,7 @@
 	fetch fetch-custom update shell debian-shell \
 	use-volume use-board use-rootfs use-rootfs-buildroot use-rootfs-debian \
 	use-rootfs-all use-current \
-	build-kernel build-uboot build-rootfs image verify-image pack \
+	build-kernel build-uboot build-rootfs image verify-image \
 	build-all test-debian-all test-debian-qemu check clean clean-all status \
 	require-board require-rootfs require-sdk-volume validate-rootfs prepare-output \
 	debian-preflight _use_sdk_switch _use_board_switch _use_rootfs_switch \
@@ -80,19 +80,18 @@ menu:
 		' 14) build-all             Build all components' \
 		' 15) image                 Assemble disk image' \
 		' 16) verify-image          Verify disk image' \
-		' 17) pack                  Build image package' \
 		'' \
 		'Test / misc' \
-		' 18) test-debian-qemu      QEMU boot test (Debian)' \
-		' 19) check                 Run project checks' \
-		' 20) status                Show compose/volume status' \
-		' 21) list-boards           List board profiles' \
-		' 22) help                  Full command reference' \
-		' 23) clean                 Stop containers' \
-		' 24) clean-all             Remove containers, volumes, images' \
+		' 17) test-debian-qemu      QEMU boot test (Debian)' \
+		' 18) check                 Run project checks' \
+		' 19) status                Show compose/volume status' \
+		' 20) list-boards           List board profiles' \
+		' 21) help                  Full command reference' \
+		' 22) clean                 Stop containers' \
+		' 23) clean-all             Remove containers, volumes, images' \
 		'  0) exit' \
 		''; >&2; \
-	printf 'Select [0-24] or target name: ' >&2; \
+	printf 'Select [0-23] or target name: ' >&2; \
 	if ! { read -r choice <>/dev/tty; } 2>/dev/null; then read -r choice; fi; \
 	target=""; \
 	case "$$choice" in \
@@ -113,24 +112,23 @@ menu:
 		14) target=build-all ;; \
 		15) target=image ;; \
 		16) target=verify-image ;; \
-		17) target=pack ;; \
-		18) target=test-debian-qemu ;; \
-		19) target=check ;; \
-		20) target=status ;; \
-		21) target=list-boards ;; \
-		22) target=help ;; \
-		23) target=clean ;; \
-		24) target=clean-all ;; \
+		17) target=test-debian-qemu ;; \
+		18) target=check ;; \
+		19) target=status ;; \
+		20) target=list-boards ;; \
+		21) target=help ;; \
+		22) target=clean ;; \
+		23) target=clean-all ;; \
 		help|menu|build|build-nocache|build-builder|build-debian-builder| \
 		register-arm64-binfmt|import-local-sdk|verify-sdk-volume| \
 		fetch|fetch-custom|update|shell|debian-shell|use-volume|use-board|use-rootfs| \
 		use-rootfs-buildroot|use-rootfs-debian|use-rootfs-all|use-current| \
-		build-kernel|build-uboot|build-rootfs|image|verify-image|pack|build-all| \
+		build-kernel|build-uboot|build-rootfs|image|verify-image|build-all| \
 		test-debian-all|test-debian-qemu|check|clean|clean-all|status|list-boards| \
 		new-board|validate-board|info) target="$$choice" ;; \
 		*) \
 			echo "ERROR: invalid selection: $$choice" >&2; \
-			echo "Tip: enter a number 0-24, or a make target name." >&2; \
+			echo "Tip: enter a number 0-23, or a make target name." >&2; \
 			exit 1 ;; \
 	esac; \
 	echo ">>> make $$target"; \
@@ -669,7 +667,6 @@ _verify-one: prepare-output
 		-e ROOTFS_USERNAME="$(ROOTFS_USERNAME)" \
 		rk3588-build bash /home/builder/scripts/verify_image.sh
 
-pack: image
 
 build-all: require-rootfs require-board validate-rootfs require-sdk-volume
 	$(MAKE) --no-print-directory build-uboot BOARD="$(BOARD)" SDK_VOLUME=$(SDK_VOLUME)
