@@ -20,6 +20,9 @@ out/
 
 # WiFi/BT firmware blobs (optional overlay; legacy assets path still ignored)
 # Preferred: rootfs/debian/overlays/wifibt/firmware/
+rootfs/debian/overlays/wifibt/packages/**
+!rootfs/debian/overlays/wifibt/packages/**/
+!rootfs/debian/overlays/wifibt/packages/.gitkeep
 rootfs/debian/overlays/wifibt/firmware/**
 !rootfs/debian/overlays/wifibt/firmware/**/
 !rootfs/debian/overlays/wifibt/firmware/.gitkeep

@@ -1,54 +1,49 @@
 #!/usr/bin/env bash
-# WiFi/BT firmware helpers for the optional wifibt overlay.
-# Not part of the pure build core; sourced only by this overlay (and its tests).
-# Requires scripts/lib/common.sh already sourced (die/log_*/PROJECT_DIR/SDK_DIR).
+# Thin WiFi/BT firmware installer for the optional wifibt overlay.
+# Not part of the pure build core.
+#
+# Model: take a firmware package (deb / static files) → install into rootfs
+# → apply driver path remaps. No BSP feature-token machinery.
+#
+# Env (board conf / CLI):
+#   WIFIBT_CHIP      none | AIC8800D80 | AP6275S | <chip name>
+#   WIFIBT_DEB       optional local path or URL to a .deb (firmware package)
+#   WIFIBT_REQUIRED  yes|no  (default no)
+#   WIFIBT_FIRMWARE_SYMLINKS  rockchip-vendor|none  (default rockchip-vendor)
+#   WIFIBT_SOURCE    optional hint: auto|package|firmware|sdk  (default auto)
+#                    legacy values sdk|assets|sdk-or-assets still accepted
+#
+# Search order when source=auto:
+#   1) WIFIBT_DEB / packages/*.deb
+#   2) firmware/ tree (overlay) and legacy assets/wifibt
+#   3) SDK external/rkwifibt/firmware (optional blob source only)
 
-# WiFi/BT firmware install for Debian rootfs.
-# Board profile / env:
-#   WIFIBT_CHIP      none|ALL_AP|ALL_CY|ALL|<chip e.g. AP6275S|AIC8800D80>
-#   WIFIBT_SOURCE    sdk-or-assets|sdk|assets  (default sdk-or-assets)
-#   WIFIBT_REQUIRED  yes|no  (default no; yes fails build when firmware missing)
-# AIC modules keep a subdirectory under /lib/firmware (e.g. aic8800D80/).
 resolve_wifibt_config() {
     local chip source required
 
     chip="${WIFIBT_CHIP:-none}"
     chip="${chip//[[:space:]]/}"
     case "${chip}" in
-        ''|none|off|-)
-            chip="none"
-            ;;
-        *)
-            chip="$(printf '%s' "${chip}" | tr '[:lower:]' '[:upper:]')"
-            ;;
+        ''|none|off|-) chip="none" ;;
+        *) chip="$(printf '%s' "${chip}" | tr '[:lower:]' '[:upper:]')" ;;
     esac
 
-    # Normalize common AIC aliases to the canonical board token.
     case "${chip}" in
-        AIC8800D80|AIC_8800D80|AIC-8800D80)
-            chip="AIC8800D80"
-            ;;
-        AIC8800DC|AIC_8800DC|AIC-8800DC)
-            chip="AIC8800DC"
-            ;;
-        AIC8800D80N|AIC_8800D80N)
-            chip="AIC8800D80N"
-            ;;
-        AIC8800D80X2|AIC_8800D80X2)
-            chip="AIC8800D80X2"
-            ;;
-        AIC8800|AIC_8800|AIC-8800)
-            chip="AIC8800"
-            ;;
+        AIC8800D80|AIC_8800D80|AIC-8800D80) chip="AIC8800D80" ;;
+        AIC8800DC|AIC_8800DC|AIC-8800DC) chip="AIC8800DC" ;;
+        AIC8800D80N|AIC_8800D80N) chip="AIC8800D80N" ;;
+        AIC8800D80X2|AIC_8800D80X2) chip="AIC8800D80X2" ;;
+        AIC8800|AIC_8800|AIC-8800) chip="AIC8800" ;;
     esac
 
-    source="${WIFIBT_SOURCE:-sdk-or-assets}"
+    source="${WIFIBT_SOURCE:-auto}"
     source="${source//[[:space:]]/}"
     source="$(printf '%s' "${source}" | tr '[:upper:]' '[:lower:]')"
     case "${source}" in
-        sdk-or-assets|sdk|assets) ;;
+        auto|package|firmware|sdk) ;;
+        sdk-or-assets|assets) source="auto" ;;
         *)
-            die "Unsupported WIFIBT_SOURCE=${WIFIBT_SOURCE}; expected sdk-or-assets, sdk, or assets"
+            die "Unsupported WIFIBT_SOURCE=${WIFIBT_SOURCE}; expected auto, package, firmware, or sdk"
             ;;
     esac
 
@@ -72,257 +67,157 @@ resolve_wifibt_config() {
     WIFIBT_FILE_COUNT=0
 }
 
-# Directory containing this library (overlays/wifibt).
 wifibt_overlay_dir() {
-    local here
-    here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    printf '%s\n' "${here}"
+    local self
+    self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    printf '%s\n' "${self}"
 }
 
-# Overlay-owned firmware tree (preferred), plus legacy project assets/wifibt.
-wifibt_assets_dirs() {
-    local o
-    o="$(wifibt_overlay_dir)"
-    printf '%s\n' "${o}/firmware"
-    # Legacy path kept for existing checkouts that still store blobs under assets/.
-    printf '%s\n' "${PROJECT_DIR}/assets/wifibt"
-}
-
-wifibt_firmware_roots() {
-    local source="${WIFIBT_SOURCE:-sdk-or-assets}"
-    local sdk_fw="${SDK_DIR}/external/rkwifibt/firmware"
-    local d
-
-    case "${source}" in
-        sdk)
-            printf '%s\n' "${sdk_fw}"
-            ;;
-        assets)
-            wifibt_assets_dirs
-            ;;
-        *)
-            printf '%s\n' "${sdk_fw}"
-            wifibt_assets_dirs
-            ;;
+wifibt_is_blob() {
+    local f="$1" base
+    base="$(basename "${f}")"
+    case "${base}" in
+        SOURCE.txt|README|README.*|*.md|.gitkeep) return 1 ;;
+        *) return 0 ;;
     esac
 }
 
-wifibt_chip_vendor() {
-    local chip="$1"
-    case "${chip}" in
-        AP*|BCM*) printf 'broadcom\n' ;;
-        RTL*) printf 'realtek\n' ;;
-        CYW*) printf 'infineon\n' ;;
-        RK*) printf 'rockchip\n' ;;
-        AIC*) printf 'aicsemi\n' ;;
-        *) return 1 ;;
-    esac
+wifibt_count_files() {
+    local dir="$1"
+    local n=0 f
+    [ -d "${dir}" ] || { printf '0\n'; return 0; }
+    while IFS= read -r f; do
+        wifibt_is_blob "${f}" || continue
+        n=$((n + 1))
+    done < <(find "${dir}" -type f 2>/dev/null)
+    printf '%s\n' "${n}"
 }
 
-# Rockchip AIC driver appends chip dir under CONFIG_AIC_FW_PATH
-# (default /vendor/etc/firmware -> .../aic8800D80/...).
-wifibt_aic_fw_subdir() {
-    local chip="$1"
-    case "${chip}" in
+wifibt_has_blobs() {
+    local dir="$1"
+    [ -d "${dir}" ] || return 1
+    [ "$(wifibt_count_files "${dir}")" -gt 0 ]
+}
+
+# Known install target under /lib/firmware for Rockchip vendor drivers.
+wifibt_dest_subdir() {
+    case "${WIFIBT_CHIP}" in
         AIC8800D80) printf 'aic8800D80\n' ;;
         AIC8800DC) printf 'aic8800DC\n' ;;
         AIC8800D80N) printf 'aic8800D80N\n' ;;
         AIC8800D80X2) printf 'aic8800D80X2\n' ;;
         AIC8800) printf 'aic8800\n' ;;
-        *) return 1 ;;
+        *) printf '\n' ;;
     esac
 }
 
-wifibt_is_aic_chip() {
-    case "${1:-}" in
+wifibt_is_aic() {
+    case "${1:-${WIFIBT_CHIP}}" in
         AIC*) return 0 ;;
         *) return 1 ;;
     esac
 }
 
-# Print candidate chip directories under a firmware root (absolute paths).
-wifibt_chip_dirs_for_root() {
-    local root="$1"
-    local chip="${WIFIBT_CHIP}"
-    local vendor chip_dir subdir cand
+# Candidate static trees for the selected chip (absolute paths).
+wifibt_static_chip_dirs() {
+    local o chip sub
+    o="$(wifibt_overlay_dir)"
+    chip="${WIFIBT_CHIP}"
+    sub="$(wifibt_dest_subdir || true)"
 
-    [ -d "${root}" ] || return 1
+    # Preferred flat layout: firmware/<CHIP>/
+    printf '%s\n' "${o}/firmware/${chip}"
+    # Legacy vendor layout kept for older checkouts.
+    if wifibt_is_aic "${chip}"; then
+        printf '%s\n' "${o}/firmware/aicsemi/${chip}"
+        [ -n "${sub}" ] && printf '%s\n' "${o}/firmware/aicsemi/${sub}"
+        [ -n "${sub}" ] && printf '%s\n' "${o}/firmware/${sub}"
+        printf '%s\n' "${PROJECT_DIR}/assets/wifibt/aicsemi/${chip}"
+        [ -n "${sub}" ] && printf '%s\n' "${PROJECT_DIR}/assets/wifibt/aicsemi/${sub}"
+    else
+        case "${chip}" in
+            AP*|BCM*)
+                printf '%s\n' "${o}/firmware/broadcom/${chip}"
+                printf '%s\n' "${PROJECT_DIR}/assets/wifibt/broadcom/${chip}"
+                ;;
+            RTL*)
+                printf '%s\n' "${o}/firmware/realtek/${chip}"
+                printf '%s\n' "${PROJECT_DIR}/assets/wifibt/realtek/${chip}"
+                ;;
+            CYW*)
+                printf '%s\n' "${o}/firmware/infineon/${chip}"
+                printf '%s\n' "${PROJECT_DIR}/assets/wifibt/infineon/${chip}"
+                ;;
+            RK*)
+                printf '%s\n' "${o}/firmware/rockchip/${chip}"
+                printf '%s\n' "${PROJECT_DIR}/assets/wifibt/rockchip/${chip}"
+                ;;
+        esac
+        printf '%s\n' "${PROJECT_DIR}/assets/wifibt/${chip}"
+    fi
+}
+
+wifibt_sdk_chip_dirs() {
+    local sdk_fw="${SDK_DIR:-}/external/rkwifibt/firmware"
+    local chip="${WIFIBT_CHIP}"
+    local sub vendor
+
+    [ -d "${sdk_fw}" ] || return 1
+
+    if wifibt_is_aic "${chip}"; then
+        sub="$(wifibt_dest_subdir)"
+        for cand in \
+            "${sdk_fw}/aicsemi/${chip}" \
+            "${sdk_fw}/aicsemi/${sub}" \
+            "${sdk_fw}/${sub}" \
+            "${sdk_fw}/aic8800_fw/SDIO/${sub}" \
+            "${sdk_fw}/SDIO/${sub}"
+        do
+            [ -d "${cand}" ] && printf '%s\n' "${cand}"
+        done
+        return 0
+    fi
 
     case "${chip}" in
-        none)
-            return 1
-            ;;
-        ALL)
-            find "${root}" -mindepth 2 -maxdepth 2 -type d 2>/dev/null | sort
-            ;;
-        ALL_AP)
-            [ -d "${root}/broadcom" ] || return 1
-            find "${root}/broadcom" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort
-            ;;
-        ALL_CY)
-            [ -d "${root}/infineon" ] || return 1
-            find "${root}/infineon" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort
-            ;;
-        *)
-            vendor="$(wifibt_chip_vendor "${chip}" || true)"
-            [ -n "${vendor}" ] || return 1
-            if wifibt_is_aic_chip "${chip}"; then
-                subdir="$(wifibt_aic_fw_subdir "${chip}" || true)"
-                for cand in \
-                    "${root}/${vendor}/${chip}" \
-                    "${root}/${vendor}/${subdir}" \
-                    "${root}/${subdir}" \
-                    "${root}/aic8800_fw/SDIO/${subdir}" \
-                    "${root}/SDIO/${subdir}"
-                do
-                    if [ -n "${cand}" ] && [ -d "${cand}" ]; then
-                        printf '%s\n' "${cand}"
-                        return 0
-                    fi
-                done
-                return 1
-            fi
-            chip_dir="${root}/${vendor}/${chip}"
-            [ -d "${chip_dir}" ] || return 1
-            printf '%s\n' "${chip_dir}"
-            ;;
+        AP*|BCM*) vendor=broadcom ;;
+        RTL*) vendor=realtek ;;
+        CYW*) vendor=infineon ;;
+        RK*) vendor=rockchip ;;
+        *) return 1 ;;
     esac
+    [ -d "${sdk_fw}/${vendor}/${chip}" ] && printf '%s\n' "${sdk_fw}/${vendor}/${chip}"
 }
 
-wifibt_copy_chip_dir() {
-    local chip_dir="$1"
-    local dest_fw="$2"
-    local f dest_dir subdir
-    local copied=0
+# Copy blob tree into dest, flattening one wifi/bt nesting if present.
+wifibt_copy_blobs() {
+    local src="$1"
+    local dest="$2"
+    local f rel
 
-    # AIC: keep subdirectory so driver path
-    #   /vendor/etc/firmware/aic8800D80/<file>
-    # resolves via /vendor -> /system and /system/etc/firmware -> /lib/firmware.
-    if wifibt_is_aic_chip "${WIFIBT_CHIP}"; then
-        subdir="$(wifibt_aic_fw_subdir "${WIFIBT_CHIP}")" || return 1
-        dest_dir="${dest_fw}/${subdir}"
-        install -d "${dest_dir}"
-        while IFS= read -r -d '' f; do
-            case "$(basename "${f}")" in
-                SOURCE.txt|README*|*.7z|*.md) continue ;;
-            esac
-            install -m 0644 "${f}" "${dest_dir}/"
-            copied=1
-        done < <(find "${chip_dir}" -maxdepth 1 -type f -print0 2>/dev/null)
-        [ "${copied}" = "1" ]
-        return $?
-    fi
-
-    if [ -d "${chip_dir}/wifi" ] || [ -d "${chip_dir}/bt" ]; then
-        if [ -d "${chip_dir}/wifi" ]; then
-            while IFS= read -r -d '' f; do
-                install -m 0644 "${f}" "${dest_fw}/"
-                copied=1
-            done < <(find "${chip_dir}/wifi" -type f -print0 2>/dev/null)
-        fi
-        if [ -d "${chip_dir}/bt" ]; then
-            while IFS= read -r -d '' f; do
-                install -m 0644 "${f}" "${dest_fw}/"
-                copied=1
-            done < <(find "${chip_dir}/bt" -type f -print0 2>/dev/null)
-        fi
+    install -d "${dest}"
+    if [ -d "${src}/wifi" ] || [ -d "${src}/bt" ]; then
+        [ -d "${src}/wifi" ] && cp -a "${src}/wifi"/. "${dest}"/
+        [ -d "${src}/bt" ] && cp -a "${src}/bt"/. "${dest}"/
     else
-        # Infineon/Realtek flat layout: files directly under chip dir.
-        while IFS= read -r -d '' f; do
-            install -m 0644 "${f}" "${dest_fw}/"
-            copied=1
-        done < <(find "${chip_dir}" -maxdepth 1 -type f -print0 2>/dev/null)
+        # Skip nested documentation-only files; copy real blobs.
+        while IFS= read -r f; do
+            wifibt_is_blob "${f}" || continue
+            rel="${f#"${src}"/}"
+            install -d "${dest}/$(dirname "${rel}")"
+            cp -a "${f}" "${dest}/${rel}"
+        done < <(find "${src}" -type f 2>/dev/null)
     fi
-    [ "${copied}" = "1" ]
 }
 
-# Install firmware into a rootfs tree. Sets WIFIBT_RESOLVED_* metadata.
-install_wifibt_firmware() {
-    local root_dir="${1:-}"
-    local dest_fw chip_dirs_file root chip_dir count primary_fw primary_nvram msg
+wifibt_apply_vendor_symlinks() {
+    local root_dir="$1"
+    local dest_fw="${root_dir}/lib/firmware"
 
-    [ -n "${root_dir}" ] || die "install_wifibt_firmware: root_dir required"
-    resolve_wifibt_config
-
-    # Firmware is driven by WIFIBT_CHIP (board/env), not package tokens.
-    if [ "${WIFIBT_CHIP}" = "none" ]; then
-        if [ "${WIFIBT_REQUIRED}" = "yes" ]; then
-            die "WIFIBT_REQUIRED=yes but WIFIBT_CHIP is none/empty"
-        fi
-        WIFIBT_RESOLVED_SOURCE="skipped"
-        return 0
-    fi
-
-    chip_dirs_file="$(mktemp)"
-    : >"${chip_dirs_file}"
-    for root in $(wifibt_firmware_roots); do
-        wifibt_chip_dirs_for_root "${root}" >>"${chip_dirs_file}" || true
-        if [ -s "${chip_dirs_file}" ]; then
-            WIFIBT_RESOLVED_DIR="${root}"
-            case "${root}" in
-                "${SDK_DIR}/external/rkwifibt/firmware")
-                    WIFIBT_RESOLVED_SOURCE="sdk"
-                    ;;
-                */overlays/wifibt/firmware|"${PROJECT_DIR}/assets/wifibt")
-                    WIFIBT_RESOLVED_SOURCE="assets"
-                    ;;
-                *)
-                    WIFIBT_RESOLVED_SOURCE="${root}"
-                    ;;
-            esac
-            break
-        fi
-    done
-
-    if [ ! -s "${chip_dirs_file}" ]; then
-        rm -f "${chip_dirs_file}"
-        msg="WiFi/BT firmware not found for WIFIBT_CHIP=${WIFIBT_CHIP} (source=${WIFIBT_SOURCE})"
-        if [ "${WIFIBT_REQUIRED}" = "yes" ]; then
-            die "${msg}"
-        fi
-        log_warn "${msg}"
-        log_warn "Searched: $(wifibt_firmware_roots | tr '\n' ' ')"
-        log_warn "Import full BSP external/rkwifibt or run: rootfs/debian/overlays/wifibt/sync-assets.sh"
-        WIFIBT_RESOLVED_SOURCE="missing"
-        return 0
-    fi
-
-    dest_fw="${root_dir}/lib/firmware"
-    install -d "${dest_fw}"
-    if [ "${WIFIBT_FIRMWARE_SYMLINKS:-rockchip-vendor}" = "rockchip-vendor" ]; then
-        install -d "${root_dir}/system/etc"
-    fi
-
-    while IFS= read -r chip_dir; do
-        [ -n "${chip_dir}" ] || continue
-        log_info "Installing WiFi/BT firmware from ${chip_dir}"
-        wifibt_copy_chip_dir "${chip_dir}" "${dest_fw}" || true
-    done <"${chip_dirs_file}"
-    rm -f "${chip_dirs_file}"
-
-    # Count all installed firmware files (AIC lives in a subdirectory).
-    count="$(find "${dest_fw}" -type f \
-        ! -name 'SOURCE.txt' ! -name 'README*' ! -name '*.md' \
-        2>/dev/null | wc -l | tr -d ' ')"
-    WIFIBT_FILE_COUNT="${count}"
-    if [ "${count}" = "0" ]; then
-        msg="WiFi/BT firmware directories were empty for WIFIBT_CHIP=${WIFIBT_CHIP}"
-        if [ "${WIFIBT_REQUIRED}" = "yes" ]; then
-            die "${msg}. Place blobs under rootfs/debian/overlays/wifibt/firmware/ or run overlays/wifibt/sync-assets.sh"
-        fi
-        log_warn "${msg}"
-        log_warn "Found chip dir but no firmware files (SOURCE.txt alone does not count)."
-        log_warn "Populate overlays/wifibt/firmware/aicsemi/${WIFIBT_CHIP}/ or run overlays/wifibt/sync-assets.sh"
-        WIFIBT_RESOLVED_SOURCE="empty"
-        return 0
-    fi
-
-    # Rockchip bcmdhd / AIC drivers look under /vendor/etc/firmware.
-    # Controlled by WIFIBT_FIRMWARE_SYMLINKS in board profile.
     case "${WIFIBT_FIRMWARE_SYMLINKS:-rockchip-vendor}" in
         rockchip-vendor)
-            ln -sfn /lib/firmware "${root_dir}/system/etc/firmware"
+            install -d "${root_dir}/system/etc"
             ln -sfn /system "${root_dir}/vendor"
+            ln -sfn /lib/firmware "${root_dir}/system/etc/firmware"
             ;;
         none)
             log_info "WIFIBT_FIRMWARE_SYMLINKS=none; skipping vendor symlinks"
@@ -332,16 +227,265 @@ install_wifibt_firmware() {
             ;;
     esac
 
-    # Compatibility names used by CONFIG_BCMDHD_*_PATH defaults.
-    primary_fw="$(find "${dest_fw}" -maxdepth 1 -type f -name 'fw_bcm*.bin' ! -name '*_mfg*' ! -name '*_apsta*' 2>/dev/null | sort | head -n 1 || true)"
-    primary_nvram="$(find "${dest_fw}" -maxdepth 1 -type f -name 'nvram_*.txt' 2>/dev/null | sort | head -n 1 || true)"
-    if [ -n "${primary_fw}" ] && [ ! -e "${dest_fw}/fw_bcmdhd.bin" ]; then
-        ln -sfn "$(basename "${primary_fw}")" "${dest_fw}/fw_bcmdhd.bin"
+    # Rockchip bcmdhd often wants fixed names.
+    if [ -d "${dest_fw}" ]; then
+        local primary_fw
+        primary_fw="$(find "${dest_fw}" -maxdepth 1 -type f \( -name 'fw_bcm*.bin' -o -name 'fw_bcmdhd*.bin' \) 2>/dev/null | sort | head -n 1 || true)"
+        if [ -n "${primary_fw}" ] && [ ! -e "${dest_fw}/fw_bcmdhd.bin" ]; then
+            ln -sfn "$(basename "${primary_fw}")" "${dest_fw}/fw_bcmdhd.bin"
+        fi
+        if [ -f "${dest_fw}/nvram_ap6275s.txt" ] && [ ! -e "${dest_fw}/nvram.txt" ]; then
+            ln -sfn nvram_ap6275s.txt "${dest_fw}/nvram.txt"
+        fi
     fi
-    if [ -n "${primary_nvram}" ] && [ ! -e "${dest_fw}/nvram.txt" ]; then
-        ln -sfn "$(basename "${primary_nvram}")" "${dest_fw}/nvram.txt"
-    fi
-
-    log_info "WiFi/BT firmware installed: chip=${WIFIBT_CHIP} source=${WIFIBT_RESOLVED_SOURCE} files=${count}"
 }
 
+# Extract a firmware .deb and map files into rootfs for the selected chip.
+wifibt_install_from_deb() {
+    local root_dir="$1"
+    local deb="$2"
+    local work extract dest_fw sub src_dir
+
+    [ -f "${deb}" ] || return 1
+    work="$(mktemp -d)"
+    extract="${work}/root"
+    mkdir -p "${extract}"
+
+    if command -v dpkg-deb >/dev/null 2>&1; then
+        dpkg-deb -x "${deb}" "${extract}"
+    else
+        # Fallback without dpkg: ar + tar
+        (
+            cd "${work}"
+            ar x "${deb}"
+            if [ -f data.tar.xz ]; then tar -C "${extract}" -xJf data.tar.xz
+            elif [ -f data.tar.gz ]; then tar -C "${extract}" -xzf data.tar.gz
+            elif [ -f data.tar.zst ]; then tar -C "${extract}" --zstd -xf data.tar.zst
+            else die "Cannot extract ${deb}: missing dpkg-deb and unknown data.tar.*"
+            fi
+        )
+    fi
+
+    dest_fw="${root_dir}/lib/firmware"
+    install -d "${dest_fw}"
+    sub="$(wifibt_dest_subdir)"
+
+    if wifibt_is_aic && [ -n "${sub}" ]; then
+        # Radxa aic8800-firmware layout → Rockchip CONFIG_AIC_FW_PATH layout.
+        for src_dir in \
+            "${extract}/lib/firmware/aic8800_fw/SDIO/${sub}" \
+            "${extract}/lib/firmware/aic8800_fw/PCIE/${sub}" \
+            "${extract}/lib/firmware/${sub}" \
+            "${extract}/lib/firmware/aic8800_fw/${sub}"
+        do
+            if wifibt_has_blobs "${src_dir}"; then
+                wifibt_copy_blobs "${src_dir}" "${dest_fw}/${sub}"
+                WIFIBT_RESOLVED_SOURCE="package"
+                WIFIBT_RESOLVED_DIR="${deb}"
+                WIFIBT_FILE_COUNT="$(wifibt_count_files "${dest_fw}/${sub}")"
+                rm -rf "${work}"
+                return 0
+            fi
+        done
+        rm -rf "${work}"
+        return 1
+    fi
+
+    # Generic: take package /lib/firmware payload as-is (plus optional chip subdir).
+    if [ -d "${extract}/lib/firmware" ] && wifibt_has_blobs "${extract}/lib/firmware"; then
+        cp -a "${extract}/lib/firmware"/. "${dest_fw}"/
+        WIFIBT_RESOLVED_SOURCE="package"
+        WIFIBT_RESOLVED_DIR="${deb}"
+        WIFIBT_FILE_COUNT="$(wifibt_count_files "${dest_fw}")"
+        rm -rf "${work}"
+        return 0
+    fi
+
+    rm -rf "${work}"
+    return 1
+}
+
+wifibt_resolve_deb() {
+    local o deb
+    o="$(wifibt_overlay_dir)"
+
+    if [ -n "${WIFIBT_DEB:-}" ]; then
+        deb="${WIFIBT_DEB}"
+        if [[ "${deb}" =~ ^https?:// ]]; then
+            local cache="${o}/packages/.cache"
+            local name
+            name="$(basename "${deb%%\?*}")"
+            [ -n "${name}" ] || name="wifibt-firmware.deb"
+            install -d "${cache}"
+            if [ ! -f "${cache}/${name}" ]; then
+                log_info "Downloading WiFi/BT package: ${deb}"
+                if command -v curl >/dev/null 2>&1; then
+                    curl -fsSL -o "${cache}/${name}.partial" "${deb}"
+                elif command -v wget >/dev/null 2>&1; then
+                    wget -q -O "${cache}/${name}.partial" "${deb}"
+                else
+                    die "Need curl or wget to fetch WIFIBT_DEB=${deb}"
+                fi
+                mv "${cache}/${name}.partial" "${cache}/${name}"
+            fi
+            printf '%s\n' "${cache}/${name}"
+            return 0
+        fi
+        [ -f "${deb}" ] || die "WIFIBT_DEB not found: ${deb}"
+        printf '%s\n' "${deb}"
+        return 0
+    fi
+
+    # Local packages/ directory: prefer names matching chip / aic8800-firmware.
+    if [ -d "${o}/packages" ]; then
+        local match=""
+        if wifibt_is_aic; then
+            match="$(find "${o}/packages" -maxdepth 1 -type f -name 'aic8800-firmware*.deb' 2>/dev/null | sort | tail -n 1 || true)"
+        fi
+        if [ -z "${match}" ]; then
+            match="$(find "${o}/packages" -maxdepth 1 -type f -name '*.deb' 2>/dev/null | sort | tail -n 1 || true)"
+        fi
+        if [ -n "${match}" ]; then
+            printf '%s\n' "${match}"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+wifibt_install_from_static() {
+    local root_dir="$1"
+    local dest_fw="${root_dir}/lib/firmware"
+    local src sub dest
+
+    while IFS= read -r src; do
+        wifibt_has_blobs "${src}" || continue
+        install -d "${dest_fw}"
+        if wifibt_is_aic; then
+            sub="$(wifibt_dest_subdir)"
+            dest="${dest_fw}/${sub}"
+            wifibt_copy_blobs "${src}" "${dest}"
+            WIFIBT_FILE_COUNT="$(wifibt_count_files "${dest}")"
+        else
+            wifibt_copy_blobs "${src}" "${dest_fw}"
+            WIFIBT_FILE_COUNT="$(wifibt_count_files "${dest_fw}")"
+        fi
+        WIFIBT_RESOLVED_SOURCE="firmware"
+        WIFIBT_RESOLVED_DIR="${src}"
+        return 0
+    done < <(wifibt_static_chip_dirs)
+
+    return 1
+}
+
+wifibt_install_from_sdk() {
+    local root_dir="$1"
+    local dest_fw="${root_dir}/lib/firmware"
+    local src sub dest
+
+    while IFS= read -r src; do
+        wifibt_has_blobs "${src}" || continue
+        install -d "${dest_fw}"
+        if wifibt_is_aic; then
+            sub="$(wifibt_dest_subdir)"
+            dest="${dest_fw}/${sub}"
+            wifibt_copy_blobs "${src}" "${dest}"
+            WIFIBT_FILE_COUNT="$(wifibt_count_files "${dest}")"
+        else
+            wifibt_copy_blobs "${src}" "${dest_fw}"
+            WIFIBT_FILE_COUNT="$(wifibt_count_files "${dest_fw}")"
+        fi
+        WIFIBT_RESOLVED_SOURCE="sdk"
+        WIFIBT_RESOLVED_DIR="${src}"
+        return 0
+    done < <(wifibt_sdk_chip_dirs 2>/dev/null || true)
+
+    return 1
+}
+
+install_wifibt_firmware() {
+    local root_dir="$1"
+    local deb msg
+
+    [ -n "${root_dir}" ] || die "install_wifibt_firmware: root_dir required"
+    resolve_wifibt_config
+
+    if [ "${WIFIBT_CHIP}" = "none" ]; then
+        if [ "${WIFIBT_REQUIRED}" = "yes" ]; then
+            die "WIFIBT_REQUIRED=yes but WIFIBT_CHIP is none/empty"
+        fi
+        WIFIBT_RESOLVED_SOURCE="skipped"
+        return 0
+    fi
+
+    case "${WIFIBT_SOURCE}" in
+        package)
+            deb="$(wifibt_resolve_deb)" || {
+                msg="No WiFi/BT package for WIFIBT_CHIP=${WIFIBT_CHIP} (set WIFIBT_DEB or drop .deb under overlays/wifibt/packages/)"
+                [ "${WIFIBT_REQUIRED}" = "yes" ] && die "${msg}"
+                log_warn "${msg}"
+                WIFIBT_RESOLVED_SOURCE="missing"
+                return 0
+            }
+            wifibt_install_from_deb "${root_dir}" "${deb}" || {
+                msg="Failed to install firmware from package ${deb}"
+                [ "${WIFIBT_REQUIRED}" = "yes" ] && die "${msg}"
+                log_warn "${msg}"
+                WIFIBT_RESOLVED_SOURCE="empty"
+                return 0
+            }
+            ;;
+        firmware)
+            wifibt_install_from_static "${root_dir}" || {
+                msg="No static firmware blobs for WIFIBT_CHIP=${WIFIBT_CHIP} under overlays/wifibt/firmware/"
+                [ "${WIFIBT_REQUIRED}" = "yes" ] && die "${msg}"
+                log_warn "${msg}"
+                WIFIBT_RESOLVED_SOURCE="missing"
+                return 0
+            }
+            ;;
+        sdk)
+            wifibt_install_from_sdk "${root_dir}" || {
+                msg="No SDK rkwifibt firmware for WIFIBT_CHIP=${WIFIBT_CHIP}"
+                [ "${WIFIBT_REQUIRED}" = "yes" ] && die "${msg}"
+                log_warn "${msg}"
+                WIFIBT_RESOLVED_SOURCE="missing"
+                return 0
+            }
+            ;;
+        auto)
+            if deb="$(wifibt_resolve_deb 2>/dev/null)"; then
+                wifibt_install_from_deb "${root_dir}" "${deb}" || true
+            fi
+            if [ -z "${WIFIBT_RESOLVED_SOURCE}" ] || [ "${WIFIBT_RESOLVED_SOURCE}" = "" ]; then
+                wifibt_install_from_static "${root_dir}" || true
+            fi
+            if [ -z "${WIFIBT_RESOLVED_SOURCE}" ] || [ "${WIFIBT_RESOLVED_SOURCE}" = "" ]; then
+                wifibt_install_from_sdk "${root_dir}" || true
+            fi
+            if [ -z "${WIFIBT_RESOLVED_SOURCE}" ] || [ "${WIFIBT_RESOLVED_SOURCE}" = "" ]; then
+                msg="WiFi/BT firmware not found for WIFIBT_CHIP=${WIFIBT_CHIP}"
+                if [ "${WIFIBT_REQUIRED}" = "yes" ]; then
+                    die "${msg}. Provide WIFIBT_DEB, packages/*.deb, or files under overlays/wifibt/firmware/${WIFIBT_CHIP}/"
+                fi
+                log_warn "${msg}"
+                log_warn "Place a .deb in overlays/wifibt/packages/ or blobs under overlays/wifibt/firmware/${WIFIBT_CHIP}/"
+                WIFIBT_RESOLVED_SOURCE="missing"
+                return 0
+            fi
+            ;;
+    esac
+
+    if [ "${WIFIBT_FILE_COUNT:-0}" -eq 0 ]; then
+        msg="WiFi/BT firmware install produced zero files for WIFIBT_CHIP=${WIFIBT_CHIP}"
+        if [ "${WIFIBT_REQUIRED}" = "yes" ]; then
+            die "${msg}"
+        fi
+        log_warn "${msg}"
+        WIFIBT_RESOLVED_SOURCE="empty"
+        return 0
+    fi
+
+    wifibt_apply_vendor_symlinks "${root_dir}"
+    log_info "WiFi/BT firmware installed: chip=${WIFIBT_CHIP} source=${WIFIBT_RESOLVED_SOURCE} files=${WIFIBT_FILE_COUNT}"
+}

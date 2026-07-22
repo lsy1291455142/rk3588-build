@@ -381,51 +381,72 @@ check_debian_features() {
 
     (
         WIFIBT_CHIP="AP6275S"
-        WIFIBT_SOURCE="assets"
+        WIFIBT_SOURCE="auto"
         WIFIBT_REQUIRED="no"
         resolve_wifibt_config
         [ "${WIFIBT_CHIP}" = "AP6275S" ] || exit 1
-        [ "${WIFIBT_SOURCE}" = "assets" ] || exit 1
+        [ "${WIFIBT_SOURCE}" = "auto" ] || exit 1
     ) || return 1
 
-    # Prefer overlay-owned firmware tree; legacy assets/wifibt still accepted.
-    wifibt_fw_has_files() {
-        local dir="$1"
-        [ -d "${dir}" ] || return 1
-        [ -n "$(find "${dir}" -type f ! -name 'SOURCE.txt' ! -name 'README*' ! -name '*.md' 2>/dev/null | head -n 1)" ]
-    }
+    (
+        WIFIBT_CHIP="none"
+        WIFIBT_REQUIRED="no"
+        tmp="$(mktemp -d)"
+        install_wifibt_firmware "${tmp}"
+        [ "${WIFIBT_RESOLVED_SOURCE}" = "skipped" ] || exit 1
+        rmdir "${tmp}"
+    ) || return 1
 
-    # Optional install path when firmware assets already contain a chip tree.
-    if wifibt_fw_has_files "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/firmware/broadcom/AP6275S" ||
-        wifibt_fw_has_files "${PROJECT_DIR}/assets/wifibt/broadcom/AP6275S"; then
-        (
-            WIFIBT_CHIP="AP6275S"
-            WIFIBT_SOURCE="assets"
-            WIFIBT_REQUIRED="yes"
-            tmp="$(mktemp -d)"
-            install_wifibt_firmware "${tmp}"
-            [ "${WIFIBT_RESOLVED_SOURCE}" = "assets" ] || exit 1
-            [ "${WIFIBT_FILE_COUNT}" -gt 0 ] || exit 1
-            [ -e "${tmp}/lib/firmware/fw_bcmdhd.bin" ] || [ -e "${tmp}/lib/firmware" ] || exit 1
-            [ -L "${tmp}/vendor" ] || exit 1
-            [ -L "${tmp}/system/etc/firmware" ] || exit 1
-            rm -rf "${tmp}"
-        ) || return 1
-    fi
+    # Static firmware path (synthetic blobs).
+    (
+        o="${PROJECT_DIR}/rootfs/debian/overlays/wifibt"
+        staged="$(mktemp -d)"
+        mkdir -p "${staged}/firmware/AP6275S"
+        : >"${staged}/firmware/AP6275S/fw_bcm43752a2_ag.bin"
+        : >"${staged}/firmware/AP6275S/nvram_ap6275s.txt"
+        # Point overlay dir resolution by using a temp copy of lib? Instead install via
+        # WIFIBT_SOURCE=firmware with files under real overlay firmware dir if empty.
+        # Use package-less firmware mode against a temporary chip dir inside overlay.
+        chip_dir="${o}/firmware/AP6275S"
+        cleanup_chip=0
+        if [ ! -d "${chip_dir}" ] || [ -z "$(find "${chip_dir}" -type f ! -name 'SOURCE.txt' 2>/dev/null | head -n 1)" ]; then
+            mkdir -p "${chip_dir}"
+            : >"${chip_dir}/fw_bcm43752a2_ag.bin"
+            : >"${chip_dir}/nvram_ap6275s.txt"
+            cleanup_chip=1
+        fi
+        WIFIBT_CHIP="AP6275S"
+        WIFIBT_SOURCE="firmware"
+        WIFIBT_REQUIRED="yes"
+        tmp="$(mktemp -d)"
+        install_wifibt_firmware "${tmp}"
+        [ "${WIFIBT_RESOLVED_SOURCE}" = "firmware" ] || exit 1
+        [ "${WIFIBT_FILE_COUNT}" -gt 0 ] || exit 1
+        [ -e "${tmp}/lib/firmware/fw_bcmdhd.bin" ] || [ -f "${tmp}/lib/firmware/fw_bcm43752a2_ag.bin" ] || exit 1
+        [ -L "${tmp}/vendor" ] || exit 1
+        [ -L "${tmp}/system/etc/firmware" ] || exit 1
+        # cleanup synthetic
+        if [ "${cleanup_chip}" = "1" ]; then
+            rm -f "${chip_dir}/fw_bcm43752a2_ag.bin" "${chip_dir}/nvram_ap6275s.txt"
+            rmdir "${chip_dir}" 2>/dev/null || true
+        fi
+        rm -rf "${tmp}" "${staged}"
+    ) || return 1
 
-    if wifibt_fw_has_files "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/firmware/aicsemi/AIC8800D80" ||
-        wifibt_fw_has_files "${PROJECT_DIR}/assets/wifibt/aicsemi/AIC8800D80"; then
+    # Package path: extract Radxa aic8800-firmware layout from a local .deb when present.
+    aic_deb="$(find "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/packages" -maxdepth 1 -type f -name 'aic8800-firmware*.deb' 2>/dev/null | head -n 1 || true)"
+    if [ -n "${aic_deb}" ]; then
         (
             WIFIBT_CHIP="AIC8800D80"
-            WIFIBT_SOURCE="assets"
+            WIFIBT_SOURCE="package"
+            WIFIBT_DEB="${aic_deb}"
             WIFIBT_REQUIRED="yes"
             tmp="$(mktemp -d)"
             install_wifibt_firmware "${tmp}"
-            [ "${WIFIBT_RESOLVED_SOURCE}" = "assets" ] || exit 1
+            [ "${WIFIBT_RESOLVED_SOURCE}" = "package" ] || exit 1
             [ "${WIFIBT_FILE_COUNT}" -gt 0 ] || exit 1
             [ -f "${tmp}/lib/firmware/aic8800D80/fw_patch_table_8800d80_u02.bin" ] || exit 1
             [ -L "${tmp}/vendor" ] || exit 1
-            [ -L "${tmp}/system/etc/firmware" ] || exit 1
             [ "$(readlink "${tmp}/vendor")" = "/system" ] || exit 1
             [ "$(readlink "${tmp}/system/etc/firmware")" = "/lib/firmware" ] || exit 1
             rm -rf "${tmp}"
@@ -508,6 +529,8 @@ check_debian_features() {
     [ -f "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/lib.sh" ] || return 1
     [ -x "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/sync-assets.sh" ] || return 1
     grep -Fq 'install_wifibt_firmware' "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/lib.sh" || return 1
+    grep -Fq 'wifibt_install_from_deb' "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/lib.sh" || return 1
+    grep -Fq -- '--deb-aic' "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/sync-assets.sh" || return 1
     # Core common.sh must not define WiFi/BT helpers anymore.
     if grep -Eq '^(resolve_wifibt_config|install_wifibt_firmware)\(\)' \
         "${PROJECT_DIR}/scripts/lib/common.sh"; then
