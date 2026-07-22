@@ -52,14 +52,14 @@ Built-ins:
 | `firstboot` | Grow rootfs oneshot service/script |
 | `firstboot-info` | MOTD / first-boot banner templates |
 | `network` | If NetworkManager binary present → NM conf+enable; else networkd overlay+enable |
-| `wifibt` | Optional plugin: install firmware deb/blobs + path remap; see `overlays/wifibt/` |
 
 Each plugin exports `plugin_apply root_dir`. Add a new overlay by creating
 `overlays/<name>/plugin.sh` (plus optional static files). Keep package names out
 of plugins; packages come only from `DEBIAN_PACKAGES`.
 
-Host-side WiFi/BT package stage (not a core make target):
-`./rootfs/debian/overlays/wifibt/sync-assets.sh --deb-aic` or `--deb URL_OR_PATH`.
+Board-local WiFi/BT (example: CokePi AIC) lives under
+`boards/<BOARD>/overlay/` and is applied automatically. Stage firmware with:
+`./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh`.
 
 ```bash
 make build-rootfs DEBIAN_OVERLAYS=base,console,firstboot,network
@@ -89,6 +89,7 @@ Executable bit is preserved from the source file (`chmod +x` on scripts).
 
 ```text
 rootfs/debian/boards/rk3588-muse/overlay/etc/issue
+rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/overlay/lib/firmware/aic8800D80/
 ```
 
 Only files you need; empty board dirs are ignored.

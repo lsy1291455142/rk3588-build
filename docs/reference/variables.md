@@ -32,10 +32,6 @@
 | `DEBIAN_PACKAGES` | （空） | 额外 APT 包名（逗号/空格）；空=板级默认/minbase；`none`=强制 minbase |
 | `DEBIAN_OVERLAYS` | （空） | 可选 overlay 插件列表；空=板级默认；`none`=关闭；`all`=全部 |
 | `DEBIAN_EXTRA_PACKAGES` | （空） | 预装额外的 APT 软件包（如 `htop i2c-tools python3-pip docker.io`） |
-| `WIFIBT_CHIP` | `none`（板级可改） | 仅 `wifibt` overlay：`AIC8800D80` / `AP6275S` 等；`none` 跳过 |
-| `WIFIBT_DEB` | （空） | 仅 `wifibt` overlay：固件 `.deb` 路径或 URL |
-| `WIFIBT_SOURCE` | `auto` | 仅 `wifibt` overlay：`auto`（package→firmware→sdk）或 `package`/`firmware`/`sdk` |
-| `WIFIBT_REQUIRED` | `no` | 仅 `wifibt` overlay：`yes` 时找不到固件则失败；`no` 只警告 |
 | `DEBIAN_MIRROR` | `http://deb.debian.org/debian` | Debian 主镜像源 |
 | `DEBIAN_SECURITY_MIRROR` | `http://security.debian.org/debian-security` | 安全更新源 |
 | `DEBIAN_ALLOW_ARCHIVE_FALLBACK` | `yes` | Debian 11 过期时回退到 archive.debian.org |
@@ -44,13 +40,13 @@
 
 `DEBIAN_OVERLAYS` 为空时用板级 `DEBIAN_OVERLAYS_DEFAULT`；`none`/`off`/`-` 强制无插件；`all` 启用 `rootfs/debian/overlays/*`。示例：`base,console,firstboot,network`。
 
-WiFi/BT 在 `rootfs/debian/overlays/wifibt/`：装固件包并做路径适配。推荐：
+WiFi/BT 固件是板级静态 overlay，不在通用变量里控制。CokePi：
 
 ```bash
-./rootfs/debian/overlays/wifibt/sync-assets.sh --deb-aic   # AIC
-# 或 --deb URL_OR_PATH / --from-bsp /path/to/bsp CHIP
-make build-rootfs ... DEBIAN_OVERLAYS=...,wifibt WIFIBT_CHIP=AIC8800D80
+./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
+make build-rootfs
 ```
+
 
 ## 构建变量
 
@@ -94,10 +90,7 @@ ROOTFS=debian
 # 可选覆盖
 DEBIAN_RELEASE=13
 DEBIAN_PACKAGES=network-manager,wpasupplicant,i2c-tools
-DEBIAN_OVERLAYS=base,console,firstboot,firstboot-info,network,wifibt
-WIFIBT_CHIP=AP6275S
-WIFIBT_SOURCE=auto
-WIFIBT_REQUIRED=no
+DEBIAN_OVERLAYS=base,console,firstboot,firstboot-info,network
 ROOTFS_USERNAME=admin
 ROOTFS_PASSWORD=mysecret
 JOBS=8

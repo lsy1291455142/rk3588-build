@@ -69,4 +69,3 @@ plugin_apply() {
 | `firstboot` | 首次启动 rootfs 扩容 | `overlay/` |
 | `firstboot-info` | MOTD / 首次启动 banner | `overlay/` (模板) |
 | `network` | NM / networkd 自适应网络配置 | `overlay-nm/`, `overlay-networkd/` |
-| `wifibt` | WiFi/BT 固件安装与路径适配 | `lib.sh` + `firmware/` + `packages/` |

@@ -212,7 +212,7 @@ depmod -b "${ROOT_DIR}" "${KERNEL_RELEASE}"
 chroot "${ROOT_DIR}" /bin/true ||
     die "Debian userspace is not executable after installing kernel modules"
 
-# Custom firmware blobs (WiFi/BT firmware is applied by overlays/wifibt plugin)
+# Custom firmware blobs (assets/firmware + board firmware dirs)
 install_firmware "${ROOT_DIR}"
 
 enable_unit() {
@@ -258,7 +258,7 @@ enable_unit() {
     die "Unable to enable Debian systemd unit: ${unit}"
 }
 
-# Optional overlay plugins (network/firstboot/console/wifibt/...).
+# Optional overlay plugins (network/firstboot/console/...).
 run_debian_overlay_plugins "${ROOT_DIR}"
 
 VERIFY_UNITS=(multi-user.target)
@@ -340,9 +340,6 @@ write_common_metadata "${VARIANT_OUTPUT}/rootfs-build-info.txt" \
     "debian_overlays=${DEBIAN_OVERLAYS:-}" \
     "hostname=${ROOTFS_HOSTNAME}" \
     "network_stack=$(if [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/NetworkManager.service" ]; then printf NetworkManager; elif [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/systemd-networkd.service" ]; then printf systemd-networkd; else printf none; fi)" \
-    "wifibt_chip=${WIFIBT_CHIP:-none}" \
-    "wifibt_source=${WIFIBT_RESOLVED_SOURCE:-skipped}" \
-    "wifibt_files=${WIFIBT_FILE_COUNT:-0}" \
     "kernel_release=${KERNEL_RELEASE}" \
     "username=${ROOTFS_USERNAME}" \
     "root_login=enabled" \

@@ -57,7 +57,6 @@ make build-rootfs DEBIAN_EXTRA_PACKAGES=htop,python3-pip
 | `firstboot` | 首次启动扩容 rootfs |
 | `firstboot-info` | 首次启动串口摘要 + MOTD |
 | `network` | 有 `/usr/sbin/NetworkManager` → 写 NM conf 并启用；否则启用 systemd-networkd + 有线 DHCP |
-| `wifibt` | 可选插件：装固件 deb/blobs 并做路径适配（见 overlays/wifibt） |
 
 ```bash
 make build-rootfs DEBIAN_OVERLAYS=base,console,firstboot,network
@@ -68,32 +67,21 @@ make build-rootfs DEBIAN_OVERLAYS=all
 插件只做镜像布局需要的 enable（串口 getty、firstboot、NM 与 networkd 互斥等）。
 常规 deb 包 postinst / systemd preset 仍按 Debian 自身逻辑处理。
 
-## WiFi/BT 固件（`wifibt` overlay）
+## WiFi/BT 固件（板级 overlay）
 
-与 `htop`/`network-manager` 同类：**装固件包 + 路径适配**。逻辑只在
-`rootfs/debian/overlays/wifibt/`，构建核心不参与。仅 `DEBIAN_OVERLAYS` 含 `wifibt` 时生效。
+WiFi/BT 不是通用插件，也不进 `DEBIAN_PACKAGES`。板型附件放在
+`rootfs/debian/boards/<BOARD>/overlay/`，构建时自动拷贝。
 
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `WIFIBT_CHIP` | `none` | `none` 跳过；或 `AIC8800D80` / `AP6275S` 等 |
-| `WIFIBT_DEB` | （空） | 固件 `.deb` 路径或 URL；也可放 `overlays/wifibt/packages/` |
-| `WIFIBT_SOURCE` | `auto` | `auto`：package → firmware/ → SDK；或强制 `package`/`firmware`/`sdk` |
-| `WIFIBT_REQUIRED` | `no` | `yes` 时固件缺失失败 |
+CokePi Model（RK3588S）示例：
 
 ```bash
-# CokePi / AIC：拉 Radxa aic8800-firmware deb（推荐）
-./rootfs/debian/overlays/wifibt/sync-assets.sh --deb-aic
-
-make build-rootfs \
-  DEBIAN_PACKAGES=network-manager,wpasupplicant \
-  DEBIAN_OVERLAYS=base,console,firstboot,network,wifibt \
-  WIFIBT_CHIP=AIC8800D80
-
-# 其它模组：有 deb 就 --deb；否则静态文件
-./rootfs/debian/overlays/wifibt/sync-assets.sh --deb /path/to/vendor-firmware.deb
-# 或
-./rootfs/debian/overlays/wifibt/sync-assets.sh --from-bsp /path/to/full-bsp AP6275S
+./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
+make build-rootfs
 ```
 
-插件会做驱动路径 remap（如 AIC → `/lib/firmware/aic8800D80/` + `/vendor` 链）。
-详见 [overlays/wifibt/README.md](../../rootfs/debian/overlays/wifibt/README.md)。
+这会把 Radxa `aic8800-firmware` deb 解包并 remap 到
+`overlay/lib/firmware/aic8800D80/`，同时带上 Rockchip `/vendor` 兼容链。
+未 stage 时 rootfs 仍可构建，只是没有可用固件 blob。
+
+详见 [boards/rk3588s-cokepi-model-lp4-v10/README.md](../../rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/README.md)。
+

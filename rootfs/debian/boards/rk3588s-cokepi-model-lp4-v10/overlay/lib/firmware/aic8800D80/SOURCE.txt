@@ -1,0 +1,14 @@
+AIC8800D80 firmware for CokePi Model LP4 V1.0 (RK3588S).
+
+Stage from Radxa aic8800-firmware deb (host-side, not during build):
+
+  ./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
+
+Or:
+  ./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh \
+    /path/to/aic8800-firmware_*.deb
+
+This populates lib/firmware/aic8800D80/ from the deb's
+  lib/firmware/aic8800_fw/SDIO/aic8800D80/
+
+SOURCE.txt alone is not firmware; WiFi needs the staged blobs.

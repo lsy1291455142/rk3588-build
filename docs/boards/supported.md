@@ -63,13 +63,21 @@ make use-board BOARD=rk3588s-cokepi-model-lp4-v10
 
 额外的内核参数：`irqchip.gicv3_pseudo_nmi=0 rcupdate.rcu_expedited=1 rcu_nocbs=all`。
 
+Debian WiFi/BT（Model）：板级静态 overlay
+`rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/`。
+构建前 stage 一次固件：
+
+```bash
+./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
+```
+
 ## MUSE RK3588
 
 Profile：`rk3588-muse`
 
 MUSE RK3588 开发板（eMMC 启动，LPDDR4X，RK806 + RK860x 电源管理）。内核来自 MUSEInstitute fork 的 `develop-5.10` 分支。
 
-Debian 默认 `DEBIAN_PACKAGES_DEFAULT="network-manager,wpasupplicant,i2c-tools,usbutils,pciutils,mmc-utils"`，`DEBIAN_OVERLAYS_DEFAULT` 含 base/console/firstboot/network/wifibt，hostname 默认 `muse`。
+Debian 默认 `DEBIAN_PACKAGES_DEFAULT="network-manager,wpasupplicant,i2c-tools,usbutils,pciutils,mmc-utils"`，`DEBIAN_OVERLAYS_DEFAULT` 含 base/console/firstboot/network，hostname 默认 `muse`。
 
 ```bash
 make fetch BOARD=rk3588-muse

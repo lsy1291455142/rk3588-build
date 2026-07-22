@@ -18,17 +18,15 @@
 output/
 out/
 
-# WiFi/BT firmware blobs (optional overlay; legacy assets path still ignored)
-# Preferred: rootfs/debian/overlays/wifibt/firmware/
-rootfs/debian/overlays/wifibt/packages/**
-!rootfs/debian/overlays/wifibt/packages/**/
-!rootfs/debian/overlays/wifibt/packages/.gitkeep
-rootfs/debian/overlays/wifibt/firmware/**
-!rootfs/debian/overlays/wifibt/firmware/**/
-!rootfs/debian/overlays/wifibt/firmware/.gitkeep
-!rootfs/debian/overlays/wifibt/firmware/**/SOURCE.txt
-# Legacy fallback path
-# Ignore blob files, but keep directory markers and SOURCE.txt provenance notes.
+# Board-local WiFi/BT firmware blobs (CokePi AIC; large binaries not in git)
+# Stage with: rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
+rootfs/debian/boards/*/packages/**
+!rootfs/debian/boards/*/packages/**/
+!rootfs/debian/boards/*/packages/.gitkeep
+rootfs/debian/boards/*/overlay/lib/firmware/**
+!rootfs/debian/boards/*/overlay/lib/firmware/**/
+!rootfs/debian/boards/*/overlay/lib/firmware/**/SOURCE.txt
+# Legacy assets path (ignore blobs; keep markers)
 assets/wifibt/**
 !assets/wifibt/**/
 !assets/wifibt/.gitkeep

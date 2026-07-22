@@ -96,7 +96,7 @@
 4. 创建用户/密码，写入 hostname
 5. 应用板级 `rootfs/debian/boards/<board>/overlay/`（若有）
 6. 安装内核模块并 `depmod`；安装 `assets/firmware` / 板级 firmware
-7. 按 `DEBIAN_OVERLAYS` 顺序运行 `rootfs/debian/overlays/<name>/plugin.sh`（网络/firstboot/console/wifibt 等）
+7. 按 `DEBIAN_OVERLAYS` 顺序运行 `rootfs/debian/overlays/<name>/plugin.sh`（网络/firstboot/console 等）
 8. 校验已启用的 systemd unit / usrmerge 布局（有 sshd 时校验 ssh）
 9. 打包 `rootfs.ext4` 与 `rootfs.tar`
 
@@ -106,7 +106,7 @@
 
 `DEBIAN_PACKAGES` 是逗号/空格分隔的真实 APT 包名。写什么装什么。不指定时用板级 `DEBIAN_PACKAGES_DEFAULT`，否则 minbase。`DEBIAN_PACKAGES=none` 强制 minbase。
 
-`DEBIAN_OVERLAYS` 选择可选附件插件（`base`/`console`/`firstboot`/`firstboot-info`/`network`/`wifibt`）。空则用板级 `DEBIAN_OVERLAYS_DEFAULT`；`none` 强制无插件；`all` 启用全部。
+`DEBIAN_OVERLAYS` 选择可选附件插件（`base`/`console`/`firstboot`/`firstboot-info`/`network`）。空则用板级 `DEBIAN_OVERLAYS_DEFAULT`；`none` 强制无插件；`all` 启用全部。
 
 ## 阶段四：image 与 verify-image
 

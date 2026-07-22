@@ -377,7 +377,6 @@ install_custom_firmware() {
 }
 
 # Custom firmware blobs only (assets/firmware + board firmware).
-# Optional WiFi/BT is entirely owned by overlays/wifibt when selected.
 install_firmware() {
     local root_dir="$1"
     install_custom_firmware "${root_dir}"
@@ -566,16 +565,22 @@ expand_overlay_template_text() {
 apply_rootfs_overlay_tree() {
     local root_dir="$1"
     local overlay_src="$2"
-    local src rel dest mode content
+    local src rel dest mode content target
 
     [ -n "${root_dir}" ] || die "apply_rootfs_overlay_tree: root_dir required"
     [ -n "${overlay_src}" ] || die "apply_rootfs_overlay_tree: overlay_src required"
     [ -d "${overlay_src}" ] || return 0
 
+    # Files and symlinks (board overlays may ship Rockchip /vendor firmware links).
     while IFS= read -r -d '' src; do
         rel="${src#"${overlay_src}"/}"
         [ -n "${rel}" ] || continue
-        if [[ "${rel}" == *.in ]]; then
+        if [ -L "${src}" ]; then
+            dest="${root_dir}/${rel}"
+            mkdir -p "$(dirname "${dest}")"
+            target="$(readlink "${src}")"
+            ln -sfn "${target}" "${dest}"
+        elif [[ "${rel}" == *.in ]]; then
             dest="${root_dir}/${rel%.in}"
             mkdir -p "$(dirname "${dest}")"
             content="$(cat "${src}")"
@@ -587,7 +592,7 @@ apply_rootfs_overlay_tree() {
             mkdir -p "$(dirname "${dest}")"
             cp -a "${src}" "${dest}"
         fi
-    done < <(find "${overlay_src}" -type f -print0 | sort -z)
+    done < <(find "${overlay_src}" \( -type f -o -type l \) -print0 | sort -z)
 }
 
 # Apply board-only static tree (no optional plugins). Core build stays pure.

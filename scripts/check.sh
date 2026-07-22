@@ -375,83 +375,45 @@ check_debian_features() {
         return 1
     fi
 
-    # wifibt helpers live in the overlay plugin, not the build core.
-    # shellcheck source=../rootfs/debian/overlays/wifibt/lib.sh
-    source "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/lib.sh"
-
+    # Board-local firmware overlay for CokePi (static tree; no generic wifibt plugin).
     (
-        WIFIBT_CHIP="AP6275S"
-        WIFIBT_SOURCE="auto"
-        WIFIBT_REQUIRED="no"
-        resolve_wifibt_config
-        [ "${WIFIBT_CHIP}" = "AP6275S" ] || exit 1
-        [ "${WIFIBT_SOURCE}" = "auto" ] || exit 1
-    ) || return 1
-
-    (
-        WIFIBT_CHIP="none"
-        WIFIBT_REQUIRED="no"
+        BOARD=rk3588s-cokepi-model-lp4-v10
         tmp="$(mktemp -d)"
-        install_wifibt_firmware "${tmp}"
-        [ "${WIFIBT_RESOLVED_SOURCE}" = "skipped" ] || exit 1
-        rmdir "${tmp}"
-    ) || return 1
-
-    # Static firmware path (synthetic blobs).
-    (
-        o="${PROJECT_DIR}/rootfs/debian/overlays/wifibt"
-        staged="$(mktemp -d)"
-        mkdir -p "${staged}/firmware/AP6275S"
-        : >"${staged}/firmware/AP6275S/fw_bcm43752a2_ag.bin"
-        : >"${staged}/firmware/AP6275S/nvram_ap6275s.txt"
-        # Point overlay dir resolution by using a temp copy of lib? Instead install via
-        # WIFIBT_SOURCE=firmware with files under real overlay firmware dir if empty.
-        # Use package-less firmware mode against a temporary chip dir inside overlay.
-        chip_dir="${o}/firmware/AP6275S"
-        cleanup_chip=0
-        if [ ! -d "${chip_dir}" ] || [ -z "$(find "${chip_dir}" -type f ! -name 'SOURCE.txt' 2>/dev/null | head -n 1)" ]; then
-            mkdir -p "${chip_dir}"
-            : >"${chip_dir}/fw_bcm43752a2_ag.bin"
-            : >"${chip_dir}/nvram_ap6275s.txt"
-            cleanup_chip=1
-        fi
-        WIFIBT_CHIP="AP6275S"
-        WIFIBT_SOURCE="firmware"
-        WIFIBT_REQUIRED="yes"
-        tmp="$(mktemp -d)"
-        install_wifibt_firmware "${tmp}"
-        [ "${WIFIBT_RESOLVED_SOURCE}" = "firmware" ] || exit 1
-        [ "${WIFIBT_FILE_COUNT}" -gt 0 ] || exit 1
-        [ -e "${tmp}/lib/firmware/fw_bcmdhd.bin" ] || [ -f "${tmp}/lib/firmware/fw_bcm43752a2_ag.bin" ] || exit 1
+        apply_debian_board_overlay "${tmp}"
         [ -L "${tmp}/vendor" ] || exit 1
+        [ "$(readlink "${tmp}/vendor")" = "/system" ] || exit 1
         [ -L "${tmp}/system/etc/firmware" ] || exit 1
-        # cleanup synthetic
-        if [ "${cleanup_chip}" = "1" ]; then
-            rm -f "${chip_dir}/fw_bcm43752a2_ag.bin" "${chip_dir}/nvram_ap6275s.txt"
-            rmdir "${chip_dir}" 2>/dev/null || true
-        fi
-        rm -rf "${tmp}" "${staged}"
+        [ "$(readlink "${tmp}/system/etc/firmware")" = "/lib/firmware" ] || exit 1
+        [ -f "${tmp}/lib/firmware/aic8800D80/SOURCE.txt" ] || exit 1
+        rm -rf "${tmp}"
     ) || return 1
 
-    # Package path: extract Radxa aic8800-firmware layout from a local .deb when present.
-    aic_deb="$(find "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/packages" -maxdepth 1 -type f -name 'aic8800-firmware*.deb' 2>/dev/null | head -n 1 || true)"
-    if [ -n "${aic_deb}" ]; then
+    board_fw="${PROJECT_DIR}/rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/overlay/lib/firmware/aic8800D80"
+    if [ -d "${board_fw}" ] && [ -n "$(find "${board_fw}" -type f ! -name 'SOURCE.txt' 2>/dev/null | head -n 1)" ]; then
         (
-            WIFIBT_CHIP="AIC8800D80"
-            WIFIBT_SOURCE="package"
-            WIFIBT_DEB="${aic_deb}"
-            WIFIBT_REQUIRED="yes"
+            BOARD=rk3588s-cokepi-model-lp4-v10
             tmp="$(mktemp -d)"
-            install_wifibt_firmware "${tmp}"
-            [ "${WIFIBT_RESOLVED_SOURCE}" = "package" ] || exit 1
-            [ "${WIFIBT_FILE_COUNT}" -gt 0 ] || exit 1
-            [ -f "${tmp}/lib/firmware/aic8800D80/fw_patch_table_8800d80_u02.bin" ] || exit 1
-            [ -L "${tmp}/vendor" ] || exit 1
-            [ "$(readlink "${tmp}/vendor")" = "/system" ] || exit 1
-            [ "$(readlink "${tmp}/system/etc/firmware")" = "/lib/firmware" ] || exit 1
+            apply_debian_board_overlay "${tmp}"
+            [ -n "$(find "${tmp}/lib/firmware/aic8800D80" -type f ! -name 'SOURCE.txt' 2>/dev/null | head -n 1)" ] || exit 1
             rm -rf "${tmp}"
         ) || return 1
     fi
+
+    # Symlink-capable overlay apply (board overlays may ship vendor links).
+    (
+        src="$(mktemp -d)"
+        dst="$(mktemp -d)"
+        install -d "${src}/lib/firmware" "${src}/system/etc"
+        ln -sfn /system "${src}/vendor"
+        ln -sfn /lib/firmware "${src}/system/etc/firmware"
+        : >"${src}/lib/firmware/demo.bin"
+        apply_rootfs_overlay_tree "${dst}" "${src}"
+        [ -L "${dst}/vendor" ] || exit 1
+        [ "$(readlink "${dst}/vendor")" = "/system" ] || exit 1
+        [ -L "${dst}/system/etc/firmware" ] || exit 1
+        [ -f "${dst}/lib/firmware/demo.bin" ] || exit 1
+        rm -rf "${src}" "${dst}"
+    ) || return 1
 
     # Selected overlay plugins (host unit test, no packages).
     (
@@ -510,34 +472,33 @@ check_debian_features() {
         "${PROJECT_DIR}/configs/boards/rk3588-muse.conf" || return 1
     grep -Fq 'DEBIAN_OVERLAYS_DEFAULT' \
         "${PROJECT_DIR}/configs/boards/rk3588-muse.conf" || return 1
-    grep -Fq 'WIFIBT_CHIP' "${PROJECT_DIR}/configs/boards/rk3588s-cokepi-model-lp4-v10.conf" || return 1
+    [ -d "${PROJECT_DIR}/rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/overlay" ] || return 1
+    [ -x "${PROJECT_DIR}/rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh" ] || return 1
+    grep -Fq 'DEBIAN_OVERLAYS_DEFAULT' "${PROJECT_DIR}/configs/boards/rk3588s-cokepi-model-lp4-v10.conf" || return 1
+    grep -Fq 'wifibt' "${PROJECT_DIR}/configs/boards/rk3588s-cokepi-model-lp4-v10.conf" && return 1
     [ -f "${PROJECT_DIR}/rootfs/debian/overlays/firstboot/overlay/usr/local/sbin/sbc-firstboot" ] || return 1
     [ -f "${PROJECT_DIR}/rootfs/debian/overlays/firstboot/overlay/etc/systemd/system/sbc-firstboot.service" ] || return 1
     [ -f "${PROJECT_DIR}/rootfs/debian/overlays/network/overlay-nm/etc/NetworkManager/conf.d/10-sbc.conf" ] || return 1
     [ -f "${PROJECT_DIR}/rootfs/debian/overlays/firstboot-info/overlay/usr/local/sbin/sbc-firstboot-info.in" ] || return 1
     [ -f "${PROJECT_DIR}/rootfs/debian/overlays/base/plugin.sh" ] || return 1
     [ -f "${PROJECT_DIR}/rootfs/debian/overlays/console/plugin.sh" ] || return 1
-    [ -f "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/plugin.sh" ] || return 1
+    [ ! -e "${PROJECT_DIR}/rootfs/debian/overlays/wifibt" ] || return 1
     grep -Fq 'wifi.scan-rand-mac-address=no' \
         "${PROJECT_DIR}/rootfs/debian/overlays/network/overlay-nm/etc/NetworkManager/conf.d/10-sbc.conf" || return 1
     grep -Fq 'run_debian_overlay_plugins' "${PROJECT_DIR}/scripts/lib/common.sh" || return 1
     if [ -f "${PROJECT_DIR}/Makefile" ] && [ -d "${PROJECT_DIR}/.git" ]; then
-        # Core Makefile must not own WiFi/BT sync; helper lives in the overlay.
+        # Core Makefile must not own WiFi/BT sync or WIFIBT_* knobs.
         grep -Fq 'sync-wifibt-assets' "${PROJECT_DIR}/Makefile" && return 1
+        grep -Eq '^WIFIBT_' "${PROJECT_DIR}/Makefile" && return 1
         grep -Fq 'DEBIAN_OVERLAYS' "${PROJECT_DIR}/Makefile" || return 1
     fi
-    [ -f "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/lib.sh" ] || return 1
-    [ -x "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/sync-assets.sh" ] || return 1
-    grep -Fq 'install_wifibt_firmware' "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/lib.sh" || return 1
-    grep -Fq 'wifibt_install_from_deb' "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/lib.sh" || return 1
-    grep -Fq -- '--deb-aic' "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/sync-assets.sh" || return 1
-    # Core common.sh must not define WiFi/BT helpers anymore.
+    # Core common.sh must not define WiFi/BT helpers.
     if grep -Eq '^(resolve_wifibt_config|install_wifibt_firmware)\(\)' \
         "${PROJECT_DIR}/scripts/lib/common.sh"; then
         return 1
     fi
     if [ -f "${PROJECT_DIR}/docker-compose.yml" ] && [ -d "${PROJECT_DIR}/.git" ]; then
-        grep -Fq 'WIFIBT_CHIP' "${PROJECT_DIR}/docker-compose.yml" || return 1
+        grep -Fq 'WIFIBT_CHIP' "${PROJECT_DIR}/docker-compose.yml" && return 1
         grep -Fq 'DEBIAN_OVERLAYS' "${PROJECT_DIR}/docker-compose.yml" || return 1
     fi
 }

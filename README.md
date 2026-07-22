@@ -16,7 +16,7 @@
 - 配置驱动的多板型支持 — 新增板子只需创建一个 `.conf` 配置文件
 - 用 `repo` manifest 锁定 kernel / u-boot / rkbin / buildroot 四个组件的来源与版本
 - 用板级 defconfig 加共享 fragment 构建内核，产出 Image、DTB 和模块包
-- 用 Buildroot external tree 或 mmdebstrap 生成最小化根文件系统；Debian 额外 APT 包 + plugins（网络/wifibt 等）
+- 用 Buildroot external tree 或 mmdebstrap 生成最小化根文件系统；Debian 额外 APT 包 + plugins（网络/console 等）与板级 overlay
 - 按 GPT 布局组装裸镜像，内置 extlinux 启动配置、SHA-256 校验和与构建元数据
 - 支持板级构建钩子（hooks），可在构建各阶段插入自定义逻辑
 - 用 QEMU virt 机器对 Debian 镜像做完整的串口登录 + SSH + systemd 健康检查
@@ -223,14 +223,13 @@ rk3588-build/
 ├── rootfs/
 │   ├── buildroot/            # Buildroot external tree
 │   └── debian/               # Debian rootfs 附件
-│       ├── boards/           # 板级覆盖（boards/<board>/overlay/，始终应用）
+│       ├── boards/<board>/   # 板级静态附件（始终应用；如 CokePi AIC 固件）
 │       └── overlays/         # 可选功能插件（DEBIAN_OVERLAYS 选择）
 │           ├── base/         #   SSH/udev/resolved
 │           ├── console/      #   串口 getty 波特率
 │           ├── firstboot/    #   首次启动 rootfs 扩容
 │           ├── firstboot-info/ # 首次启动 banner/MOTD
-│           ├── network/      #   NM / networkd 自适应
-│           └── wifibt/       #   WiFi/BT 固件安装
+│           └── network/      #   NM / networkd 自适应
 ├── patches/                  # 可选本地补丁（手动应用）
 ├── docs/                     # VitePress 文档站点
 └── output/                   # 所有构建产物（按板型和 rootfs 分目录）

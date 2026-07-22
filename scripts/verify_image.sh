@@ -259,7 +259,7 @@ else
     # Back-compat: older images without debian_overlays metadata keep previous
     # full-attachment expectations.
     if [ -z "${DEBIAN_OVERLAYS_META}" ] && [ -f "${ROOTFS_META}" ]; then
-        DEBIAN_OVERLAYS_META="base,console,firstboot,firstboot-info,network,wifibt"
+        DEBIAN_OVERLAYS_META="base,console,firstboot,firstboot-info,network"
     fi
     overlay_enabled() {
         local want="$1"
@@ -379,26 +379,6 @@ else
             ;;
     esac
 
-    # WiFi firmware is driven by WIFIBT_* metadata when wifibt overlay ran.
-    WIFIBT_SOURCE_META="$(metadata_value "${ROOTFS_META}" wifibt_source || true)"
-    WIFIBT_FILES_META="$(metadata_value "${ROOTFS_META}" wifibt_files || true)"
-    if overlay_enabled wifibt; then
-        case "${WIFIBT_SOURCE_META}" in
-            skipped|none|missing|empty|'')
-                ;;
-            *)
-                debugfs -R "stat /lib/firmware" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-                    grep -q 'Inode:' || die "Debian wifibt install lacks /lib/firmware"
-                debugfs -R "stat /vendor" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-                    grep -q 'Inode:' || die "Debian wifibt install lacks /vendor link"
-                if [ -n "${WIFIBT_FILES_META}" ] && [ "${WIFIBT_FILES_META}" != "0" ]; then
-                    :
-                else
-                    die "Debian wifibt metadata reports zero firmware files"
-                fi
-                ;;
-        esac
-    fi
 fi
 
 (

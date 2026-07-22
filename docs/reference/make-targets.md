@@ -29,9 +29,7 @@
 | `make verify-sdk-volume SDK_VOLUME=...` | 校验 SDK 完整性 |
 
 > WiFi/BT 固件**不是** Makefile 核心目标。overlay 脚本：
-> `./rootfs/debian/overlays/wifibt/sync-assets.sh --deb-aic`
-> `./rootfs/debian/overlays/wifibt/sync-assets.sh --deb URL_OR_PATH`
-> `./rootfs/debian/overlays/wifibt/sync-assets.sh --from-bsp /path/to/bsp [CHIP]`
+> `./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh`
 
 ## 切换与查看配置
 

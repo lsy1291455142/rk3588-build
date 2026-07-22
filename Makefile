@@ -42,10 +42,6 @@ DEBIAN_PACKAGES ?=
 DEBIAN_FEATURES ?=
 DEBIAN_OVERLAYS ?=
 DEBIAN_EXTRA_PACKAGES ?=
-WIFIBT_CHIP ?=
-WIFIBT_SOURCE ?=
-WIFIBT_REQUIRED ?=
-WIFIBT_DEB ?=
 DEBIAN_MIRROR ?= http://deb.debian.org/debian
 DEBIAN_SECURITY_MIRROR ?= http://security.debian.org/debian-security
 DEBIAN_ALLOW_ARCHIVE_FALLBACK ?= yes
@@ -201,7 +197,7 @@ help:
 		'  make test-debian-all BOARD=... SDK_VOLUME=...' \
 		'  make test-debian-qemu BOARD=... SDK_VOLUME=... DEBIAN_RELEASE=13' \
 		'  DEBIAN_PACKAGES=exact apt names (comma/space); empty=board default/minbase; none=force minbase' \
-		'  DEBIAN_OVERLAYS=optional overlays (base,console,firstboot,firstboot-info,network,wifibt); none|all' \
+		'  DEBIAN_OVERLAYS=optional overlays (base,console,firstboot,firstboot-info,network); none|all' \
 		'' \
 		'Validation:' \
 		'  make check'
@@ -633,10 +629,6 @@ _debian-rootfs: prepare-output debian-preflight
 		-e DEBIAN_PACKAGES="$(if $(strip $(DEBIAN_PACKAGES)),$(DEBIAN_PACKAGES),$(DEBIAN_FEATURES))" \
 		-e DEBIAN_OVERLAYS="$(DEBIAN_OVERLAYS)" \
 		-e DEBIAN_EXTRA_PACKAGES="$(DEBIAN_EXTRA_PACKAGES)" \
-		-e WIFIBT_CHIP="$(WIFIBT_CHIP)" \
-		-e WIFIBT_SOURCE="$(WIFIBT_SOURCE)" \
-		-e WIFIBT_REQUIRED="$(WIFIBT_REQUIRED)" \
-		-e WIFIBT_DEB="$(WIFIBT_DEB)" \
 		-e DEBIAN_MIRROR="$(DEBIAN_MIRROR)" \
 		-e DEBIAN_SECURITY_MIRROR="$(DEBIAN_SECURITY_MIRROR)" \
 		-e DEBIAN_ALLOW_ARCHIVE_FALLBACK="$(DEBIAN_ALLOW_ARCHIVE_FALLBACK)" \
