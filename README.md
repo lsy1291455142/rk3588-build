@@ -149,15 +149,19 @@ post_make_image()     { echo "自定义镜像组装后处理"; }
 
 ### 2. 预装自定义硬件固件 (Firmware)
 
-把任何固件文件或文件夹放进项目根目录的 `assets/firmware/`，构建时会自动同步到 Rootfs 的 `/lib/firmware/`：
+静态硬件固件直接放入板级或插件的 `overlay/lib/firmware/` 目录中，构建时会自动平铺同步到 Rootfs 的 `/lib/firmware/` 目录：
 
-```
-assets/firmware/
-├── my_custom_firmware.bin
-└── rtl_bt/
+```text
+rootfs/debian/boards/<my-board>/
+└── overlay/
+    └── lib/
+        └── firmware/
+            ├── my_custom_firmware.bin
+            └── rtl_bt/
 ```
 
-若是板型专属固件，也可放在 `configs/boards/<board>/firmware/` 下。
+若是特定模组的动态固件（如从 `.deb` 包提取），可通过板级插件 `plugin.sh` 脚本在构建时自动解包并生成到该板型的 `overlay/` 树中。
+
 
 ## 文档
 

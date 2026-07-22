@@ -96,7 +96,7 @@ Executable bit is preserved from the source file (`chmod +x` on scripts).
 - Package selection (`mmdebstrap` / `DEBIAN_PACKAGES`)
 - User/password/hostname generation
 - Kernel modules extract + `depmod`
-- Custom firmware from `assets/firmware` / board `firmware/`
+- Custom firmware via board/plugin overlay (`overlay/lib/firmware/`)
 - Overlay selection + `plugin_apply` dispatch
 - systemd unit enable helpers + image packing
 

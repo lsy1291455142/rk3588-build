@@ -95,7 +95,7 @@
 3. 用 `mmdebstrap --variant=minbase` 构建最小化 Debian rootfs，并安装基础包 + 额外包
 4. 创建用户/密码，写入 hostname
 5. 运行板级 `boards/<board>/plugin.sh`（`board_plugin_apply`）或静态拷贝 `overlay/`
-6. 安装内核模块并 `depmod`；安装 `assets/firmware` / 板级 firmware
+6. 安装内核模块并 `depmod`；应用板级与插件 Overlay（含 `overlay/lib/firmware/` 硬件固件）
 7. 按 `DEBIAN_OVERLAYS` 顺序运行 `rootfs/debian/overlays/<name>/plugin.sh`（网络/firstboot/console 等）
 8. 校验已启用的 systemd unit / usrmerge 布局（有 sshd 时校验 ssh）
 9. 打包 `rootfs.ext4` 与 `rootfs.tar`

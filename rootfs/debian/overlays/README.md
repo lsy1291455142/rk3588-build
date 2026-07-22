@@ -9,20 +9,22 @@
 overlays/<name>/
 ├── plugin.sh              # 必须：导出 plugin_apply(root_dir)
 ├── overlay/               # 推荐：静态文件树（自动复制到 rootfs 对应路径）
-│   └── etc/...            #   支持 *.in 模板（@BOARD@ 等占位符自动展开）
+│   ├── etc/...            #   支持 *.in 模板（@BOARD@ 等占位符自动展开）
+│   └── lib/firmware/...   #   硬件固件存放点（自动安装到 /lib/firmware/）
 ├── lib.sh                 # 可选：复杂逻辑拆分到库文件
 └── README.md              # 可选：插件说明
 ```
 
-### 命名规则
+### 命名规则与固件说明
 
 | 情况 | 目录名 | 说明 |
 |------|--------|------|
-| 默认 | `overlay/` | 单一静态文件树，用 `apply_rootfs_overlay_tree` 应用 |
+| 默认文件 | `overlay/` | 静态文件树，用 `apply_rootfs_overlay_tree` 应用 |
 | 条件分支 | `overlay-<variant>/` | 运行时选择不同子树（如 `network` 的 NM vs networkd） |
+| 硬件固件 | `overlay/lib/firmware/` | 任何静态固件文件（`.bin` / `.fw` 等）直接放入此路径 |
 
 **不要**使用 `templates/`、`files/` 等非标准目录名放静态文件。模板文件（`.in`
-后缀）直接放在 `overlay/` 中即可——`apply_rootfs_overlay_tree` 会自动检测并展开。
+后缀）直接放在 `overlay/` 中即可——`apply_rootfs_overlay_tree` 会自动检测并展开。例如自定义驱动固件可直接放置于 `overlay/lib/firmware/my_driver.bin`。
 
 ## plugin.sh 接口契约
 

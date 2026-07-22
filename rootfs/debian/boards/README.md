@@ -10,11 +10,14 @@ directory here (no `DEBIAN_OVERLAYS` selection).
 boards/<BOARD>/
 ├── plugin.sh              # optional: export board_plugin_apply(root_dir)
 ├── overlay/               # optional: static file tree
-│   └── ...                #   supports *.in templates; symlinks preserved
+│   ├── lib/firmware/...   #   board-specific static firmware files
+│   └── etc/...            #   supports *.in templates; symlinks preserved
 ├── lib-*.sh               # optional: board-local helpers
 ├── packages/              # optional: local .deb cache (gitignored)
 └── README.md              # optional: board notes
 ```
+
+Static firmware files for this board (such as `.bin` or `.fw` blobs) can be placed directly under `overlay/lib/firmware/`. Dynamic firmware (e.g. extracted from `.deb` packages) can be staged by `board_plugin_apply()` inside `plugin.sh`.
 
 `<BOARD>` must match `configs/boards/<BOARD>.conf` / the active `BOARD` value.
 
