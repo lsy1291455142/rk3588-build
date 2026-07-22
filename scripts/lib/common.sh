@@ -279,69 +279,58 @@ resolve_debian_release() {
     esac
 }
 
-# Optional Debian package feature sets. Empty keeps minbase-only rootfs.
-# Known tokens: nm, hwdebug, tools, firstboot-info, wifibt, all
-resolve_debian_features() {
-    local raw token
+# Optional extra APT packages for Debian rootfs. Empty keeps minbase-only packages.
+# Values are exact package names (comma/space separated). No feature aliases.
+# Legacy aliases (nm, hwdebug, tools, firstboot-info, wifibt, all) are rejected.
+# Project behavior (NM conf, firstboot banner, WiFi firmware) lives in plugins.
+resolve_debian_packages() {
+    local raw token pkg
     local -a requested=()
-    local -a expanded=()
-    local -A seen=()
+    local -A seen_pkgs=()
+    local -a deduped=()
     DEBIAN_CUSTOM_PACKAGES=()
 
-    raw="${DEBIAN_FEATURES:-}"
-    raw="${raw//[[:space:]]/}"
+    # DEBIAN_PACKAGES is canonical; DEBIAN_FEATURES is accepted as a legacy alias.
+    raw="${DEBIAN_PACKAGES:-${DEBIAN_FEATURES:-}}"
+    raw="${raw//[[:space:]]/,}"
     raw="${raw//+/,}"
     raw="${raw//;/,}"
+    while [[ "${raw}" == *,,* ]]; do
+        raw="${raw//,,/,}"
+    done
+    raw="${raw#,}"
+    raw="${raw%,}"
     case "${raw}" in
         none|minbase|off|-)
             raw=""
             ;;
     esac
     if [ -z "${raw}" ]; then
+        DEBIAN_PACKAGES=""
         DEBIAN_FEATURES=""
-        DEBIAN_FEATURE_LIST=""
-        DEBIAN_HAS_NM=0
-        DEBIAN_HAS_HWDEBUG=0
-        DEBIAN_HAS_TOOLS=0
-        DEBIAN_HAS_FIRSTBOOT_INFO=0
-        DEBIAN_HAS_WIFIBT=0
         return 0
     fi
 
     IFS=',' read -r -a requested <<<"${raw}"
     for token in "${requested[@]}"; do
+        token="${token//[[:space:]]/}"
         [ -n "${token}" ] || continue
         case "${token}" in
-            all)
-                DEBIAN_CUSTOM_PACKAGES+=(network-manager wpasupplicant i2c-tools usbutils pciutils mmc-utils tmux htop strace)
-                DEBIAN_HAS_FIRSTBOOT_INFO=1
-                DEBIAN_HAS_WIFIBT=1
+            nm|hwdebug|hw-debug|debug-hw|tools|devtools|firstboot-info|firstboot|motd|wifibt|wifi|wifi-bt|wifi_bt|all)
+                die "DEBIAN_PACKAGES no longer accepts feature alias '${token}'. Use real apt package names (e.g. network-manager,wpasupplicant,i2c-tools). WiFi firmware is controlled by WIFIBT_CHIP; firstboot/network policy live in rootfs/debian/plugins/."
                 ;;
-            nm|network-manager|networkmanager)
-                DEBIAN_CUSTOM_PACKAGES+=(network-manager)
+            networkmanager)
+                die "Use apt package name 'network-manager' (not '${token}')."
                 ;;
-            hwdebug|hw-debug|debug-hw)
-                DEBIAN_CUSTOM_PACKAGES+=(i2c-tools usbutils pciutils mmc-utils)
-                ;;
-            tools|devtools)
-                DEBIAN_CUSTOM_PACKAGES+=(tmux htop strace)
-                ;;
-            firstboot-info|firstboot|motd)
-                DEBIAN_HAS_FIRSTBOOT_INFO=1
-                ;;
-            wifibt|wifi|wifi-bt|wifi_bt)
-                DEBIAN_HAS_WIFIBT=1
+            *[!a-zA-Z0-9.+~:_-]*)
+                die "Invalid Debian package name: ${token}"
                 ;;
             *)
-                # Direct APT package name
                 DEBIAN_CUSTOM_PACKAGES+=("${token}")
                 ;;
         esac
     done
 
-    # Deduplicate custom packages
-    local -A seen_pkgs=()
-    local -a deduped=()
     for pkg in "${DEBIAN_CUSTOM_PACKAGES[@]}"; do
         [ -n "${pkg}" ] || continue
         [ -z "${seen_pkgs[${pkg}]+x}" ] || continue
@@ -349,11 +338,26 @@ resolve_debian_features() {
         deduped+=("${pkg}")
     done
     DEBIAN_CUSTOM_PACKAGES=("${deduped[@]}")
-    DEBIAN_FEATURES="$(IFS=,; printf '%s' "${DEBIAN_CUSTOM_PACKAGES[*]}")"
+    DEBIAN_PACKAGES="$(IFS=,; printf '%s' "${DEBIAN_CUSTOM_PACKAGES[*]}")"
+    # Keep debian_features metadata field populated with the package list.
+    DEBIAN_FEATURES="${DEBIAN_PACKAGES}"
 }
 
-debian_feature_packages() {
+# Back-compat wrapper name used by older call sites / tests.
+resolve_debian_features() {
+    resolve_debian_packages
+}
+
+debian_package_list() {
+    if [ "${#DEBIAN_CUSTOM_PACKAGES[@]}" -eq 0 ]; then
+        return 0
+    fi
     printf '%s\n' "${DEBIAN_CUSTOM_PACKAGES[@]}"
+}
+
+# Back-compat name.
+debian_feature_packages() {
+    debian_package_list
 }
 
 # WiFi/BT firmware install for Debian rootfs.
@@ -580,18 +584,12 @@ install_wifibt_firmware() {
     [ -n "${root_dir}" ] || die "install_wifibt_firmware: root_dir required"
     resolve_wifibt_config
 
-    if [ "${DEBIAN_HAS_WIFIBT:-0}" != "1" ]; then
-        WIFIBT_RESOLVED_SOURCE="skipped"
-        return 0
-    fi
-
+    # Firmware is driven by WIFIBT_CHIP (board/env), not package tokens.
     if [ "${WIFIBT_CHIP}" = "none" ]; then
         if [ "${WIFIBT_REQUIRED}" = "yes" ]; then
-            die "wifibt feature enabled but WIFIBT_CHIP is none/empty"
+            die "WIFIBT_REQUIRED=yes but WIFIBT_CHIP is none/empty"
         fi
-        log_warn "wifibt feature enabled but WIFIBT_CHIP is none; skipping firmware install"
-        log_warn "Set board WIFIBT_CHIP (e.g. AIC8800D80 or AP6275S)"
-        WIFIBT_RESOLVED_SOURCE="none"
+        WIFIBT_RESOLVED_SOURCE="skipped"
         return 0
     fi
 
@@ -702,10 +700,10 @@ install_custom_firmware() {
     done
 }
 
-# Single unified firmware installation entrypoint
+# Custom firmware blobs (assets/firmware + board firmware).
+# WiFi/BT firmware is installed by rootfs/debian/plugins/20-wifibt.sh.
 install_firmware() {
     local root_dir="$1"
-    install_wifibt_firmware "${root_dir}"
     install_custom_firmware "${root_dir}"
 }
 
@@ -777,7 +775,7 @@ metadata_value() {
 
 # ---------------------------------------------------------------------------
 # Debian rootfs overlays (static files + feature/board trees)
-# Layout: rootfs/debian/{overlay,overlay-networkd,features/*/overlay,boards/*/overlay}
+# Layout: rootfs/debian/{overlay,boards/*/overlay,plugins/*}
 # Files ending in .in are templates with @VAR@ placeholders.
 # ---------------------------------------------------------------------------
 debian_rootfs_dir() {
@@ -806,14 +804,15 @@ run_debian_plugins() {
 # Expand @PLACEHOLDER@ tokens using current board/rootfs shell variables.
 expand_overlay_template_text() {
     local content="$1"
-    local features_value="${DEBIAN_FEATURES:-none}"
-    [ -n "${features_value}" ] || features_value="none"
+    local packages_value="${DEBIAN_PACKAGES:-${DEBIAN_FEATURES:-none}}"
+    [ -n "${packages_value}" ] || packages_value="none"
 
     content="${content//@BOARD@/${BOARD:-}}"
     content="${content//@BOARD_DESCRIPTION@/${BOARD_DESCRIPTION:-}}"
     content="${content//@ROOTFS_HOSTNAME@/${ROOTFS_HOSTNAME:-${BOARD:-sbc}}}"
     content="${content//@KERNEL_DTB@/${KERNEL_DTB:-}}"
-    content="${content//@DEBIAN_FEATURES@/${features_value}}"
+    content="${content//@DEBIAN_FEATURES@/${packages_value}}"
+    content="${content//@DEBIAN_PACKAGES@/${packages_value}}"
     content="${content//@CONSOLE_DEVICE@/${CONSOLE_DEVICE:-}}"
     content="${content//@CONSOLE_SPEED@/${CONSOLE_SPEED:-}}"
     content="${content//@ROOTFS_USERNAME@/${ROOTFS_USERNAME:-}}"
@@ -851,11 +850,11 @@ apply_rootfs_overlay_tree() {
     done < <(find "${overlay_src}" -type f -print0 | sort -z)
 }
 
-# Apply layered Debian overlays for the current BOARD / DEBIAN_FEATURES.
+# Apply core Debian overlays for the current BOARD.
+# Network/firstboot/wifibt extras are applied by rootfs/debian/plugins/*.
 apply_debian_rootfs_overlays() {
     local root_dir="$1"
-    local base feature board_overlay
-    local -a features=()
+    local base board_overlay
 
     [ -n "${root_dir}" ] || die "apply_debian_rootfs_overlays: root_dir required"
     base="$(debian_rootfs_dir)"
@@ -863,27 +862,6 @@ apply_debian_rootfs_overlays() {
 
     log_info "Applying Debian overlays from ${base}"
     apply_rootfs_overlay_tree "${root_dir}" "${base}/overlay"
-
-    if [ "${DEBIAN_HAS_NM:-0}" = "1" ]; then
-        apply_rootfs_overlay_tree "${root_dir}" "${base}/features/nm/overlay"
-    else
-        apply_rootfs_overlay_tree "${root_dir}" "${base}/overlay-networkd"
-    fi
-
-    if [ -n "${DEBIAN_FEATURE_LIST:-}" ]; then
-        IFS=',' read -r -a features <<<"${DEBIAN_FEATURE_LIST}"
-        for feature in "${features[@]}"; do
-            [ -n "${feature}" ] || continue
-            # nm handled above for mutual exclusion with networkd; still allow
-            # re-applying is fine (same files). Skip empty feature dirs.
-            case "${feature}" in
-                nm) continue ;; # already applied
-                wifibt) continue ;; # firmware via install_wifibt_firmware
-            esac
-            apply_rootfs_overlay_tree "${root_dir}" \
-                "${base}/features/${feature}/overlay"
-        done
-    fi
 
     board_overlay="${base}/boards/${BOARD}/overlay"
     if [ -d "${board_overlay}" ]; then

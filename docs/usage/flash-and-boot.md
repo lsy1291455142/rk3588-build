@@ -99,7 +99,7 @@ ssh rk3588@<board-ip>
 
 ## 首次启动信息（Debian）
 
-如果板级 profile 启用了 `firstboot-info` feature（如 MUSE 默认开启），首次启动完成后串口会打印一段板型摘要，后续每次登录的 MOTD 也会显示板型信息。
+默认启用 firstboot-info 插件时，首次启动完成后串口会打印一段板型摘要，后续每次登录的 MOTD 也会显示板型信息（可用 `DEBIAN_FIRSTBOOT_INFO=no` 关闭）。
 
 ## 修改默认账号密码
 

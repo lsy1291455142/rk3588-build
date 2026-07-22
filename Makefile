@@ -38,7 +38,9 @@ DEBIAN_RELEASE ?= 13
 ROOTFS_USERNAME ?= user
 ROOTFS_PASSWORD ?= password
 ROOTFS_HOSTNAME ?=
+DEBIAN_PACKAGES ?=
 DEBIAN_FEATURES ?=
+DEBIAN_EXTRA_PACKAGES ?=
 WIFIBT_CHIP ?=
 WIFIBT_SOURCE ?=
 WIFIBT_REQUIRED ?=
@@ -192,12 +194,12 @@ help:
 		'  make build-rootfs [BOARD=...] [SDK_VOLUME=...] [ROOTFS=...]' \
 		'' \
 		'Complete images (BOARD, SDK_VOLUME, and ROOTFS required):' \
-		'  make build-all [DEBIAN_RELEASE=13] [DEBIAN_FEATURES=nm,hwdebug,wifibt]' \
+		'  make build-all [DEBIAN_RELEASE=13] [DEBIAN_PACKAGES=network-manager,wpasupplicant]' \
 		'  make image' \
 		'  make verify-image' \
 		'  make test-debian-all BOARD=... SDK_VOLUME=...' \
 		'  make test-debian-qemu BOARD=... SDK_VOLUME=... DEBIAN_RELEASE=13' \
-		'  DEBIAN_FEATURES=nm,hwdebug,tools,firstboot-info,wifibt|all; empty=board default/minbase; none=force minbase' \
+		'  DEBIAN_PACKAGES=exact apt names (comma/space); empty=board default/minbase; none=force minbase' \
 		'' \
 		'Validation:' \
 		'  make check'
@@ -671,7 +673,8 @@ _debian-rootfs: prepare-output debian-preflight
 		-e ROOTFS_USERNAME="$(ROOTFS_USERNAME)" \
 		-e ROOTFS_PASSWORD="$(ROOTFS_PASSWORD)" \
 		-e ROOTFS_HOSTNAME="$(ROOTFS_HOSTNAME)" \
-		-e DEBIAN_FEATURES="$(DEBIAN_FEATURES)" \
+		-e DEBIAN_PACKAGES="$(if $(strip $(DEBIAN_PACKAGES)),$(DEBIAN_PACKAGES),$(DEBIAN_FEATURES))" \
+		-e DEBIAN_EXTRA_PACKAGES="$(DEBIAN_EXTRA_PACKAGES)" \
 		-e WIFIBT_CHIP="$(WIFIBT_CHIP)" \
 		-e WIFIBT_SOURCE="$(WIFIBT_SOURCE)" \
 		-e WIFIBT_REQUIRED="$(WIFIBT_REQUIRED)" \

@@ -52,7 +52,7 @@ CokePi Plus 和 Model 共用 SDK 但 DTB 不同，必须按板子丝印选择 pr
 | `EXPECTED_UBOOT_REVISION` | 锁定 u-boot commit |
 | `EXPECTED_RKBIN_REVISION` | 锁定 rkbin commit |
 | `EXPECTED_BUILDROOT_REVISION` | 锁定 buildroot commit |
-| `DEBIAN_FEATURES_DEFAULT` | Debian 默认功能集 |
+| `DEBIAN_PACKAGES_DEFAULT` | Debian 默认额外 APT 包名列表 |
 | `ROOTFS_HOSTNAME_DEFAULT` | 默认主机名 |
 
 新增板型：复制最接近的 profile 改字段即可。详见 `docs/boards/add-board.md`。
@@ -81,38 +81,26 @@ CokePi Plus 和 Model 共用 SDK 但 DTB 不同，必须按板子丝印选择 pr
 
 板级专用的内核选项放在 BSP defconfig 或额外的板级适配中，不要堆进共享 baseline。
 
-## Debian 可选功能
+## Debian 软件包与插件
 
-构建 Debian rootfs 时通过 `DEBIAN_FEATURES` 环境变量预装功能集（逗号分隔）：
+`DEBIAN_PACKAGES` 写真实 APT 包名（逗号/空格分隔）。无 `nm`/`hwdebug` 等 feature 别名。
+WiFi/BT 固件由 `WIFIBT_CHIP` 控制；网络栈与 firstboot 由 `rootfs/debian/plugins/` 处理。
 
-| Token | 内容 |
-|---|---|
-| `nm` | NetworkManager + nmtui + wpasupplicant（替代 systemd-networkd；含 wpa_supplicant 使 WiFi 可扫描/连接） |
-| `hwdebug` | i2c-tools、usbutils、pciutils、mmc-utils |
-| `tools` | tmux、htop、strace |
-| `firstboot-info` | 首次启动串口摘要 + MOTD（不装额外包） |
-| `wifibt` | 从 SDK `external/rkwifibt` 或 `assets/wifibt` 安装 WiFi/BT 固件到 `/lib/firmware`，并建立 `/vendor` 兼容软链（需 `WIFIBT_CHIP`） |
-| `all` | 以上全部 |
-
-优先级：命令行 `DEBIAN_FEATURES` > 板级 `DEBIAN_FEATURES_DEFAULT` > minbase。显式 `DEBIAN_FEATURES=none`（或 `minbase`/`off`/`-`）强制 minbase。
+优先级：命令行 `DEBIAN_PACKAGES` > 板级 `DEBIAN_PACKAGES_DEFAULT` > minbase。`DEBIAN_PACKAGES=none` 强制 minbase。
 
 ```bash
-make build-rootfs DEBIAN_FEATURES=nm,hwdebug,firstboot-info
-make build-rootfs DEBIAN_FEATURES=all ROOTFS_HOSTNAME=muse
-make build-rootfs DEBIAN_FEATURES=none    # 强制 minbase
-make build-rootfs DEBIAN_FEATURES=nm,wifibt WIFIBT_CHIP=AP6275S
+make build-rootfs DEBIAN_PACKAGES=network-manager,wpasupplicant,i2c-tools
+make build-rootfs DEBIAN_PACKAGES=none
+make build-rootfs DEBIAN_PACKAGES=network-manager,wpasupplicant WIFIBT_CHIP=AP6275S
 make sync-wifibt-assets SDK_PATH=/path/to/full-bsp WIFIBT_CHIP=AP6275S
 ```
 
-构建元数据 `rootfs-build-info.txt` 会记录 `debian_features` 和 `network_stack`。
+构建元数据记录 `debian_packages` / `network_stack`。
 
-
-## Debian overlay（配置文件）
-
-静态 rootfs 文件放在 `rootfs/debian/`，不要继续往 `build_debian.sh` 塞 heredoc：
+## Debian overlay / 插件
 
 - `rootfs/debian/overlay/` — 始终应用
-- `rootfs/debian/features/<token>/overlay/` — 随 `DEBIAN_FEATURES` 应用
 - `rootfs/debian/boards/<board>/overlay/` — 板级覆盖
+- `rootfs/debian/plugins/` — 网络 / firstboot / wifibt 等插件
 
 详见 `rootfs/debian/README.md` 与 `docs/usage/debian-features.md`。

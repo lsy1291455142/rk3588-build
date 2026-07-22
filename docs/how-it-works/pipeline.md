@@ -91,31 +91,21 @@
 流程：
 
 1. 解析 `DEBIAN_RELEASE`（11/12/13 → bullseye/bookworm/trixie）
-2. 解析 `DEBIAN_FEATURES`（nm、hwdebug、tools、firstboot-info、wifibt、all）
+2. 解析 `DEBIAN_PACKAGES`（真实 APT 包名列表）
 3. 用 `mmdebstrap --variant=minbase` 构建最小化 Debian rootfs，并安装基础包 + feature 包
 4. 创建用户/密码，写入 hostname
 5. 应用 `rootfs/debian/` 分层 overlay（通用 → networkd 或 nm → feature → board）
 6. 安装串口 getty 波特率 drop-in（路径依赖 `CONSOLE_DEVICE`）
-7. 安装内核模块并 `depmod`；可选 `install_wifibt_firmware`
-8. 启用 systemd unit（NM 或 networkd、resolved、ssh、firstboot、serial-getty）
+7. 安装内核模块并 `depmod`；运行 plugins（含 wifibt 固件）
+8. 运行 plugins 并启用 systemd unit（NM 或 networkd、resolved、ssh、firstboot、serial-getty）
 9. 校验 systemd / SSH / usrmerge 布局
 10. 打包 `rootfs.ext4` 与 `rootfs.tar`
 
 输出到 `output/<board>/debian-<release>/`：`rootfs.ext4`、`rootfs.tar`、`rootfs-build-info.txt`。
 
-### Debian 功能集
+### Debian 软件包
 
-`DEBIAN_FEATURES` 是一个逗号分隔的 token 列表：
-
-| Token | 安装的包 | 效果 |
-|---|---|---|
-| `nm` | network-manager | 用 NetworkManager 替代 systemd-networkd |
-| `hwdebug` | i2c-tools, usbutils, pciutils, mmc-utils | 硬件调试工具 |
-| `tools` | tmux, htop, strace | 常用工具 |
-| `firstboot-info` | （无额外包） | 首次启动串口摘要 + MOTD |
-| `all` | 以上全部 | |
-
-不指定时用板级 profile 的 `DEBIAN_FEATURES_DEFAULT`（如果有），否则 minbase。`DEBIAN_FEATURES=none` 强制 minbase。
+`DEBIAN_PACKAGES` 是逗号/空格分隔的真实 APT 包名。写什么装什么；网络/firstboot/wifibt 由插件处理。不指定时用板级 `DEBIAN_PACKAGES_DEFAULT`，否则 minbase。`DEBIAN_PACKAGES=none` 强制 minbase。
 
 ## 阶段四：image 与 verify-image
 

@@ -7,7 +7,7 @@ INFO=/var/lib/sbc-board-info
     echo "hostname=@ROOTFS_HOSTNAME@"
     echo "kernel_release=$(uname -r 2>/dev/null || true)"
     echo "dtb=@KERNEL_DTB@"
-    echo "features=@DEBIAN_FEATURES@"
+    echo "features=@DEBIAN_PACKAGES@"
     echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
 } >"$INFO"
 
@@ -21,7 +21,7 @@ INFO=/var/lib/sbc-board-info
     echo " host : @ROOTFS_HOSTNAME@"
     echo " dtb  : @KERNEL_DTB@"
     echo " kern : $(uname -r 2>/dev/null || true)"
-    echo " feats: @DEBIAN_FEATURES@"
+    echo " feats: @DEBIAN_PACKAGES@"
     if command -v nmtui >/dev/null 2>&1; then
         echo " net  : NetworkManager enabled (nmtui / nmcli)"
     elif command -v networkctl >/dev/null 2>&1; then

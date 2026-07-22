@@ -303,39 +303,44 @@ check_debian_features() {
     source "${SCRIPT_DIR}/lib/common.sh"
 
     (
-        DEBIAN_FEATURES=""
-        resolve_debian_features
-        [ "${DEBIAN_FEATURES}" = "" ] || exit 1
-        [ "${DEBIAN_HAS_NM}" = "0" ] || exit 1
+        DEBIAN_PACKAGES=""
+        resolve_debian_packages
+        [ "${DEBIAN_PACKAGES}" = "" ] || exit 1
+        mapfile -t pkgs < <(debian_package_list)
+        [ "${#pkgs[@]}" -eq 0 ] || exit 1
     ) || return 1
 
     (
-        DEBIAN_FEATURES="none"
-        resolve_debian_features
-        [ "${DEBIAN_FEATURES}" = "" ] || exit 1
-        [ "${DEBIAN_HAS_NM}" = "0" ] || exit 1
+        DEBIAN_PACKAGES="none"
+        resolve_debian_packages
+        [ "${DEBIAN_PACKAGES}" = "" ] || exit 1
     ) || return 1
 
     (
-        DEBIAN_FEATURES="nm,hwdebug"
-        resolve_debian_features
-        mapfile -t pkgs < <(debian_feature_packages)
+        DEBIAN_PACKAGES="network-manager,i2c-tools,htop"
+        resolve_debian_packages
+        mapfile -t pkgs < <(debian_package_list)
         printf '%s\n' "${pkgs[@]}" | grep -Fxq network-manager || exit 1
         printf '%s\n' "${pkgs[@]}" | grep -Fxq i2c-tools || exit 1
+        printf '%s\n' "${pkgs[@]}" | grep -Fxq htop || exit 1
+        [ "${DEBIAN_PACKAGES}" = "network-manager,i2c-tools,htop" ] || exit 1
     ) || return 1
 
-    (
-        DEBIAN_FEATURES="all"
-        resolve_debian_features
-        [ "${DEBIAN_HAS_FIRSTBOOT_INFO}" = "1" ] || exit 1
-        [ "${DEBIAN_HAS_WIFIBT}" = "1" ] || exit 1
-    ) || return 1
+    # Feature aliases must be rejected (packages are exact apt names only).
+    if (
+        DEBIAN_PACKAGES="nm,hwdebug"
+        resolve_debian_packages
+    ) 2>/dev/null; then
+        return 1
+    fi
+    if (
+        DEBIAN_PACKAGES="all"
+        resolve_debian_packages
+    ) 2>/dev/null; then
+        return 1
+    fi
 
     (
-        DEBIAN_FEATURES="wifibt"
-        resolve_debian_features
-        [ "${DEBIAN_FEATURES}" = "wifibt" ] || exit 1
-        [ "${DEBIAN_HAS_WIFIBT}" = "1" ] || exit 1
         WIFIBT_CHIP="AP6275S"
         WIFIBT_SOURCE="assets"
         WIFIBT_REQUIRED="no"
@@ -345,10 +350,9 @@ check_debian_features() {
     ) || return 1
 
     # Optional install path when assets already contain a chip tree (host unit test).
-    if [ -d "${PROJECT_DIR}/assets/wifibt/broadcom/AP6275S" ]; then
+    if [ -d "${PROJECT_DIR}/assets/wifibt/broadcom/AP6275S" ] &&
+        [ -n "$(find "${PROJECT_DIR}/assets/wifibt/broadcom/AP6275S" -type f ! -name 'SOURCE.txt' ! -name 'README*' ! -name '*.md' 2>/dev/null | head -n 1)" ]; then
         (
-            DEBIAN_FEATURES="wifibt"
-            resolve_debian_features
             WIFIBT_CHIP="AP6275S"
             WIFIBT_SOURCE="assets"
             WIFIBT_REQUIRED="yes"
@@ -363,10 +367,9 @@ check_debian_features() {
         ) || return 1
     fi
 
-    if [ -d "${PROJECT_DIR}/assets/wifibt/aicsemi/AIC8800D80" ]; then
+    if [ -d "${PROJECT_DIR}/assets/wifibt/aicsemi/AIC8800D80" ] &&
+        [ -n "$(find "${PROJECT_DIR}/assets/wifibt/aicsemi/AIC8800D80" -type f ! -name 'SOURCE.txt' ! -name 'README*' ! -name '*.md' 2>/dev/null | head -n 1)" ]; then
         (
-            DEBIAN_FEATURES="wifibt"
-            resolve_debian_features
             WIFIBT_CHIP="AIC8800D80"
             WIFIBT_SOURCE="assets"
             WIFIBT_REQUIRED="yes"
@@ -377,27 +380,38 @@ check_debian_features() {
             [ -f "${tmp}/lib/firmware/aic8800D80/fw_patch_table_8800d80_u02.bin" ] || exit 1
             [ -L "${tmp}/vendor" ] || exit 1
             [ -L "${tmp}/system/etc/firmware" ] || exit 1
-            # On-device /vendor/etc/firmware resolves via absolute symlinks;
-            # host unit test only checks link targets + real install path.
             [ "$(readlink "${tmp}/vendor")" = "/system" ] || exit 1
             [ "$(readlink "${tmp}/system/etc/firmware")" = "/lib/firmware" ] || exit 1
             rm -rf "${tmp}"
         ) || return 1
     fi
 
-    # Overlay apply + template expansion (host unit test, no packages).
+    # Core overlay + plugin overlays (host unit test, no packages).
     (
         BOARD="rk3588-muse"
         BOARD_DESCRIPTION="overlay unit test"
         ROOTFS_HOSTNAME="muse"
         KERNEL_DTB="rk3588-muse.dtb"
-        DEBIAN_FEATURES="nm,firstboot-info"
+        DEBIAN_PACKAGES="network-manager,wpasupplicant"
         CONSOLE_DEVICE="ttyFIQ0"
         CONSOLE_SPEED="1500000"
-        resolve_debian_features
+        resolve_debian_packages
         tmp="$(mktemp -d)"
         apply_debian_rootfs_overlays "${tmp}"
         install_serial_getty_baud_conf "${tmp}"
+        # Simulate installed NetworkManager binary for the network plugin path.
+        install -d "${tmp}/usr/sbin"
+        : >"${tmp}/usr/sbin/NetworkManager"
+        # shellcheck disable=SC1091
+        source "${PROJECT_DIR}/rootfs/debian/plugins/10-firstboot-info.sh"
+        plugin_apply "${tmp}"
+        unset -f plugin_apply
+        # shellcheck disable=SC1091
+        source "${PROJECT_DIR}/rootfs/debian/plugins/network.sh"
+        # enable_unit is defined by build_debian; stub for host test.
+        enable_unit() { :; }
+        plugin_apply "${tmp}"
+        unset -f plugin_apply
         [ -x "${tmp}/usr/local/sbin/sbc-firstboot" ] || exit 1
         [ -x "${tmp}/usr/local/sbin/sbc-firstboot-info" ] || exit 1
         [ -f "${tmp}/etc/NetworkManager/conf.d/10-sbc.conf" ] || exit 1
@@ -408,33 +422,31 @@ check_debian_features() {
             "${tmp}/etc/NetworkManager/conf.d/10-sbc.conf" || exit 1
         grep -Fq '1500000' \
             "${tmp}/etc/systemd/system/serial-getty@ttyFIQ0.service.d/10-baud.conf" || exit 1
-        # networkd path when nm is off
-        DEBIAN_FEATURES="none"
-        resolve_debian_features
+        # networkd path when NetworkManager binary is absent
         tmp2="$(mktemp -d)"
         apply_debian_rootfs_overlays "${tmp2}"
+        enable_unit() { :; }
+        # shellcheck disable=SC1091
+        source "${PROJECT_DIR}/rootfs/debian/plugins/network.sh"
+        plugin_apply "${tmp2}"
+        unset -f plugin_apply
         [ -f "${tmp2}/etc/systemd/network/20-wired.network" ] || exit 1
         [ ! -e "${tmp2}/etc/NetworkManager/conf.d/10-sbc.conf" ] || exit 1
     ) || return 1
 
-    # scripts/ and configs/ are bind-mounted. Makefile/docker-compose live in the
-    # image layer unless the host rebuilt; only require them when present.
-    grep -Fq 'resolve_debian_features' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
+    grep -Fq 'resolve_debian_packages' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
     grep -Fq 'install_firmware' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
     grep -Fq 'NetworkManager.service' "${PROJECT_DIR}/rootfs/debian/plugins/network.sh" || return 1
-    grep -Fq 'DEBIAN_FEATURES_DEFAULT' \
+    grep -Fq 'DEBIAN_PACKAGES_DEFAULT' \
         "${PROJECT_DIR}/configs/boards/rk3588-muse.conf" || return 1
-    grep -Fq 'wifibt' "${PROJECT_DIR}/configs/boards/rk3588s-cokepi-model-lp4-v10.conf" || return 1
-    # Overlay trees carry static feature content (not heredocs in build_debian.sh).
+    grep -Fq 'WIFIBT_CHIP' "${PROJECT_DIR}/configs/boards/rk3588s-cokepi-model-lp4-v10.conf" || return 1
     [ -f "${PROJECT_DIR}/rootfs/debian/overlay/usr/local/sbin/sbc-firstboot" ] || return 1
     [ -f "${PROJECT_DIR}/rootfs/debian/overlay/etc/systemd/system/sbc-firstboot.service" ] || return 1
-    [ -f "${PROJECT_DIR}/rootfs/debian/features/nm/overlay/etc/NetworkManager/conf.d/10-sbc.conf" ] || return 1
-    [ -f "${PROJECT_DIR}/rootfs/debian/features/firstboot-info/overlay/usr/local/sbin/sbc-firstboot-info.in" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/plugins/network/overlay-nm/etc/NetworkManager/conf.d/10-sbc.conf" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/plugins/firstboot-info/overlay/usr/local/sbin/sbc-firstboot-info.in" ] || return 1
     grep -Fq 'wifi.scan-rand-mac-address=no' \
-        "${PROJECT_DIR}/rootfs/debian/features/nm/overlay/etc/NetworkManager/conf.d/10-sbc.conf" || return 1
+        "${PROJECT_DIR}/rootfs/debian/plugins/network/overlay-nm/etc/NetworkManager/conf.d/10-sbc.conf" || return 1
     grep -Fq 'apply_debian_rootfs_overlays' "${PROJECT_DIR}/scripts/lib/common.sh" || return 1
-    # Host-side only: container image may ship a stale baked Makefile/compose
-    # without the latest WIFIBT wiring; those files are not bind-mounted.
     if [ -f "${PROJECT_DIR}/Makefile" ] && [ -d "${PROJECT_DIR}/.git" ]; then
         grep -Fq 'sync-wifibt-assets' "${PROJECT_DIR}/Makefile" || return 1
     fi

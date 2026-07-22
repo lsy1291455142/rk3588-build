@@ -9,27 +9,28 @@ load_board_profile
 validate_board_source_revisions
 ROOTFS=debian
 resolve_debian_release
-# Board profile may set DEBIAN_FEATURES_DEFAULT / ROOTFS_HOSTNAME_DEFAULT.
-# Empty DEBIAN_FEATURES means "use board default if any".
-# Force minbase with DEBIAN_FEATURES=none (or minbase/off).
-DEBIAN_FEATURES="${DEBIAN_PACKAGES:-${DEBIAN_FEATURES:-}}"
-case "${DEBIAN_FEATURES:-}" in
+# Board profile may set DEBIAN_PACKAGES_DEFAULT / ROOTFS_HOSTNAME_DEFAULT.
+# Empty DEBIAN_PACKAGES means "use board default if any".
+# Force minbase with DEBIAN_PACKAGES=none (or minbase/off).
+# DEBIAN_FEATURES is accepted only as a legacy env alias for DEBIAN_PACKAGES.
+DEBIAN_PACKAGES="${DEBIAN_PACKAGES:-${DEBIAN_FEATURES:-}}"
+case "${DEBIAN_PACKAGES:-}" in
     '')
         if [ -n "${DEBIAN_PACKAGES_DEFAULT:-${DEBIAN_FEATURES_DEFAULT:-}}" ]; then
-            DEBIAN_FEATURES="${DEBIAN_PACKAGES_DEFAULT:-${DEBIAN_FEATURES_DEFAULT:-}}"
+            DEBIAN_PACKAGES="${DEBIAN_PACKAGES_DEFAULT:-${DEBIAN_FEATURES_DEFAULT:-}}"
         fi
         ;;
     none|minbase|off|-)
-        DEBIAN_FEATURES=""
+        DEBIAN_PACKAGES=""
         ;;
 esac
 if [ -n "${DEBIAN_EXTRA_PACKAGES:-}" ]; then
-    DEBIAN_FEATURES="${DEBIAN_FEATURES:+$DEBIAN_FEATURES,}${DEBIAN_EXTRA_PACKAGES}"
+    DEBIAN_PACKAGES="${DEBIAN_PACKAGES:+$DEBIAN_PACKAGES,}${DEBIAN_EXTRA_PACKAGES}"
 fi
 if [ -z "${ROOTFS_HOSTNAME:-}" ]; then
     ROOTFS_HOSTNAME="${ROOTFS_HOSTNAME_DEFAULT:-${BOARD:-sbc}}"
 fi
-resolve_debian_features
+resolve_debian_packages
 require_cmd mmdebstrap dpkg chroot systemctl tar truncate mkfs.ext4 \
     tune2fs e2fsck blkid debugfs depmod realpath
 
@@ -95,9 +96,9 @@ PACKAGES=(
 if [ "${DEBIAN_RELEASE}" != "11" ]; then
     PACKAGES+=(systemd-resolved)
 fi
-mapfile -t FEATURE_PACKAGES < <(debian_feature_packages)
-if [ "${#FEATURE_PACKAGES[@]}" -gt 0 ]; then
-    PACKAGES+=("${FEATURE_PACKAGES[@]}")
+mapfile -t EXTRA_PACKAGES < <(debian_package_list)
+if [ "${#EXTRA_PACKAGES[@]}" -gt 0 ]; then
+    PACKAGES+=("${EXTRA_PACKAGES[@]}")
 fi
 
 # Deduplicate while preserving order.
@@ -111,10 +112,10 @@ for pkg in "${PACKAGES[@]}"; do
 done
 PACKAGES=("${DEDUPED_PACKAGES[@]}")
 PACKAGE_LIST="$(IFS=,; printf '%s' "${PACKAGES[*]}")"
-if [ -n "${DEBIAN_FEATURES}" ]; then
-    log_info "Debian features: ${DEBIAN_FEATURES}"
+if [ -n "${DEBIAN_PACKAGES}" ]; then
+    log_info "Debian packages: ${DEBIAN_PACKAGES}"
 else
-    log_info "Debian features: (none; minbase)"
+    log_info "Debian packages: (none; minbase only)"
 fi
 
 APT_CACHE_DIR="${APT_CACHE_DIR:-/var/cache/apt/archives}"
@@ -195,7 +196,7 @@ depmod -b "${ROOT_DIR}" "${KERNEL_RELEASE}"
 chroot "${ROOT_DIR}" /bin/true ||
     die "Debian userspace is not executable after installing kernel modules"
 
-# Firmware installation (Wi-Fi/BT + custom assets/firmware/)
+# Custom firmware blobs (WiFi/BT firmware is applied by plugins/20-wifibt.sh)
 install_firmware "${ROOT_DIR}"
 
 enable_unit() {
@@ -251,7 +252,7 @@ VERIFY_UNITS=(
     ssh.service
     systemd-resolved.service
 )
-if [ "${DEBIAN_HAS_NM}" = "1" ]; then
+if [ -f "${ROOT_DIR}/usr/sbin/NetworkManager" ]; then
     VERIFY_UNITS+=(NetworkManager.service)
 else
     VERIFY_UNITS+=(systemd-networkd.service)
@@ -307,9 +308,10 @@ write_common_metadata "${VARIANT_OUTPUT}/rootfs-build-info.txt" \
     "rootfs_arch=arm64" \
     "debian_release=${DEBIAN_RELEASE}" \
     "debian_codename=${DEBIAN_CODENAME}" \
-    "debian_features=${DEBIAN_FEATURES:-}" \
+    "debian_packages=${DEBIAN_PACKAGES:-}" \
+    "debian_features=${DEBIAN_PACKAGES:-}" \
     "hostname=${ROOTFS_HOSTNAME}" \
-    "network_stack=$([ "${DEBIAN_HAS_NM}" = "1" ] && printf NetworkManager || printf systemd-networkd)" \
+    "network_stack=$([ -f "${ROOT_DIR}/usr/sbin/NetworkManager" ] && printf NetworkManager || printf systemd-networkd)" \
     "wifibt_chip=${WIFIBT_CHIP:-none}" \
     "wifibt_source=${WIFIBT_RESOLVED_SOURCE:-skipped}" \
     "wifibt_files=${WIFIBT_FILE_COUNT:-0}" \

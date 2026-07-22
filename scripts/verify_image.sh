@@ -294,7 +294,10 @@ else
     DEBIAN_FEATURES_META=""
     if [ -f "${ROOTFS_META}" ]; then
         NETWORK_STACK="$(metadata_value "${ROOTFS_META}" network_stack || true)"
-        DEBIAN_FEATURES_META="$(metadata_value "${ROOTFS_META}" debian_features || true)"
+        DEBIAN_FEATURES_META="$(metadata_value "${ROOTFS_META}" debian_packages || true)"
+        if [ -z "${DEBIAN_FEATURES_META}" ]; then
+            DEBIAN_FEATURES_META="$(metadata_value "${ROOTFS_META}" debian_features || true)"
+        fi
         NETWORK_STACK="${NETWORK_STACK:-systemd-networkd}"
     fi
     if [ "${NETWORK_STACK}" = "NetworkManager" ]; then
@@ -320,50 +323,46 @@ else
         debugfs -R "stat ${enabled_path}" "${WORK_DIR}/rootfs.ext4" 2>&1 |
             grep -q 'Inode:' || die "Debian rootfs does not enable ${enabled_path##*/}"
     done
+    # Package presence checks use the recorded apt package list (exact names).
     case ",${DEBIAN_FEATURES_META}," in
-        *,hwdebug,*)
+        *,i2c-tools,*)
             debugfs -R "stat /usr/sbin/i2cdetect" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-                grep -q 'Inode:' || die "Debian hwdebug feature lacks i2cdetect"
+                grep -q 'Inode:' || die "Debian rootfs with i2c-tools lacks i2cdetect"
+            ;;
+    esac
+    # firstboot-info is a plugin (default on); verify helper when present in image tree.
+    if debugfs -R "stat /usr/local/sbin/sbc-firstboot" "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -q 'Inode:'; then
+        debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
+            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+            grep -Fq 'sbc-firstboot-info' ||
+            die "Debian firstboot does not optionally invoke firstboot-info"
+    fi
+    if debugfs -R "stat /usr/local/sbin/sbc-firstboot-info" \
+        "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -q 'Inode:'; then
+        :
+    fi
+    # WiFi firmware is driven by WIFIBT_* metadata, not package tokens.
+    WIFIBT_SOURCE_META="$(metadata_value "${ROOTFS_META}" wifibt_source || true)"
+    WIFIBT_FILES_META="$(metadata_value "${ROOTFS_META}" wifibt_files || true)"
+    case "${WIFIBT_SOURCE_META}" in
+        skipped|none|missing|empty|'')
+            ;;
+        *)
+            debugfs -R "stat /lib/firmware" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+                grep -q 'Inode:' || die "Debian wifibt install lacks /lib/firmware"
+            debugfs -R "stat /vendor" "${WORK_DIR}/rootfs.ext4" 2>&1 |
+                grep -q 'Inode:' || die "Debian wifibt install lacks /vendor link"
+            if [ -n "${WIFIBT_FILES_META}" ] && [ "${WIFIBT_FILES_META}" != "0" ]; then
+                :
+            else
+                die "Debian wifibt metadata reports zero firmware files"
+            fi
             ;;
     esac
     case ",${DEBIAN_FEATURES_META}," in
-        *,firstboot-info,*)
-            debugfs -R "stat /usr/local/sbin/sbc-firstboot-info" \
-                "${WORK_DIR}/rootfs.ext4" 2>&1 |
-                grep -q 'Inode:' || die "Debian firstboot-info feature lacks helper"
-            debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
-                "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-                grep -Fq 'sbc-firstboot-info' ||
-                die "Debian firstboot does not invoke firstboot-info"
-            ;;
-    esac
-    case ",${DEBIAN_FEATURES_META}," in
-        *,wifibt,*)
-            WIFIBT_SOURCE_META="$(metadata_value "${ROOTFS_META}" wifibt_source || true)"
-            WIFIBT_FILES_META="$(metadata_value "${ROOTFS_META}" wifibt_files || true)"
-            case "${WIFIBT_SOURCE_META}" in
-                skipped|none|missing|empty|'')
-                    # Optional/soft mode: feature present but firmware not required.
-                    ;;
-                *)
-                    debugfs -R "stat /lib/firmware" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-                        grep -q 'Inode:' || die "Debian wifibt feature lacks /lib/firmware"
-                    debugfs -R "stat /vendor" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-                        grep -q 'Inode:' || die "Debian wifibt feature lacks /vendor link"
-                    if [ -n "${WIFIBT_FILES_META}" ] && [ "${WIFIBT_FILES_META}" != "0" ]; then
-                        :
-                    else
-                        die "Debian wifibt feature metadata reports zero firmware files"
-                    fi
-                    ;;
-            esac
-            ;;
-    esac
-    # Always check wpa_supplicant when nm feature is recorded.
-    case ",${DEBIAN_FEATURES_META}," in
-        *,nm,*)
+        *,wpasupplicant,*)
             debugfs -R "stat /usr/sbin/wpa_supplicant" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-                grep -q 'Inode:' || die "Debian nm feature lacks wpa_supplicant"
+                grep -q 'Inode:' || die "Debian rootfs with wpasupplicant lacks binary"
             ;;
     esac
 fi

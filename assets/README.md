@@ -26,7 +26,7 @@ make sync-wifibt-assets SDK_PATH=/path/to/full-bsp WIFIBT_CHIP=ALL_AP
 ```
 
 If the Docker SDK volume already contains `external/rkwifibt`, you do **not** need assets;
-the Debian `wifibt` feature prefers the SDK tree, then falls back here.
+the wifibt plugin prefers the SDK tree, then falls back here.
 
 ### Use
 
@@ -34,11 +34,11 @@ Board profile or CLI:
 
 ```bash
 # board conf
-DEBIAN_FEATURES_DEFAULT="nm,hwdebug,wifibt,firstboot-info"
+DEBIAN_PACKAGES_DEFAULT="network-manager,wpasupplicant,i2c-tools,usbutils,pciutils,mmc-utils"
 : "${WIFIBT_CHIP:=AP6275S}"
 : "${WIFIBT_REQUIRED:=no}"   # yes = fail build if firmware missing
 
-make build-rootfs BOARD=... ROOTFS=debian DEBIAN_FEATURES=nm,wifibt WIFIBT_CHIP=AP6275S
+make build-rootfs BOARD=... ROOTFS=debian DEBIAN_PACKAGES=network-manager,wpasupplicant WIFIBT_CHIP=AP6275S
 ```
 
 Firmware is installed to `/lib/firmware` with Rockchip-compatible links:
@@ -60,7 +60,7 @@ SDK tree; place files under `assets/wifibt/aicsemi/AIC8800D80/` (or extract from
 
 ```bash
 make build-rootfs BOARD=rk3588s-cokepi-model-lp4-v10 ROOTFS=debian \
-  DEBIAN_FEATURES=nm,hwdebug,firstboot-info,wifibt \
+  DEBIAN_PACKAGES=network-manager,wpasupplicant,i2c-tools \
   WIFIBT_CHIP=AIC8800D80 WIFIBT_REQUIRED=yes
 ```
 
