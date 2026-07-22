@@ -634,30 +634,6 @@ run_debian_overlay_plugins() {
     done
 }
 
-# Back-compat names used by older call sites / tests.
-apply_debian_rootfs_overlays() {
-    apply_debian_board_overlay "$@"
-}
-
-run_debian_plugins() {
-    run_debian_overlay_plugins "$@"
-}
-
-# Legacy helper: serial-getty conf is owned by the console overlay plugin now.
-install_serial_getty_baud_conf() {
-    local root_dir="$1"
-    if debian_overlay_enabled console; then
-        # Invoked only when console overlay not already applied; no-op otherwise.
-        local plugin
-        plugin="$(debian_overlays_dir)/console/plugin.sh"
-        # shellcheck disable=SC1090
-        source "${plugin}"
-        if declare -F plugin_apply >/dev/null 2>&1; then
-            plugin_apply "${root_dir}"
-            unset -f plugin_apply
-        fi
-    fi
-}
 
 write_common_metadata() {
     local destination="$1"

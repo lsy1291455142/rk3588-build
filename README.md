@@ -222,7 +222,15 @@ rk3588-build/
 │   └── test_debian_qemu.sh   # QEMU 冒烟测试
 ├── rootfs/
 │   ├── buildroot/            # Buildroot external tree
-│   └── debian/               # Debian overlay (通用 + feature + 板级)
+│   └── debian/               # Debian rootfs 附件
+│       ├── boards/           # 板级覆盖（boards/<board>/overlay/，始终应用）
+│       └── overlays/         # 可选功能插件（DEBIAN_OVERLAYS 选择）
+│           ├── base/         #   SSH/udev/resolved
+│           ├── console/      #   串口 getty 波特率
+│           ├── firstboot/    #   首次启动 rootfs 扩容
+│           ├── firstboot-info/ # 首次启动 banner/MOTD
+│           ├── network/      #   NM / networkd 自适应
+│           └── wifibt/       #   WiFi/BT 固件安装
 ├── patches/                  # 可选本地补丁（手动应用）
 ├── docs/                     # VitePress 文档站点
 └── output/                   # 所有构建产物（按板型和 rootfs 分目录）

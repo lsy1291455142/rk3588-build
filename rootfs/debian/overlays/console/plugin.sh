@@ -15,7 +15,7 @@ plugin_apply() {
         return 0
     }
 
-    template="${self_dir}/templates/serial-getty-baud.conf.in"
+    template="${self_dir}/overlay/serial-getty-baud.conf.in"
     if [ -f "${template}" ]; then
         dest="${root_dir}/etc/systemd/system/serial-getty@${CONSOLE_DEVICE}.service.d/10-baud.conf"
         mkdir -p "$(dirname "${dest}")"
