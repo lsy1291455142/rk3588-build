@@ -110,17 +110,25 @@ load_board_profile() {
 }
 
 validate_board_profile() {
-    # Preserve external profiles while assigning unambiguous names to the two
-    # different Rockchip loader formats.
-    DOWNLOAD_LOADER_GLOBS="${DOWNLOAD_LOADER_GLOBS:-${LOADER_GLOBS:-}}"
-    IDBLOCK_SECTOR="${IDBLOCK_SECTOR:-${LOADER_SECTOR:-}}"
-    if [ "${BOOTLOADER_LAYOUT:-}" = "rockchip-gpt-extlinux-v1" ]; then
+    BOOTLOADER_LAYOUT="${BOOTLOADER_LAYOUT:-rockchip-gpt-idblock-extlinux-v1}"
+    if [ "${BOOTLOADER_LAYOUT}" = "rockchip-gpt-extlinux-v1" ]; then
         BOOTLOADER_LAYOUT="rockchip-gpt-idblock-extlinux-v1"
     fi
 
-    case "${BOOTLOADER_LAYOUT:-}" in
+    DOWNLOAD_LOADER_GLOBS="${DOWNLOAD_LOADER_GLOBS:-${LOADER_GLOBS:-rk3588*loader*.bin;MiniLoaderAll.bin;*loader*.bin}}"
+    UBOOT_IMAGE_NAMES="${UBOOT_IMAGE_NAMES:-uboot.img;u-boot.img}"
+    UBOOT_BUILD_SYSTEM="${UBOOT_BUILD_SYSTEM:-rockchip-make-sh}"
+    UBOOT_PYTHON="${UBOOT_PYTHON:-python3}"
+    IDBLOCK_SECTOR="${IDBLOCK_SECTOR:-${LOADER_SECTOR:-64}}"
+    UBOOT_SECTOR="${UBOOT_SECTOR:-16384}"
+    IMAGE_SIZE_MIB="${IMAGE_SIZE_MIB:-4096}"
+    BOOT_START_MIB="${BOOT_START_MIB:-16}"
+    BOOT_SIZE_MIB="${BOOT_SIZE_MIB:-256}"
+    ROOTFS_SIZE_MIB="${ROOTFS_SIZE_MIB:-2048}"
+
+    case "${BOOTLOADER_LAYOUT}" in
         rockchip-gpt-idblock-extlinux-v1) ;;
-        *) die "Unsupported BOOTLOADER_LAYOUT=${BOOTLOADER_LAYOUT:-<empty>}. Known layouts: rockchip-gpt-idblock-extlinux-v1" ;;
+        *) die "Unsupported BOOTLOADER_LAYOUT=${BOOTLOADER_LAYOUT}. Known layouts: rockchip-gpt-idblock-extlinux-v1" ;;
     esac
 
     local required_fields=(
@@ -129,18 +137,7 @@ validate_board_profile() {
         KERNEL_DTB
         UBOOT_DEFCONFIG
         UBOOT_BOARD
-        UBOOT_BUILD_SYSTEM
-        UBOOT_PYTHON
-        BOOTLOADER_LAYOUT
-        DOWNLOAD_LOADER_GLOBS
-        UBOOT_IMAGE_NAMES
         CONSOLE
-        IMAGE_SIZE_MIB
-        BOOT_START_MIB
-        BOOT_SIZE_MIB
-        ROOTFS_SIZE_MIB
-        IDBLOCK_SECTOR
-        UBOOT_SECTOR
     )
     local field value
 

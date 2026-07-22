@@ -98,19 +98,19 @@ make build-all BOARD=my-board ROOTFS=debian
 | `KERNEL_DTB` | 是 | DTB 文件名，必须以 `.dtb` 结尾 |
 | `UBOOT_DEFCONFIG` | 是 | U-Boot defconfig 文件名 |
 | `UBOOT_BOARD` | 是 | Rockchip `make.sh` 的板名参数 |
-| `UBOOT_BUILD_SYSTEM` | 是 | 引导程序构建方式（如 `rockchip-make-sh`） |
-| `UBOOT_PYTHON` | 是 | FIT 生成器 Python 版本（`python2` 或 `python3`） |
-| `BOOTLOADER_LAYOUT` | 是 | 启动链布局格式（如 `rockchip-gpt-idblock-extlinux-v1`） |
-| `DOWNLOAD_LOADER_GLOBS` | 是 | loader 文件匹配模式，分号分隔 |
-| `UBOOT_IMAGE_NAMES` | 是 | U-Boot 镜像匹配模式，分号分隔 |
+| `UBOOT_BUILD_SYSTEM` | 否 | 引导程序构建方式（默认 `rockchip-make-sh`） |
+| `UBOOT_PYTHON` | 否 | FIT 生成器 Python 版本（默认 `python3`） |
+| `BOOTLOADER_LAYOUT` | 否 | 启动链布局格式（默认 `rockchip-gpt-idblock-extlinux-v1`） |
+| `DOWNLOAD_LOADER_GLOBS` | 否 | loader 文件匹配模式（默认 `rk3588*loader*.bin;MiniLoaderAll.bin`） |
+| `UBOOT_IMAGE_NAMES` | 否 | U-Boot 镜像匹配模式（默认 `uboot.img;u-boot.img`） |
 | `CONSOLE` | 是 | 串口设备和波特率 |
 | `EXTRA_KERNEL_ARGS` | 否 | 额外内核命令行参数 |
-| `IMAGE_SIZE_MIB` | 是 | 总镜像大小（MiB） |
-| `BOOT_START_MIB` | 是 | boot 分区起始（>= 16） |
-| `BOOT_SIZE_MIB` | 是 | boot 分区大小 |
-| `ROOTFS_SIZE_MIB` | 是 | rootfs 初始大小 |
-| `IDBLOCK_SECTOR` | 是 | IDBlock 扇区号（>= 34） |
-| `UBOOT_SECTOR` | 是 | U-Boot 扇区号 |
+| `IMAGE_SIZE_MIB` | 否 | 总镜像大小（MiB，默认 `4096`） |
+| `BOOT_START_MIB` | 否 | boot 分区起始（MiB，默认 `16`） |
+| `BOOT_SIZE_MIB` | 否 | boot 分区大小（MiB，默认 `256`） |
+| `ROOTFS_SIZE_MIB` | 否 | rootfs 初始大小（MiB，默认 `2048`） |
+| `IDBLOCK_SECTOR` | 否 | IDBlock 扇区号（默认 `64`） |
+| `UBOOT_SECTOR` | 否 | U-Boot 扇区号（默认 `16384`） |
 | `SOURCE_MANIFEST` | 否 | 对应的 manifest 文件名 |
 | `EXPECTED_*_REVISION` | 否 | 锁定源码 commit（需配合 SOURCE_MANIFEST） |
 | `DEBIAN_FEATURES_DEFAULT` | 否 | Debian 默认功能集 |
