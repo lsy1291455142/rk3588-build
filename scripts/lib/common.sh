@@ -648,9 +648,11 @@ install_wifibt_firmware() {
     if [ "${count}" = "0" ]; then
         msg="WiFi/BT firmware directories were empty for WIFIBT_CHIP=${WIFIBT_CHIP}"
         if [ "${WIFIBT_REQUIRED}" = "yes" ]; then
-            die "${msg}"
+            die "${msg}. Place blobs under assets/wifibt/ or: make sync-wifibt-assets SDK_PATH=... WIFIBT_CHIP=${WIFIBT_CHIP}"
         fi
         log_warn "${msg}"
+        log_warn "Found chip dir but no firmware files (SOURCE.txt alone does not count)."
+        log_warn "Populate assets/wifibt/aicsemi/${WIFIBT_CHIP}/ or: make sync-wifibt-assets SDK_PATH=... WIFIBT_CHIP=${WIFIBT_CHIP}"
         WIFIBT_RESOLVED_SOURCE="empty"
         return 0
     fi
