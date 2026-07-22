@@ -19,7 +19,7 @@ output/
 out/
 
 # Board-local WiFi/BT firmware blobs (CokePi AIC; large binaries not in git)
-# Stage with: rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
+# Staged by board plugin during build-rootfs (or optional stage-aic8800-firmware.sh)
 rootfs/debian/boards/*/packages/**
 !rootfs/debian/boards/*/packages/**/
 !rootfs/debian/boards/*/packages/.gitkeep

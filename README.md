@@ -223,7 +223,7 @@ rk3588-build/
 ├── rootfs/
 │   ├── buildroot/            # Buildroot external tree
 │   └── debian/               # Debian rootfs 附件
-│       ├── boards/<board>/   # 板级静态附件（始终应用；如 CokePi AIC 固件）
+│       ├── boards/<board>/   # 板级 plugin/overlay（始终应用；如 CokePi AIC）
 │       └── overlays/         # 可选功能插件（DEBIAN_OVERLAYS 选择）
 │           ├── base/         #   SSH/udev/resolved
 │           ├── console/      #   串口 getty 波特率

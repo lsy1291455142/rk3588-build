@@ -10,16 +10,11 @@ Default pin (info_len=4):
   aic8800-firmware_3.0+git20240327.3561b08f-7_all.deb
   https://github.com/radxa-pkg/aic8800/releases/tag/3.0%2Bgit20240327.3561b08f-7
 
-Stage (host-side, not during build):
+Staging:
+  - Automatic: boards/.../plugin.sh during make build-rootfs
+  - Manual:    ./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
 
-  ./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
-
-Or a specific deb:
-
-  ./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh \
-    /path/to/aic8800-firmware_3.0+git20240327.3561b08f-7_all.deb
-
-This populates lib/firmware/aic8800D80/ from the deb's
+Populates this directory from the deb's
   lib/firmware/aic8800_fw/SDIO/aic8800D80/
 (with matching adid/patch/fmac from the same package).
 

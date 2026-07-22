@@ -9,15 +9,16 @@ firmware) is an optional overlay plugin selected by `DEBIAN_OVERLAYS`.
 
 | Path | When applied |
 |---|---|
-| `boards/<board>/overlay/` | Always, when `BOARD` matches a directory name |
+| `boards/<board>/plugin.sh` | Always, when `BOARD` matches and file exists |
+| `boards/<board>/overlay/` | Always (via board plugin, or static fallback) |
 | `overlays/<name>/plugin.sh` | When selected via `DEBIAN_OVERLAYS` |
 | `overlays/<name>/overlay/` (or `overlay-*`) | Applied by that plugin |
 
-Apply order: board overlay → selected overlay plugins (list order).
+Apply order: board plugin/overlay → selected overlay plugins (list order).
 Later trees overwrite earlier files at the same relative path.
 
 Core build does **not** always copy a global `overlay/`. Attachments only land
-when their plugin is selected.
+when board/plugin selection applies.
 
 ## Packages
 
@@ -53,13 +54,26 @@ Built-ins:
 | `firstboot-info` | MOTD / first-boot banner templates |
 | `network` | If NetworkManager binary present → NM conf+enable; else networkd overlay+enable |
 
-Each plugin exports `plugin_apply root_dir`. Add a new overlay by creating
-`overlays/<name>/plugin.sh` (plus optional static files). Keep package names out
-of plugins; packages come only from `DEBIAN_PACKAGES`.
+Each optional plugin exports `plugin_apply root_dir`. Add a new overlay by
+creating `overlays/<name>/plugin.sh` (plus optional static files). Keep package
+names out of plugins; packages come only from `DEBIAN_PACKAGES`.
 
-Board-local WiFi/BT (example: CokePi AIC) lives under
-`boards/<BOARD>/overlay/` and is applied automatically. Stage firmware with:
-`./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh`.
+### Board plugins
+
+Board attachments use the same pattern under `boards/<BOARD>/`:
+
+| File | Role |
+|---|---|
+| `plugin.sh` | Optional; must define `board_plugin_apply(root_dir)` |
+| `overlay/` | Static tree (or files prepared by the board plugin) |
+| `lib-*.sh` | Board-local helpers (not core Makefile targets) |
+
+If `plugin.sh` is present, core sources it and runs `board_plugin_apply`.
+Otherwise, if only `overlay/` exists, core copies that static tree.
+
+Board-local WiFi/BT (CokePi AIC) is an example: `boards/rk3588s-cokepi-model-lp4-v10/plugin.sh`
+stages firmware during `make build-rootfs` (uses `packages/*.deb` cache or
+downloads the pinned 3.0 deb). Manual re-stage CLI remains optional.
 
 ```bash
 make build-rootfs DEBIAN_OVERLAYS=base,console,firstboot,network
@@ -85,11 +99,15 @@ Executable bit is preserved from the source file (`chmod +x` on scripts).
 - Overlay selection + `plugin_apply` dispatch
 - systemd unit enable helpers + image packing
 
-## Board overlay example
+## Board plugin example
 
 ```text
-rootfs/debian/boards/rk3588-muse/overlay/etc/issue
-rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/overlay/lib/firmware/aic8800D80/
+rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/
+  plugin.sh
+  lib-aic8800.sh
+  overlay/lib/firmware/aic8800D80/
+  packages/                 # deb cache (gitignored)
 ```
 
-Only files you need; empty board dirs are ignored.
+Only files you need; boards without `plugin.sh`/`overlay/` are no-ops.
+See `rootfs/debian/boards/README.md` for the board plugin convention.

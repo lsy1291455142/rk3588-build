@@ -190,7 +190,7 @@ printf 'root:%s\n' "${ROOTFS_PASSWORD}" |
     chroot "${ROOT_DIR}" chpasswd
 chroot "${ROOT_DIR}" passwd -u root
 
-# Board-specific static files only (optional overlays run later as plugins).
+# Board plugin/overlay (optional package overlays run later as plugins).
 apply_debian_board_overlay "${ROOT_DIR}"
 
 rm -f "${ROOT_DIR}"/etc/ssh/ssh_host_* "${ROOT_DIR}/etc/machine-id"

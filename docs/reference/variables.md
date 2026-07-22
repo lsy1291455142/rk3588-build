@@ -40,11 +40,12 @@
 
 `DEBIAN_OVERLAYS` 为空时用板级 `DEBIAN_OVERLAYS_DEFAULT`；`none`/`off`/`-` 强制无插件；`all` 启用 `rootfs/debian/overlays/*`。示例：`base,console,firstboot,network`。
 
-WiFi/BT 固件是板级静态 overlay，不在通用变量里控制。CokePi：
+WiFi/BT 固件走板级 `boards/<BOARD>/plugin.sh`，不在通用变量里控制。
+CokePi：`make build-rootfs` 自动 stage；可选手动 CLI：
 
 ```bash
-./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
 make build-rootfs
+./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh   # optional
 ```
 
 

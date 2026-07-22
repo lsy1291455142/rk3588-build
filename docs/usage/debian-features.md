@@ -9,7 +9,8 @@
 
 | 路径 | 何时应用 |
 |---|---|
-| `rootfs/debian/boards/<board>/overlay/` | 匹配当前 `BOARD` 时（始终） |
+| `rootfs/debian/boards/<board>/plugin.sh` | 匹配当前 `BOARD` 时（始终） |
+| `rootfs/debian/boards/<board>/overlay/` | 板级插件应用，或无 plugin 时静态拷贝 |
 | `rootfs/debian/overlays/<name>/plugin.sh` | `DEBIAN_OVERLAYS` 选中时 |
 | 插件自带 `overlay` / `overlay-*` | 由对应插件按需应用 |
 
@@ -67,21 +68,26 @@ make build-rootfs DEBIAN_OVERLAYS=all
 插件只做镜像布局需要的 enable（串口 getty、firstboot、NM 与 networkd 互斥等）。
 常规 deb 包 postinst / systemd preset 仍按 Debian 自身逻辑处理。
 
-## WiFi/BT 固件（板级 overlay）
+## 板级 plugin（与 overlays 同规范）
 
-WiFi/BT 不是通用插件，也不进 `DEBIAN_PACKAGES`。板型附件放在
-`rootfs/debian/boards/<BOARD>/overlay/`，构建时自动拷贝。
+板型专属逻辑放在 `rootfs/debian/boards/<BOARD>/`，接口与可选 overlay 一致：
 
-CokePi Model（RK3588S）示例：
+- 有 `plugin.sh` → 构建时 `source` 并调用 `board_plugin_apply(root_dir)`
+- 仅有 `overlay/` → 静态拷贝
+- 规范说明：[`rootfs/debian/boards/README.md`](../../rootfs/debian/boards/README.md)
+
+## WiFi/BT 固件（板级 plugin 示例）
+
+WiFi/BT 不是通用插件，也不进 `DEBIAN_PACKAGES`。CokePi Model 的板级
+`plugin.sh` 在 `make build-rootfs` 时自动 stage Radxa `aic8800-firmware`
+（默认 3.0，`info_len=4`），并拷贝 `overlay/`（含 `/vendor` 兼容链）。
 
 ```bash
-./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
-make build-rootfs
-```
+make build-rootfs   # 自动 stage + 应用板级 overlay
 
-这会把 Radxa `aic8800-firmware` deb 解包并 remap 到
-`overlay/lib/firmware/aic8800D80/`，同时带上 Rockchip `/vendor` 兼容链。
-未 stage 时 rootfs 仍可构建，只是没有可用固件 blob。
+# 可选：手动刷新 / 指定 deb
+./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
+```
 
 详见 [boards/rk3588s-cokepi-model-lp4-v10/README.md](../../rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/README.md)。
 

@@ -375,29 +375,54 @@ check_debian_features() {
         return 1
     fi
 
-    # Board-local firmware overlay for CokePi (static tree; no generic wifibt plugin).
+    # Board plugin dispatch: plugin.sh preferred; static overlay fallback.
+    (
+        src="$(mktemp -d)"
+        dst="$(mktemp -d)"
+        board_name="unit-static-board"
+        install -d "${PROJECT_DIR}/rootfs/debian/boards/${board_name}/overlay/etc"
+        printf 'static-ok\n' >"${PROJECT_DIR}/rootfs/debian/boards/${board_name}/overlay/etc/issue"
+        BOARD="${board_name}"
+        apply_debian_board_overlay "${dst}"
+        grep -Fq 'static-ok' "${dst}/etc/issue" || exit 1
+        rm -rf "${dst}" "${PROJECT_DIR}/rootfs/debian/boards/${board_name}"
+    ) || return 1
+
+    (
+        board_name="unit-plugin-board"
+        board_dir="${PROJECT_DIR}/rootfs/debian/boards/${board_name}"
+        install -d "${board_dir}/overlay/etc"
+        cat >"${board_dir}/plugin.sh" <<'PLUGIN'
+board_plugin_apply() {
+    local root_dir="$1"
+    local self_dir
+    self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    printf 'from-plugin\n' >"${self_dir}/overlay/etc/issue"
+    apply_rootfs_overlay_tree "${root_dir}" "${self_dir}/overlay"
+}
+PLUGIN
+        dst="$(mktemp -d)"
+        BOARD="${board_name}"
+        apply_debian_board_overlay "${dst}"
+        grep -Fq 'from-plugin' "${dst}/etc/issue" || exit 1
+        rm -rf "${dst}" "${board_dir}"
+    ) || return 1
+
+    # Board-local CokePi plugin (plugin.sh + firmware stage; no generic wifibt).
     (
         BOARD=rk3588s-cokepi-model-lp4-v10
         tmp="$(mktemp -d)"
+        # Use already-staged blobs if present; otherwise plugin stages from packages/*.deb.
         apply_debian_board_overlay "${tmp}"
         [ -L "${tmp}/vendor" ] || exit 1
         [ "$(readlink "${tmp}/vendor")" = "/system" ] || exit 1
         [ -L "${tmp}/system/etc/firmware" ] || exit 1
         [ "$(readlink "${tmp}/system/etc/firmware")" = "/lib/firmware" ] || exit 1
         [ -f "${tmp}/lib/firmware/aic8800D80/SOURCE.txt" ] || exit 1
+        # After plugin apply, real firmware blobs should exist (cache or download).
+        [ -n "$(find "${tmp}/lib/firmware/aic8800D80" -type f ! -name 'SOURCE.txt' 2>/dev/null | head -n 1)" ] || exit 1
         rm -rf "${tmp}"
     ) || return 1
-
-    board_fw="${PROJECT_DIR}/rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/overlay/lib/firmware/aic8800D80"
-    if [ -d "${board_fw}" ] && [ -n "$(find "${board_fw}" -type f ! -name 'SOURCE.txt' 2>/dev/null | head -n 1)" ]; then
-        (
-            BOARD=rk3588s-cokepi-model-lp4-v10
-            tmp="$(mktemp -d)"
-            apply_debian_board_overlay "${tmp}"
-            [ -n "$(find "${tmp}/lib/firmware/aic8800D80" -type f ! -name 'SOURCE.txt' 2>/dev/null | head -n 1)" ] || exit 1
-            rm -rf "${tmp}"
-        ) || return 1
-    fi
 
     # Symlink-capable overlay apply (board overlays may ship vendor links).
     (
@@ -473,7 +498,11 @@ check_debian_features() {
     grep -Fq 'DEBIAN_OVERLAYS_DEFAULT' \
         "${PROJECT_DIR}/configs/boards/rk3588-muse.conf" || return 1
     [ -d "${PROJECT_DIR}/rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/overlay" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/plugin.sh" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/lib-aic8800.sh" ] || return 1
     [ -x "${PROJECT_DIR}/rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/boards/README.md" ] || return 1
+    grep -Fq 'board_plugin_apply' "${PROJECT_DIR}/scripts/lib/common.sh" || return 1
     grep -Fq 'DEBIAN_OVERLAYS_DEFAULT' "${PROJECT_DIR}/configs/boards/rk3588s-cokepi-model-lp4-v10.conf" || return 1
     grep -Fq 'wifibt' "${PROJECT_DIR}/configs/boards/rk3588s-cokepi-model-lp4-v10.conf" && return 1
     [ -f "${PROJECT_DIR}/rootfs/debian/overlays/firstboot/overlay/usr/local/sbin/sbc-firstboot" ] || return 1

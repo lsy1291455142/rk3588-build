@@ -453,7 +453,8 @@ metadata_value() {
 # Layout:
 #   rootfs/debian/overlays/<name>/plugin.sh   required entry
 #   rootfs/debian/overlays/<name>/overlay/    optional static files
-#   rootfs/debian/boards/<board>/overlay/     board-specific files (always if present)
+#   rootfs/debian/boards/<board>/plugin.sh    board plugin (always if present)
+#   rootfs/debian/boards/<board>/overlay/     board static files (always if present)
 # Selection: DEBIAN_OVERLAYS / DEBIAN_OVERLAYS_DEFAULT (comma/space list).
 # Special: none|off|- = no optional overlays; all = every overlays/*/plugin.sh
 # ---------------------------------------------------------------------------
@@ -595,16 +596,36 @@ apply_rootfs_overlay_tree() {
     done < <(find "${overlay_src}" \( -type f -o -type l \) -print0 | sort -z)
 }
 
-# Apply board-only static tree (no optional plugins). Core build stays pure.
+# Apply board-local attachments when BOARD matches a boards/<BOARD>/ entry.
+# Same spirit as optional overlays, but always-on for the active board:
+#   boards/<BOARD>/plugin.sh  -> source and call board_plugin_apply(root_dir)
+#   boards/<BOARD>/overlay/   -> static tree only (used when no plugin.sh)
+# Core stays pure: no board product policy here, only dispatch.
 apply_debian_board_overlay() {
     local root_dir="$1"
-    local base board_overlay
+    local base board_dir board_plugin board_overlay
 
     [ -n "${root_dir}" ] || die "apply_debian_board_overlay: root_dir required"
     base="$(debian_rootfs_dir)"
-    board_overlay="${base}/boards/${BOARD}/overlay"
+    board_dir="${base}/boards/${BOARD}"
+    board_plugin="${board_dir}/plugin.sh"
+    board_overlay="${board_dir}/overlay"
+
+    if [ -f "${board_plugin}" ]; then
+        log_info "Running board plugin: ${BOARD}"
+        # shellcheck disable=SC1090
+        source "${board_plugin}"
+        if declare -F board_plugin_apply >/dev/null 2>&1; then
+            board_plugin_apply "${root_dir}"
+            unset -f board_plugin_apply
+        else
+            die "Board plugin ${BOARD} does not define board_plugin_apply()"
+        fi
+        return 0
+    fi
+
     if [ -d "${board_overlay}" ]; then
-        log_info "Applying board overlay: ${BOARD}"
+        log_info "Applying board overlay (static): ${BOARD}"
         apply_rootfs_overlay_tree "${root_dir}" "${board_overlay}"
     fi
 }

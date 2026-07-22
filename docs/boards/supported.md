@@ -63,9 +63,9 @@ make use-board BOARD=rk3588s-cokepi-model-lp4-v10
 
 额外的内核参数：`irqchip.gicv3_pseudo_nmi=0 rcupdate.rcu_expedited=1 rcu_nocbs=all`。
 
-Debian WiFi/BT（Model）：板级静态 overlay
+Debian WiFi/BT（Model）：板级 plugin
 `rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/`。
-构建前 stage 一次固件：
+`make build-rootfs` 自动 stage AIC 固件（默认 3.0）；可选手动：
 
 ```bash
 ./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
