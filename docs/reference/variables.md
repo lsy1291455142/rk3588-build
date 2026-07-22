@@ -32,9 +32,9 @@
 | `DEBIAN_PACKAGES` | （空） | 额外 APT 包名（逗号/空格）；空=板级默认/minbase；`none`=强制 minbase |
 | `DEBIAN_OVERLAYS` | （空） | 可选 overlay 插件列表；空=板级默认；`none`=关闭；`all`=全部 |
 | `DEBIAN_EXTRA_PACKAGES` | （空） | 预装额外的 APT 软件包（如 `htop i2c-tools python3-pip docker.io`） |
-| `WIFIBT_CHIP` | `none`（板级可改） | WiFi/BT 模组：`AIC8800D80` / `AP6275S` / `ALL_AP` / `ALL` 等；`none` 表示软跳过 |
-| `WIFIBT_SOURCE` | `sdk-or-assets` | 固件来源：`sdk`、`assets` 或 `sdk-or-assets`（先 SDK 后 assets） |
-| `WIFIBT_REQUIRED` | `no` | `yes` 时找不到固件则失败；`no` 只警告 |
+| `WIFIBT_CHIP` | `none`（板级可改） | 仅 `wifibt` overlay：模组 `AIC8800D80` / `AP6275S` / `ALL_AP` / `ALL` 等；`none` 跳过 |
+| `WIFIBT_SOURCE` | `sdk-or-assets` | 仅 `wifibt` overlay：`sdk`、`assets` 或 `sdk-or-assets`（SDK → overlay firmware → 遗留 assets） |
+| `WIFIBT_REQUIRED` | `no` | 仅 `wifibt` overlay：`yes` 时找不到固件则失败；`no` 只警告 |
 | `DEBIAN_MIRROR` | `http://deb.debian.org/debian` | Debian 主镜像源 |
 | `DEBIAN_SECURITY_MIRROR` | `http://security.debian.org/debian-security` | 安全更新源 |
 | `DEBIAN_ALLOW_ARCHIVE_FALLBACK` | `yes` | Debian 11 过期时回退到 archive.debian.org |
@@ -43,10 +43,10 @@
 
 `DEBIAN_OVERLAYS` 为空时用板级 `DEBIAN_OVERLAYS_DEFAULT`；`none`/`off`/`-` 强制无插件；`all` 启用 `rootfs/debian/overlays/*`。示例：`base,console,firstboot,network`。
 
-WiFi/BT 固件由 `WIFIBT_CHIP` 控制，且仅在 `wifibt` overlay 选中时安装。最小 SDK 没有 `external/rkwifibt` 时，先：
+WiFi/BT 固件逻辑在 `rootfs/debian/overlays/wifibt/`，仅在该 overlay 选中时生效。最小 SDK 没有 `external/rkwifibt` 时，先：
 
 ```bash
-make sync-wifibt-assets SDK_PATH=/path/to/full-bsp WIFIBT_CHIP=AP6275S
+./rootfs/debian/overlays/wifibt/sync-assets.sh /path/to/full-bsp AP6275S
 ```
 
 再 `make build-rootfs ... DEBIAN_PACKAGES=network-manager,wpasupplicant DEBIAN_OVERLAYS=base,console,firstboot,network,wifibt WIFIBT_CHIP=AP6275S`。

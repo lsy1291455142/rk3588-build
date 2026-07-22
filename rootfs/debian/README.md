@@ -52,11 +52,14 @@ Built-ins:
 | `firstboot` | Grow rootfs oneshot service/script |
 | `firstboot-info` | MOTD / first-boot banner templates |
 | `network` | If NetworkManager binary present → NM conf+enable; else networkd overlay+enable |
-| `wifibt` | Install WiFi/BT firmware via `WIFIBT_CHIP` |
+| `wifibt` | Optional plugin: WiFi/BT firmware (`WIFIBT_*`); see `overlays/wifibt/README.md` |
 
 Each plugin exports `plugin_apply root_dir`. Add a new overlay by creating
 `overlays/<name>/plugin.sh` (plus optional static files). Keep package names out
 of plugins; packages come only from `DEBIAN_PACKAGES`.
+
+Host-side WiFi/BT firmware sync (not a core make target):
+`./rootfs/debian/overlays/wifibt/sync-assets.sh /path/to/full-bsp [CHIP]`.
 
 ```bash
 make build-rootfs DEBIAN_OVERLAYS=base,console,firstboot,network

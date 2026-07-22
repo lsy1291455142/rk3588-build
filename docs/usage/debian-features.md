@@ -57,7 +57,7 @@ make build-rootfs DEBIAN_EXTRA_PACKAGES=htop,python3-pip
 | `firstboot` | 首次启动扩容 rootfs |
 | `firstboot-info` | 首次启动串口摘要 + MOTD |
 | `network` | 有 `/usr/sbin/NetworkManager` → 写 NM conf 并启用；否则启用 systemd-networkd + 有线 DHCP |
-| `wifibt` | 按 `WIFIBT_CHIP` 安装固件（与软件包列表无关） |
+| `wifibt` | 可选插件：按 `WIFIBT_CHIP` 安装固件（与软件包列表无关；见 overlays/wifibt） |
 
 ```bash
 make build-rootfs DEBIAN_OVERLAYS=base,console,firstboot,network
@@ -68,20 +68,26 @@ make build-rootfs DEBIAN_OVERLAYS=all
 插件只做镜像布局需要的 enable（串口 getty、firstboot、NM 与 networkd 互斥等）。
 常规 deb 包 postinst / systemd preset 仍按 Debian 自身逻辑处理。
 
-## WiFi/BT 固件
+## WiFi/BT 固件（`wifibt` overlay）
 
-固件**不是** apt 包，由 `WIFIBT_CHIP` / `WIFIBT_SOURCE` / `WIFIBT_REQUIRED` 控制，
-且仅在 `wifibt` overlay 被选中时安装：
+固件**不是** apt 包，也**不属于**构建核心。逻辑与同步脚本都在
+`rootfs/debian/overlays/wifibt/`。仅在 `DEBIAN_OVERLAYS` 选中 `wifibt` 时安装。
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `WIFIBT_CHIP` | `none` | `none` 跳过；或 `AP6275S` / `AIC8800D80` / `ALL_AP` 等 |
-| `WIFIBT_SOURCE` | `sdk-or-assets` | 查找顺序：SDK `external/rkwifibt/firmware` → 项目 `assets/wifibt` |
+| `WIFIBT_SOURCE` | `sdk-or-assets` | 查找顺序：SDK `external/rkwifibt/firmware` → overlay `firmware/` → 遗留 `assets/wifibt` |
 | `WIFIBT_REQUIRED` | `no` | `yes` 时固件缺失失败 |
 
 ```bash
-make sync-wifibt-assets SDK_PATH=/path/to/full-bsp WIFIBT_CHIP=AP6275S
-make build-rootfs   DEBIAN_PACKAGES=network-manager,wpasupplicant   DEBIAN_OVERLAYS=base,console,firstboot,network,wifibt   WIFIBT_CHIP=AP6275S
+# 从完整 BSP 同步到 overlay 本地树（宿主机脚本，非 make 核心目标）
+./rootfs/debian/overlays/wifibt/sync-assets.sh /path/to/full-bsp AP6275S
+
+make build-rootfs \
+  DEBIAN_PACKAGES=network-manager,wpasupplicant \
+  DEBIAN_OVERLAYS=base,console,firstboot,network,wifibt \
+  WIFIBT_CHIP=AP6275S
 ```
 
+详见 [overlays/wifibt/README.md](../../rootfs/debian/overlays/wifibt/README.md)。
 完整流程见[构建流水线](/how-it-works/pipeline)。

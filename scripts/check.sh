@@ -375,6 +375,10 @@ check_debian_features() {
         return 1
     fi
 
+    # wifibt helpers live in the overlay plugin, not the build core.
+    # shellcheck source=../rootfs/debian/overlays/wifibt/lib.sh
+    source "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/lib.sh"
+
     (
         WIFIBT_CHIP="AP6275S"
         WIFIBT_SOURCE="assets"
@@ -384,9 +388,16 @@ check_debian_features() {
         [ "${WIFIBT_SOURCE}" = "assets" ] || exit 1
     ) || return 1
 
-    # Optional install path when assets already contain a chip tree (host unit test).
-    if [ -d "${PROJECT_DIR}/assets/wifibt/broadcom/AP6275S" ] &&
-        [ -n "$(find "${PROJECT_DIR}/assets/wifibt/broadcom/AP6275S" -type f ! -name 'SOURCE.txt' ! -name 'README*' ! -name '*.md' 2>/dev/null | head -n 1)" ]; then
+    # Prefer overlay-owned firmware tree; legacy assets/wifibt still accepted.
+    wifibt_fw_has_files() {
+        local dir="$1"
+        [ -d "${dir}" ] || return 1
+        [ -n "$(find "${dir}" -type f ! -name 'SOURCE.txt' ! -name 'README*' ! -name '*.md' 2>/dev/null | head -n 1)" ]
+    }
+
+    # Optional install path when firmware assets already contain a chip tree.
+    if wifibt_fw_has_files "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/firmware/broadcom/AP6275S" ||
+        wifibt_fw_has_files "${PROJECT_DIR}/assets/wifibt/broadcom/AP6275S"; then
         (
             WIFIBT_CHIP="AP6275S"
             WIFIBT_SOURCE="assets"
@@ -402,8 +413,8 @@ check_debian_features() {
         ) || return 1
     fi
 
-    if [ -d "${PROJECT_DIR}/assets/wifibt/aicsemi/AIC8800D80" ] &&
-        [ -n "$(find "${PROJECT_DIR}/assets/wifibt/aicsemi/AIC8800D80" -type f ! -name 'SOURCE.txt' ! -name 'README*' ! -name '*.md' 2>/dev/null | head -n 1)" ]; then
+    if wifibt_fw_has_files "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/firmware/aicsemi/AIC8800D80" ||
+        wifibt_fw_has_files "${PROJECT_DIR}/assets/wifibt/aicsemi/AIC8800D80"; then
         (
             WIFIBT_CHIP="AIC8800D80"
             WIFIBT_SOURCE="assets"
@@ -490,8 +501,17 @@ check_debian_features() {
         "${PROJECT_DIR}/rootfs/debian/overlays/network/overlay-nm/etc/NetworkManager/conf.d/10-sbc.conf" || return 1
     grep -Fq 'run_debian_overlay_plugins' "${PROJECT_DIR}/scripts/lib/common.sh" || return 1
     if [ -f "${PROJECT_DIR}/Makefile" ] && [ -d "${PROJECT_DIR}/.git" ]; then
-        grep -Fq 'sync-wifibt-assets' "${PROJECT_DIR}/Makefile" || return 1
+        # Core Makefile must not own WiFi/BT sync; helper lives in the overlay.
+        grep -Fq 'sync-wifibt-assets' "${PROJECT_DIR}/Makefile" && return 1
         grep -Fq 'DEBIAN_OVERLAYS' "${PROJECT_DIR}/Makefile" || return 1
+    fi
+    [ -f "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/lib.sh" ] || return 1
+    [ -x "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/sync-assets.sh" ] || return 1
+    grep -Fq 'install_wifibt_firmware' "${PROJECT_DIR}/rootfs/debian/overlays/wifibt/lib.sh" || return 1
+    # Core common.sh must not define WiFi/BT helpers anymore.
+    if grep -Eq '^(resolve_wifibt_config|install_wifibt_firmware)\(\)' \
+        "${PROJECT_DIR}/scripts/lib/common.sh"; then
+        return 1
     fi
     if [ -f "${PROJECT_DIR}/docker-compose.yml" ] && [ -d "${PROJECT_DIR}/.git" ]; then
         grep -Fq 'WIFIBT_CHIP' "${PROJECT_DIR}/docker-compose.yml" || return 1

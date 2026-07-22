@@ -18,7 +18,13 @@
 output/
 out/
 
-# WiFi/BT firmware blobs (populate via make sync-wifibt-assets)
+# WiFi/BT firmware blobs (optional overlay; legacy assets path still ignored)
+# Preferred: rootfs/debian/overlays/wifibt/firmware/
+rootfs/debian/overlays/wifibt/firmware/**
+!rootfs/debian/overlays/wifibt/firmware/**/
+!rootfs/debian/overlays/wifibt/firmware/.gitkeep
+!rootfs/debian/overlays/wifibt/firmware/**/SOURCE.txt
+# Legacy fallback path
 # Ignore blob files, but keep directory markers and SOURCE.txt provenance notes.
 assets/wifibt/**
 !assets/wifibt/**/

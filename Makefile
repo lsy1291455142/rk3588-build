@@ -4,7 +4,7 @@
 
 .PHONY: help menu build build-nocache build-builder build-debian-builder \
 	register-arm64-binfmt \
-	import-local-sdk sync-wifibt-assets verify-sdk-volume \
+	import-local-sdk verify-sdk-volume \
 	fetch fetch-custom update shell debian-shell \
 	use-volume use-board use-rootfs use-rootfs-buildroot use-rootfs-debian \
 	use-rootfs-all use-current \
@@ -125,7 +125,7 @@ menu:
 		23) target=clean ;; \
 		24) target=clean-all ;; \
 		help|menu|build|build-nocache|build-builder|build-debian-builder| \
-		register-arm64-binfmt|import-local-sdk|sync-wifibt-assets|verify-sdk-volume| \
+		register-arm64-binfmt|import-local-sdk|verify-sdk-volume| \
 		fetch|fetch-custom|update|shell|debian-shell|use-volume|use-board|use-rootfs| \
 		use-rootfs-buildroot|use-rootfs-debian|use-rootfs-all|use-current| \
 		build-kernel|build-uboot|build-rootfs|image|verify-image|pack|build-all| \
@@ -161,7 +161,6 @@ help:
 		'' \
 		'Import an already downloaded SDK (bind-backed volume, no source copy):' \
 		'  make import-local-sdk SDK_PATH=/absolute/path SDK_VOLUME=rk3588-sdk-local' \
-		'  make sync-wifibt-assets SDK_PATH=/path/to/full-bsp [WIFIBT_CHIP=AP6275S|ALL_AP]' \
 		'  make verify-sdk-volume SDK_VOLUME=rk3588-sdk-local' \
 		'' \
 		'Fetch SDK (each uses a separate volume):' \
@@ -257,51 +256,6 @@ verify-sdk-volume: require-sdk-volume
 		}; \
 		printf "SDK volume %s is ready at /home/builder/sdk\n" "$(SDK_VOLUME)"'
 
-# Copy WiFi/BT firmware from a full BSP tree into project assets/ (host-side).
-# Usage: make sync-wifibt-assets SDK_PATH=/path/to/full-bsp [WIFIBT_CHIP=AP6275S|ALL_AP|ALL]
-# Default chip set is ALL_AP (all broadcom AP6xxx). Does not modify the SDK tree.
-sync-wifibt-assets:
-	@if [ -z "$(SDK_PATH)" ]; then \
-		echo "ERROR: SDK_PATH is required (full BSP with external/rkwifibt)." >&2; exit 1; \
-	fi
-	@src="$(SDK_PATH)/external/rkwifibt/firmware"; \
-	if [ ! -d "$$src" ]; then \
-		echo "ERROR: missing $$src" >&2; exit 1; \
-	fi; \
-	chip="$(if $(WIFIBT_CHIP),$(WIFIBT_CHIP),ALL_AP)"; \
-	dest="$(CURDIR)/assets/wifibt"; \
-	mkdir -p "$$dest"; \
-	case "$$chip" in \
-		ALL|all) \
-			echo "Syncing all vendors from $$src -> $$dest"; \
-			cp -a "$$src"/. "$$dest"/ ;; \
-		ALL_AP|all_ap) \
-			echo "Syncing broadcom (ALL_AP) from $$src/broadcom -> $$dest/broadcom"; \
-			mkdir -p "$$dest/broadcom"; \
-			cp -a "$$src/broadcom"/. "$$dest/broadcom"/ ;; \
-		ALL_CY|all_cy) \
-			echo "Syncing infineon (ALL_CY) from $$src/infineon -> $$dest/infineon"; \
-			mkdir -p "$$dest/infineon"; \
-			cp -a "$$src/infineon"/. "$$dest/infineon"/ ;; \
-		AP*|BCM*) \
-			echo "Syncing broadcom/$$chip"; \
-			mkdir -p "$$dest/broadcom"; \
-			cp -a "$$src/broadcom/$$chip" "$$dest/broadcom/" ;; \
-		RTL*) \
-			echo "Syncing realtek/$$chip"; \
-			mkdir -p "$$dest/realtek"; \
-			cp -a "$$src/realtek/$$chip" "$$dest/realtek/" ;; \
-		CYW*) \
-			echo "Syncing infineon/$$chip"; \
-			mkdir -p "$$dest/infineon"; \
-			cp -a "$$src/infineon/$$chip" "$$dest/infineon/" ;; \
-		RK*) \
-			echo "Syncing rockchip/$$chip"; \
-			mkdir -p "$$dest/rockchip"; \
-			cp -a "$$src/rockchip/$$chip" "$$dest/rockchip/" ;; \
-		*) echo "ERROR: unsupported WIFIBT_CHIP=$$chip" >&2; exit 1 ;; \
-	esac; \
-	find "$$dest" -type f | wc -l | xargs -I{} echo "Synced firmware files: {} under $$dest"
 
 fetch-custom:
 	@if [ -z "$(SDK_VOLUME)" ]; then \

@@ -95,7 +95,7 @@ make build-rootfs DEBIAN_PACKAGES=network-manager,wpasupplicant,i2c-tools
 make build-rootfs DEBIAN_PACKAGES=none DEBIAN_OVERLAYS=none
 make build-rootfs DEBIAN_PACKAGES=network-manager,wpasupplicant \
   DEBIAN_OVERLAYS=base,console,firstboot,network,wifibt WIFIBT_CHIP=AP6275S
-make sync-wifibt-assets SDK_PATH=/path/to/full-bsp WIFIBT_CHIP=AP6275S
+./rootfs/debian/overlays/wifibt/sync-assets.sh /path/to/full-bsp AP6275S
 ```
 
 构建元数据记录 `debian_packages` / `debian_overlays` / `network_stack`。
