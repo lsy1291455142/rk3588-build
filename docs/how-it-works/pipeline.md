@@ -1,179 +1,69 @@
 # 构建流水线
 
-`make build-all` 按顺序执行四个阶段，每个阶段都是独立的脚本，可以单独运行。
+整条流水线把 SDK 源码变成可烧录的 GPT 镜像，可一步（`make build-all`）完成，也可分阶段执行以便增量构建。本页按阶段说明数据如何在组件间流动，以及每个脚本的输入/输出契约。
 
-## 阶段一：build-uboot
+## 阶段零：拉取 SDK（`fetch_sources.sh`）
 
-脚本：`scripts/build_uboot.sh`
+通过 Google `repo` + manifest 把四个组件拉进 SDK 卷。manifest 来自 `boards/<BOARD>/board.conf` 的 `SOURCE_MANIFEST`（本地文件）或 `CUSTOM_MANIFEST_URL`（远程）。拉取后逐组件打印 `rev (branch)`，并在设置 `SOURCE_MANIFEST` 时调用 `validate_board_source_revisions` 比对板级锁定的 `EXPECTED_*_REVISION` 完整 40 位 SHA。本地 SDK 用 `make import-local-sdk` 以 bind 卷接入，跳过此阶段。
 
-输入：SDK 中的 `u-boot/` 和 `rkbin/`，板级 profile 中的 `UBOOT_*` 字段。
+## 阶段一：build-uboot（`build_uboot.sh`）
 
+输入：SDK 卷的 `u-boot` 与 `rkbin`，板级 `UBOOT_DEFCONFIG` / `UBOOT_BOARD`。
 流程：
 
-1. 加载板级 profile，校验所有必填字段
-2. 如果板级 profile 声明了 `EXPECTED_*_REVISION`，校验 u-boot 和 rkbin 的 Git commit
-3. 在 ARM64 宿主机上，用 `qemu-x86_64-static` 包装 rkbin 里的 x86-64 工具
-4. 执行 Rockchip `make.sh <board>` 编译 U-Boot
-5. 执行 `make.sh --idblock` 生成 RKNS IDBlock
-6. 校验引导链契约（检查 U-Boot 配置包含 extlinux 支持、不含 FIT 签名/AVB）
-7. 校验 loader 魔数（`LDR `）和 IDBlock 魔数（`RKNS`）
-8. 校验 IDBlock 和 uboot.img 不超过预留区域大小
+1. 解析 `UBOOT_PYTHON`（默认 python3，Rockchip FIT 生成器需要 pyelftools）；ARM64 宿主用 `qemu-x86_64-static` 包装 rkbin 的 x86-64 工具，退出时还原。
+2. `bash ./make.sh <UBOOT_BOARD> "CROSS_COMPILE=..."` 编译 U-Boot，再 `make.sh --idblock` 打包 RKNS IDBlock。
+3. `validate_extlinux_boot_contract` 校验 U-Boot 配置含 `CONFIG_DISTRO_DEFAULTS`/`CONFIG_CMD_MMC`/`CONFIG_CMD_FAT`/`CONFIG_CMD_FS_GENERIC`/`CONFIG_CMD_PXE`/`CONFIG_CMD_BOOTI`，且二进制含 `run distro_bootcmd;` 与 `extlinux/extlinux.conf`，并拒绝安全启动相关选项。
+4. 按 `DOWNLOAD_LOADER_GLOBS` / `UBOOT_IMAGE_NAMES` 找到 download loader（魔术字 `LDR `）与 uboot 镜像（含 `idblock.bin`，魔术字 `RKNS`），校验体积不超保留区。
+5. 产出 `common/download-loader.bin`、`common/idblock.img`、`common/uboot.img`，以及 `common/uboot-build-info.txt`（含扇区、格式、SHA256、Python 版本、boot flow）。
 
-输出到 `output/<board>/common/`：
+## 阶段二：build-kernel（`build_kernel.sh`）
 
-- `download-loader.bin` — 下载 loader（LDR 格式）
-- `idblock.img` — 磁盘 IDBlock（RKNS 格式）
-- `uboot.img` — U-Boot 主镜像
-- `trust.img`、`u-boot.itb` — 可选附加产物
-- `uboot-build-info.txt` — 构建元数据
-
-## 阶段二：build-kernel
-
-脚本：`scripts/build_kernel.sh`
-
-输入：SDK 中的 `kernel/`，板级 profile 中的 `KERNEL_*` 字段，`configs/kernel/rootfs-base.config`。
-
+输入：SDK 卷的 `kernel`，板级 `KERNEL_DEFCONFIG` / `KERNEL_DTB`，共享 fragment + 板级 `kernel.config`。
 流程：
 
-1. 加载板级 profile，校验内核 commit（如果有锁定）
-2. 创建符号链接「干净视图」— 某些厂商内核在 Git 里跟踪了 Kbuild 生成文件，导致 `O=` 外源构建失败。脚本创建一个符号链接目录，隐藏 `.config`、`include/config`、`arch/arm64/include/generated` 三个脏标记
-3. 写入 `.scmversion` 防止 Kbuild 调用 git（外源构建目录不是 git 仓库）
-4. 用板级 defconfig 配置内核，再用 `merge_config.sh` 合并共享 fragment
-5. 校验合并后的配置包含所有必需选项（ext4、MMC、devtmpfs、namespace、cgroup、virtio 等）
-6. 编译 `Image`、DTB、模块
-7. 安装模块到 staging 目录，删除 `build`/`source` 符号链接
-8. 从 DTB 中删除 `/chosen/bootargs`（防止 U-Boot 覆盖 extlinux 的 APPEND 行）
-9. 打包产物
-
-输出到 `output/<board>/common/`：
-
-- `Image` — 内核镜像
-- `<board>.dtb` — 设备树（已删除 bootargs）
-- `modules.tar` — 模块归档
-- `kernel.config` — 完整配置
-- `kernel-release` — 版本号
-- `System.map` — 符号表
-- `kernel-build-info.txt` — 构建元数据
-
-### 共享内核 fragment
-
-`configs/kernel/rootfs-base.config` 在板级 defconfig 之后合并，确保所有板型都有一致的基础能力：ext4、MMC、devtmpfs、namespace、cgroup、virtio（QEMU 测试需要）、PL011 串口（QEMU virt 控制台）、PL031 RTC 等。
-
-`configs/kernel/squashfs-overlay.config` **同样始终合并**（与 `ROOTFS_MODE` 无关），提供
-`CONFIG_SQUASHFS=y`、`CONFIG_OVERLAY_FS=y` 等能力。这样**单个内核产物即可同时启动
-`rw-ext4` 与 `ro-overlay` 两种镜像**，`ro-overlay` 不需要单独编内核。
-
-板级专用的内核选项可以放在 BSP defconfig 里，也可以通过板型 conf 的
-`KERNEL_EXTRA_FRAGMENTS`（相对 `configs/` 目录、空格分隔的共享 fragment 路径）提供，它们在
-上述两个共享 fragment **之后**合并，因此可覆盖共享配置。此外，每个板子的
-`boards/<BOARD>/kernel.config` 会由 `build_kernel.sh` 在最晚次序**自动合并**（无需在
-board.conf 中声明），同样可覆盖共享配置。两者都不应堆进共享 fragment。
+1. 构建符号链接式源码视图（`link_source_children`），避免污染导入的 SDK 源；预置 `.scmversion` 防止构建期 git 探测；设置 `GIT_CEILING_DIRECTORIES` 与 `GIT_DIR` 指向内核 worktree。
+2. `make <KERNEL_DEFCONFIG>`，再用 `merge_config.sh -m` 依次合并：
+   - `configs/kernel/rootfs-base.config`（基础能力）
+   - `configs/kernel/squashfs-overlay.config`（只读 overlay 所需 SquashFS/OverlayFS，始终合并，对 rw-ext4 惰性无副作用）
+   - `KERNEL_EXTRA_FRAGMENTS`（板级共享片段，可选）
+   - `boards/<BOARD>/kernel.config`（板级片段，最后合并，可覆盖共享）
+3. 强制校验必需内核选项（`CONFIG_OVERLAY_FS`、`CONFIG_SQUASHFS`、`CONFIG_VIRTIO_*`、`CONFIG_DEVTMPFS_MOUNT` 等）。
+4. 编译 `Image`、`rockchip/<KERNEL_DTB>`、模块；若 `CONFIG_MALI_CSF_INCLUDE_FW=y` 需镜像 Mali CSF 固件。
+5. 若 `DTB_STRIP_BOOTARGS=yes`（默认），用 `fdtput` 删除打包 DTB 的 `/chosen/bootargs`，确保 extlinux `APPEND` 权威。
+6. 产出 `common/Image`、`common/<KERNEL_DTB>`、`common/kernel.config`、`common/kernel-release`、`common/modules.tar`、`common/System.map`，以及 `kernel-build-info.txt`（`dtb_bootargs=extlinux-only-v1`、`kernel_source_view=symlink-clean-v1`）。
 
 ## 阶段三：build-rootfs
 
-根据 `ROOTFS` 变量走两条路径之一。
+分两条路径，依赖阶段二的 `modules.tar` 与 `kernel-release`。
 
-### Buildroot 路径
+### Buildroot 路径（`build_buildroot.sh`）
 
-脚本：`scripts/build_buildroot.sh`
+使用 `rootfs/buildroot/` 外部树（`BR2_EXTERNAL`），`rk3588_rootfs_defconfig` 选择 aarch64/cortex-a76_a55、GLIBC、BusyBox init、Dropbear SSH、e2fsprogs 等，输出 ext4（标签 `rootfs`，2048M）与 tar。`post-build.sh` 解包内核模块、写入 sudoers、置可执行 `S02rootfs-resize`/`S40network`。产出 `buildroot/rootfs.ext4`、`buildroot/rootfs.tar`、`buildroot/buildroot.config`。默认账号为 `rk3588`/`rk3588`（脚本内置回退）。
 
-输入：SDK 中的 `buildroot/`，`rootfs/buildroot/` external tree，内核阶段的 `modules.tar`。
+### Debian 路径（`build_debian.sh`）
 
-流程：
+在 `debian-rootfs` 镜像中以 root 运行，必须 `arm64`。流程：
 
-1. 生成用户表（Buildroot 的 `BR2_ROOTFS_USERS_TABLES`）
-2. 用 `rk3588_rootfs_defconfig` 配置 Buildroot
-3. 编译（`BR2_EXTERNAL` 指向本项目的 external tree）
-4. post-build 脚本安装内核模块、配置 sudoers
-5. 校验 rootfs 标签是 `rootfs`，包含内核模块和用户账号
-6. 用 e2fsck 检查文件系统完整性
+1. 解析 `DEBIAN_RELEASE`→codename/components；`DEBIAN_PACKAGES` 为空时回退 `DEBIAN_PACKAGES_DEFAULT`，`none` 强制仅 minbase；`resolve_debian_packages` 拒绝功能别名，仅接受精确 apt 包名。
+2. `mmdebstrap --variant=minbase --include=<PACKAGES>` 生成 `ROOT_DIR`，Debian 11 常规镜像失败时回退 `archive.debian.org`。
+3. 设置 hostname/hosts、创建 `ROOTFS_USERNAME` + 解锁 root、应用板级 plugin/overlay（`apply_debian_board_overlay`）、usermerge 校验、安装内核模块并 `depmod`。
+4. 按 `DEBIAN_OVERLAYS` 顺序运行可选插件（`run_debian_overlay_plugins`）：`base`（SSH/udev/resolved）、`console`（串口 getty 波特率）、`firstboot`（首启扩容）、`firstboot-info`（banner/MOTD）、`network`（NM/networkd 自适应）。
+5. `systemd-analyze verify` 校验关键 unit，生成 SSH host key。
+6. `ro-overlay`：生成 initramfs（`update-initramfs`，含 `overlayroot` hook）；否则打包 ext4（标签 `rootfs`，大小 `ROOTFS_SIZE_MIB`）。`ro-overlay` 产出 `rootfs.squashfs`。
+7. 产出 `debian-<rel>/rootfs.ext4`（或 `rootfs.squashfs`）、`rootfs.tar`、`rootfs-build-info.txt`（含 `network_stack`、`debian_packages`、`debian_overlays`、`rootfs_mode`）。
 
-输出到 `output/<board>/buildroot/`：`rootfs.ext4`、`rootfs.tar`、`buildroot.config`、`rootfs-build-info.txt`。
+## 阶段四：image + verify-image（`make_image.sh` / `verify_image.sh`）
 
-### Debian 路径
+`make_image.sh`：
 
-脚本：`scripts/build_debian.sh`，在 ARM64 容器中运行。
+1. 计算 GPT 几何：`IMAGE_SIZE_MIB` 总盘；boot 分区（第 1，`0700`，`BOOT_START_MIB` 起、`BOOT_SIZE_MIB` 大）；root 分区（第 2，`8300`，标签 `rootfs`）；`ro-overlay` 额外 data 分区（第 3，`8300`，标签 `data`）。
+2. 写 `extlinux.conf`（`DEFAULT`/`LABEL`=`EXTLINUX_LABEL`，`LINUX /Image`、`FDT /<DTB>`、`INITRD` 仅 ro-overlay、`APPEND root=PARTLABEL=rootfs rootwait rw|ro ... overlayroot=PARTLABEL=data console=<CONSOLE>`）。
+3. `sgdisk` 建 GPT，FAT32 `BOOT` 分区放入 Image/DTB/extlinux.conf（及 DTBO、initrd），`bootloader_layout_write` 写入 idblock/uboot，dd 写入 boot 与 rootfs（ro-overlay 再写 data ext4）。
+4. zstd 压缩、写 `.sha256`、写 `image-build-info.txt`（各分区起止扇区、SHA256、组件 commit、boot/root/data 元数据、bootloader 元数据）。
 
-输入：内核阶段的 `modules.tar`，板级 profile 中的 `CONSOLE`、`ROOTFS_SIZE_MIB`。
+`verify_image.sh`（以 root 运行）端到端校验：`stat` 镜像大小、`sgdisk --verify`、逐项比对分区起止扇区/类型/名称；`bootloader_layout_verify` 比对 embedded idblock/uboot 与 `common/` 产物；从 FAT 提取 Image/DTB/extlinux.conf 比对；校验 extlinux 选择正确 DTB、`rw`/`ro` + `overlayroot` 与 `console`；提取 rootfs（ext4 用 debugfs，SquashFS 用 `unsquashfs`）校验模块属主、`/lib` usrmerge、ELF 解释器、systemd、root 解锁，以及各 overlay 契约（firstboot 的 growpart/resize2fs、`base` 的 SSH+resolved、`console` 的波特率、`network` 的 NM/networkd 互斥）。最后 `sha256sum --check`。
 
-流程：
+## 可选阶段：test-debian-qemu（`test_debian_qemu.sh` + `qemu_smoke.py`）
 
-1. 解析 `DEBIAN_RELEASE`（11/12/13 → bullseye/bookworm/trixie）
-2. 解析 `DEBIAN_PACKAGES`（真实 APT 包名列表）与 `DEBIAN_OVERLAYS`（可选插件列表）
-3. 用 `mmdebstrap --variant=minbase` 构建最小化 Debian rootfs，并安装基础包 + 额外包
-4. 创建用户/密码，写入 hostname
-5. 运行板级 `boards/<board>/plugin.sh`（`board_plugin_apply`）或静态拷贝 `overlay/`
-6. 安装内核模块并 `depmod`；应用板级与插件 Overlay（含 `overlay/lib/firmware/` 硬件固件）
-7. 按 `DEBIAN_OVERLAYS` 顺序运行 `rootfs/debian/overlays/<name>/plugin.sh`（网络/firstboot/console 等）
-8. 校验已启用的 systemd unit / usrmerge 布局（有 sshd 时校验 ssh）
-9. 打包 `rootfs.ext4` 与 `rootfs.tar`
-
-输出到 `output/<board>/debian-<release>/`：`rootfs.ext4`、`rootfs.tar`、`rootfs-build-info.txt`。
-
-### Debian 软件包与 Overlay
-
-`DEBIAN_PACKAGES` 是逗号/空格分隔的真实 APT 包名。写什么装什么。不指定时用板级 `DEBIAN_PACKAGES_DEFAULT`，否则 minbase。`DEBIAN_PACKAGES=none` 强制 minbase。
-
-`DEBIAN_OVERLAYS` 选择可选附件插件（`base`/`console`/`firstboot`/`firstboot-info`/`network`）。空则用板级 `DEBIAN_OVERLAYS_DEFAULT`；`none` 强制无插件；`all` 启用全部。
-
-## 阶段四：image 与 verify-image
-
-脚本：`scripts/make_image.sh` 和 `scripts/verify_image.sh`
-
-输入：前三个阶段的所有产物。
-
-流程（make_image）：
-
-1. 生成 `extlinux/extlinux.conf`，指向 Image 和 DTB，APPEND 行包含 `root=PARTLABEL=rootfs`
-2. 创建 FAT32 boot 分区镜像，放入 Image、DTB、extlinux.conf
-3. 创建 GPT 磁盘镜像（sgdisk），两个分区：boot（FAT32）和 rootfs（ext4）
-4. 用 dd 写入 IDBlock（sector 64）、uboot.img（sector 16384）、boot FAT、rootfs ext4
-5. 用 zstd 压缩镜像
-6. 生成 SHA-256 校验和
-7. 写入 `image-build-info.txt` 元数据
-
-流程（verify_image，make_image 完成后自动触发）：
-
-1. 检查所有前置产物存在
-2. 校验 DTB 不含 `/chosen/bootargs`
-3. 如果板型锁定了源码版本，校验所有构建元数据中的 commit 匹配
-4. 校验内核配置包含所有必需选项
-5. 校验镜像大小精确等于 `IMAGE_SIZE_MIB`
-6. 用 sgdisk 验证 GPT 完整性
-7. 逐分区校验起始/结束扇区、类型码、分区名
-8. 从镜像中提取 IDBlock 和 uboot.img，与原始产物逐字节比对
-9. 挂载 boot FAT 分区，提取 Image、DTB、extlinux.conf，与原始产物比对
-10. 校验 extlinux.conf 指向正确的 DTB，包含正确的 root= 和 console= 参数
-11. 提取 rootfs 分区，e2fsck 检查，blkid 校验标签
-12. 校验 rootfs 中包含内核模块、用户账号、root 登录可用
-13. Debian 额外校验：usrmerge 布局、systemd 二进制、firstboot 脚本、网络服务、serial getty 配置
-14. 校验 SHA-256 文件与镜像匹配
-
-任何一步失败立即退出，不产出最终镜像。
-
-## 可选阶段：test-debian-qemu
-
-脚本：`scripts/test_debian_qemu.sh` + `scripts/lib/qemu_smoke.py`
-
-在 QEMU virt 机器里启动 Debian 镜像，验证：
-
-1. 串口登录（用户名 + 密码）
-2. 首次启动扩容完成（`/var/lib/rk3588-firstboot.done` 存在）
-3. 根分区已扩容到 ≥ 3 GB
-4. systemd 状态为 `running`，无失败单元
-5. SSH 服务活跃
-6. 网络服务活跃（NetworkManager 或 systemd-networkd）
-7. systemd-resolved 活跃
-8. SSH 配置语法正确
-9. 获取到 IPv4 地址
-10. SSH 密码登录成功
-11. 串口日志无 Kernel panic / Oops / BUG / 启动失败等错误模式
-
-测试用 `initcall_blacklist` 屏蔽了在 QEMU virt 里无意义或会导致崩溃的 Rockchip 驱动初始化：
-`rockchip_drm_init`、`rockchip_cpufreq_driver_init`、`rga_init`、`regulatory_init_db`、
-`system_heap_create`。其中 `system_heap_create` 必须屏蔽：QEMU `virt` 没有真实 ATF/EL3，
-Rockchip SiP SMC 调用（如 DMA system heap 初始化的 `sip_smc_get_dram_map`）会陷入未定义指令。
-
-此外，`ro-overlay` 模式会以 `overlayroot=PARTLABEL=data` 加载 `initrd.img` 并由
-`overlayroot` 钩子组装 OverlayFS 根；用 `console=ttyAMA0` 替代 `ttyFIQ0`（QEMU virt 的
-串口是 PL011）。上述屏蔽与串口替换**仅用于 QEMU 仿真**，真实硬件启动不受影响。
+仅 Debian。复制镜像为 `qemu-smoke/disk.img`，从 `image-build-info.txt` 读取 `rootfs_mode`，调用 `qemu_smoke.py` 在 QEMU `virt` 启动：注入 `initcall_blacklist`（来自 `configs/soc/rk3588.conf`）与 mask `serial-getty@ttyFIQ0.service`，等待串口登录 → 密码登录 → 运行 `systemd is-system-running`、各 unit 健康、SSH 密码登录、IPv4 获取等检查，最后关机并扫串口日志排除致命/错误模式。ro-overlay 额外校验 `/data` 挂载。

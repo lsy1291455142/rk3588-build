@@ -1,84 +1,53 @@
 # 日常构建
 
-第一次完整构建之后，日常工作流围绕「改代码 → 增量编译 → 重新出镜像」展开。
+本页说明如何在不改源码的情况下切换板型/SDK/rootfs、做增量构建、进容器调试、更新 SDK 与清理。核心理念：环境变量（CLI 或 `.env`）驱动一切，脚本本身与具体板型解耦。
 
 ## 切换板型 / SDK / rootfs
 
-项目用 `.env` 文件记住当前选择，避免每次都敲一长串变量。
+`make use-*` 系列只写 `.env` 的对应键，不影响其它配置，便于交互式复用：
 
 ```bash
-# 交互式选择
-make use-board        # 列出所有板级 profile，选编号
-make use-volume       # 列出所有 SDK volume，选编号
-make use-rootfs       # 选 buildroot / debian / all
-
-# 或直接指定
-make use-board-rock5c
-make use-volume-rock5c
-make use-rootfs-debian
-
-# 查看当前选择
-make use-current
+make use-board              # 交互选择板型（或 make use-board BOARD=rk3588s-rock-5c）
+make use-volume             # 交互选择 rk3588-sdk-* 卷
+make use-rootfs             # 交互选择 buildroot / debian / all
+make use-current            # 查看当前三项
+make info                   # 查看完整环境（含板型描述、manifest、Debian 发行版）
 ```
 
-设置之后就可以省略变量直接构建：
-
-```bash
-make build-all
-```
-
-`.env` 里的值始终可以被命令行覆盖：
-
-```bash
-make build-all DEBIAN_RELEASE=12
-```
+设置 `BOARD` 且其 `SOURCE_MANIFEST` 存在时，`use-board` 会在 `SDK_VOLUME` 为空时自动派生卷名；若已设置不同卷则保留并提示用 `make use-volume` 切换。
 
 ## 增量构建
 
-### 只改内核
+各阶段独立，缺哪个就只构建哪个（均依赖 SDK 卷、BOARD 与前置产物）：
 
 ```bash
-make build-kernel
-make image          # 重新打包镜像（会用新内核）
+# 只改内核
+make build-kernel BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c
+make image BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c ROOTFS=debian DEBIAN_RELEASE=13
+
+# 只改 U-Boot
+make build-uboot BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c
+make image ...
+
+# 只改 rootfs 配置（overlay / 包）
+make build-rootfs BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c ROOTFS=debian \
+  DEBIAN_RELEASE=13 DEBIAN_OVERLAYS=base,console,network
+make image ...
+
+# 全部重来
+make build-all BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c ROOTFS=debian DEBIAN_RELEASE=13
 ```
 
-内核编译用 ccache 加速，改一个驱动文件通常 1-2 分钟。
-
-### 只改 U-Boot
-
-```bash
-make build-uboot
-make image
-```
-
-### 只改 rootfs 配置
-
-```bash
-make build-rootfs
-make image
-```
-
-Buildroot 会增量编译；Debian 每次都从头跑 mmdebstrap（因为是确定性的）。
-
-### 全部重来
-
-```bash
-make build-all
-```
+`image` 目标在组装后立即运行 `verify-image`（`_verify-one`），无需单独调用即可确认一致性。
 
 ## 进入构建容器调试
 
 ```bash
-make shell SDK_VOLUME=rk3588-sdk-rock5c
+make shell SDK_VOLUME=rk3588-sdk-rock5c        # 主构建器（交叉编译 / U-Boot / 内核）
+make debian-shell SDK_VOLUME=rk3588-sdk-rock5c # ARM64 Debian 构建器（mmdebstrap 调试）
 ```
 
-这会进入一个交互式 Bash，SDK 源码挂载在 `/home/builder/sdk`，可以手动执行任何编译命令。容器退出后改动保留在 volume 里。
-
-进入 Debian rootfs 构建容器：
-
-```bash
-make debian-shell SDK_VOLUME=rk3588-sdk-rock5c
-```
+容器内工作区为 `/home/builder`，SDK 在 `/home/builder/sdk`，脚本在 `/home/builder/scripts`，可直接手动运行各 `scripts/*.sh` 排查。
 
 ## 更新 SDK 源码
 
@@ -86,54 +55,20 @@ make debian-shell SDK_VOLUME=rk3588-sdk-rock5c
 make update SDK_VOLUME=rk3588-sdk-rock5c
 ```
 
-这会重新执行 `repo sync`，拉取 manifest 中各仓库的最新提交。如果 manifest 里锁的是具体 commit SHA（如 ROCK 5C），update 不会变更版本。
+重新 init 并 `repo sync` 更新已有卷（清理 `.repo/manifests` 以避免 rebase 历史冲突）。若设置 `SOURCE_MANIFEST`，`fetch_sources.sh` 会比对锁定 commit；若变更了 manifest 内的 revision，需同步更新板级 `EXPECTED_*_REVISION` 后重新 `update`。
 
 ## 修改源码
 
-SDK 源码在 Docker volume 里，不直接暴露在宿主机文件系统。两种修改方式：
-
-**方式一：容器内直接改**
-
-```bash
-make shell SDK_VOLUME=rk3588-sdk-rock5c
-cd /home/builder/sdk/kernel
-# 用 vim/nano 改文件，或 git apply 补丁
-```
-
-**方式二：本地补丁目录**
-
-把 `.patch` 文件放进 `patches/` 目录，容器内挂载为 `/home/builder/patches/`（只读）：
-
-```bash
-make shell SDK_VOLUME=rk3588-sdk-rock5c
-cd /home/builder/sdk/kernel
-git am /home/builder/patches/kernel/0001-my-fix.patch
-```
+导入的 SDK 源码在 Docker 卷中（`make import-local-sdk` 为 bind 挂载，直接是宿主机目录，可就地编辑；`make fetch` 的卷为容器内卷，需进容器或用 `make shell` 编辑）。修改后重新运行相应 `build-*` 与 `image` 即可，ccache（`rk3588-ccache` 卷）会加速重编译。
 
 ## 清理
 
 ```bash
-make clean           # 停止并删除容器
-make clean-all       # 同时删除 volume 和镜像（谨慎）
-```
-
-清理某个板型的构建中间产物（不影响 SDK 源码）：
-
-```bash
-# 构建中间产物在 SDK volume 的 .rk3588-build/ 目录
-docker run --rm -v rk3588-sdk-rock5c:/sdk alpine rm -rf /sdk/.rk3588-build
+make clean        # docker compose down --remove-orphans
+make clean-all    # 同时 --volumes --rmi local（删除卷与本地镜像，谨慎）
+make status       # 查看容器与 rk3588-* 卷
 ```
 
 ## 并行构建多个板型
 
-每个 SDK volume 是独立的，可以在不同终端窗口同时构建不同板型：
-
-```bash
-# 终端 1
-make build-all BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c ROOTFS=debian
-
-# 终端 2
-make build-all BOARD=rk3588-evb1-lp4-v10-linux SDK_VOLUME=rk3588-sdk-rockchip-6.6 ROOTFS=buildroot
-```
-
-产物在 `output/` 下按板型名分目录，不会互相覆盖。
+每个板型使用独立的 `SDK_VOLUME` 与独立的 `output/<BOARD>/` 目录，互不干扰。可在不同终端分别 `make build-all BOARD=<a> SDK_VOLUME=<va> ...` 与 `make build-all BOARD=<b> SDK_VOLUME=<vb> ...` 并行（注意磁盘与 CPU 占用）。

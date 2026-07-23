@@ -1,73 +1,63 @@
 # Overlay 插件开发规范
 
-本目录包含 Debian rootfs 的可选功能插件。每个插件由 `DEBIAN_OVERLAYS`
-选择，按列表顺序执行。
+可选 overlay 插件让 Debian rootfs 的核心构建逻辑（在 `scripts/build_debian.sh`）保持纯粹，把「可插拔的可选能力」外置为目录化的插件。插件由 `DEBIAN_OVERLAYS`（CLI / `.env` 或板级 `DEBIAN_OVERLAYS_DEFAULT`）选择，`run_debian_overlay_plugins` 按列表顺序应用。
 
 ## 目录结构约定
 
-```
-overlays/<name>/
-├── plugin.sh              # 必须：导出 plugin_apply(root_dir)
-├── overlay/               # 推荐：静态文件树（自动复制到 rootfs 对应路径）
-│   ├── etc/...            #   支持 *.in 模板（@BOARD@ 等占位符自动展开）
-│   └── lib/firmware/...   #   硬件固件存放点（自动安装到 /lib/firmware/）
-├── lib.sh                 # 可选：复杂逻辑拆分到库文件
-└── README.md              # 可选：插件说明
+```text
+rootfs/debian/overlays/<name>/
+├── plugin.sh              # 必需入口：定义 plugin_apply(root_dir)
+├── overlay/               # 可选静态文件树（* 拷贝到 root_dir 对应路径）
+└── overlay-nm/            # 可选：NetworkManager 专属文件（network 插件使用）
 ```
 
-### 命名规则与固件说明
+### 命名规则
 
-| 情况 | 目录名 | 说明 |
-|------|--------|------|
-| 默认文件 | `overlay/` | 静态文件树，用 `apply_rootfs_overlay_tree` 应用 |
-| 条件分支 | `overlay-<variant>/` | 运行时选择不同子树（如 `network` 的 NM vs networkd） |
-| 硬件固件 | `overlay/lib/firmware/` | 任何静态固件文件（`.bin` / `.fw` 等）直接放入此路径 |
+- `<name>` 即插件标识，对应 `DEBIAN_OVERLAYS` 中的一个条目（如 `base`、`console`、`firstboot`、`firstboot-info`、`network`）。
+- `resolve_debian_overlays` 校验 `<name>/plugin.sh` 必须存在，未知名字直接报错。
+- `all` 展开为 `debian_known_overlay_names()` 的全部（按目录名排序）；`none`/`off`/`-` 表示无插件。
 
-**不要**使用 `templates/`、`files/` 等非标准目录名放静态文件。模板文件（`.in`
-后缀）直接放在 `overlay/` 中即可——`apply_rootfs_overlay_tree` 会自动检测并展开。例如自定义驱动固件可直接放置于 `overlay/lib/firmware/my_driver.bin`。
+### 固件说明
+
+静态固件放 `overlay/lib/firmware/`；动态固件（如从 `.deb` 解包）在 `plugin_apply` 内写入 `root_dir`，不应进 git。板级硬件固件应放 `boards/<BOARD>/rootfs/`（始终应用），而非此处可选插件。
 
 ## plugin.sh 接口契约
 
 ```bash
 #!/usr/bin/env bash
-# 一行描述插件功能。
+# 单行描述。
 
 plugin_apply() {
     local root_dir="$1"
-    local self_dir
-    self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-    # 1. 应用静态文件树
-    apply_rootfs_overlay_tree "${root_dir}" "${self_dir}/overlay"
-
-    # 2. 启用 systemd 服务（如需要）
-    enable_unit my-service.service
-
-    # 3. 其他运行时逻辑
+    # 拷贝静态树
+    apply_rootfs_overlay_tree "${root_dir}" "$(dirname "${BASH_SOURCE[0]}")/overlay"
+    # 启用 systemd unit（用 common.sh 的 enable_unit 或手写 [Install] 软链）
+    # 写配置文件、展开模板等
 }
 ```
 
-**规则：**
-- 必须定义 `plugin_apply()` 函数（调用者会 `source plugin.sh` 后检查）
-- 可调用 `apply_rootfs_overlay_tree`、`expand_overlay_template_text`、
-  `enable_unit`、`log_info`、`log_warn` 等 `common.sh` 中的公共函数
-- **不要**在插件中安装 APT 包——包管理只通过 `DEBIAN_PACKAGES`
-- 复杂逻辑拆分到 `lib.sh`（通过 `source "${self_dir}/lib.sh"` 引入）
+规则：
+
+- `plugin.sh` **必须**定义 `plugin_apply(root_dir)`；否则 `run_debian_overlay_plugins` 报错。
+- 可调用 `common.sh` 的 `apply_rootfs_overlay_tree`、`expand_overlay_template_text`、`enable_unit`、`log_info`、`log_warn`。
+- 静态 `overlay/` 内的 `*.in` 文件在拷贝时按 `@PLACEHOLDER@` 展开（见 `rootfs/debian/README.md` 的 Templates）。
+- 符号链接会被保留（`apply_rootfs_overlay_tree` 区分文件/符号链接）。
+- **不要**在插件里安装 APT 包——包只经 `DEBIAN_PACKAGES`。
+- 构建容器以只读挂载 `rootfs/`：不要回写本目录。
 
 ## 新增插件 Checklist
 
-1. 创建 `overlays/<name>/plugin.sh`（实现 `plugin_apply`）
-2. 如需静态文件，放入 `overlays/<name>/overlay/` 目录
-3. 在板级配置 `DEBIAN_OVERLAYS_DEFAULT` 中按需添加
-4. 在 `docs/usage/debian-features.md` 的插件表格中添加说明
-5. 在 `check.sh` 中添加对应测试用例
+1. 在 `rootfs/debian/overlays/<name>/` 建 `plugin.sh`（定义 `plugin_apply`）。
+2. 需要静态文件则放 `overlay/`，需要模板则放 `*.in`。
+3. 用 `make check`（其 `check_debian_packages` 会校验插件文件存在且网络/基础契约满足）验证。
+4. 在 `DEBIAN_OVERLAYS` / `DEBIAN_OVERLAYS_DEFAULT` 中引用该名字。
 
 ## 现有插件索引
 
-| 插件 | 功能 | 静态文件 |
-|------|------|----------|
-| `base` | SSH 配置、udev GPU 权限、resolved | `overlay/` |
-| `console` | 串口 getty 波特率 drop-in | `overlay/` (模板) |
-| `firstboot` | 首次启动 rootfs 扩容 | `overlay/` |
-| `firstboot-info` | MOTD / 首次启动 banner | `overlay/` (模板) |
-| `network` | NM / networkd 自适应网络配置 | `overlay-nm/`, `overlay-networkd/` |
+| 插件 | 作用 |
+|---|---|
+| `base` | SSH（`ssh.service` 启用、缺失 host key 自动生成）、udev、systemd-resolved（非 Debian 11）、基础权限 |
+| `console` | 为板级串口（`CONSOLE` 设备段）写 `serial-getty@<dev>.service.d/10-baud.conf`（`--keep-baud <speed>,115200`）并 enable getty |
+| `firstboot` | 安装 `sbc-firstboot` 与 `sbc-firstboot.service`，首启 `growpart` + `resize2fs` 扩容根分区 |
+| `firstboot-info` | 安装 `sbc-firstboot-info`（由 `sbc-firstboot` 首启调用），打印 banner / MOTD |
+| `network` | 按是否安装 `NetworkManager` 二进制自适应：有则启用 `NetworkManager.service` 并写 `10-sbc.conf`（含 `wifi.scan-rand-mac-address=no`），否则启用 `systemd-networkd.service`（写 `20-wired.network`）；二者互斥 |

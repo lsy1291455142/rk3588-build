@@ -1,135 +1,91 @@
 # 架构与目录
 
+本页说明构建系统的整体结构、两个 Docker 镜像、目录映射、SDK 卷与输出布局。设计目标是：宿主只需 Docker 与 GNU Make，所有交叉工具链、QEMU、Rockchip 专有工具都封装在容器内；新增板型不改任何脚本。
+
 ## 整体结构
 
-项目由三层组成：
-
-```
-宿主机
-  ├── Makefile            # 用户入口，参数校验，docker compose 调用
-  ├── .env                # 记住当前板型/SDK/rootfs 选择
-  └── output/             # 所有构建产物（bind mount）
-
-Docker 容器
-  ├── rk3588-build        # 主构建器（Ubuntu 22.04）
-  │   ├── 编译内核、U-Boot
-  │   ├── 组装 GPT 镜像
-  │   └── 运行 Buildroot
-  └── debian-rootfs       # Debian rootfs 构建器（ARM64）
-      └── 用 mmdebstrap 构建 Debian rootfs
-
-Docker Volume
-  ├── rk3588-sdk-*        # SDK 源码（每个来源一个 volume）
-  └── rk3588-ccache       # 编译缓存
+```text
+rk3588-build/
+├── Makefile                  # 所有 make 入口与交互菜单
+├── Dockerfile                # 双阶段：rk3588-build（x86_64/amd64 或 arm64 通用）+ debian-rootfs（arm64）
+├── docker-compose.yml        # 两个服务 + 三个命名卷的编排
+├── manifests/                # repo manifest XML（每个 SDK 来源一个）
+├── boards/                   # 板型为单元：每板一个目录（board.conf / kernel.config / rootfs / check.sh）
+│   └── TEMPLATE/             # 新建板型模板（make new-board 的起点）
+├── configs/
+│   ├── kernel/               # 共享内核 fragment（rootfs-base.config / squashfs-overlay.config）
+│   └── soc/                  # SoC 平台特性（如 rk3588.conf：QEMU 黑名单 / 串口 getty mask）
+├── scripts/
+│   ├── lib/
+│   │   ├── common.sh         # 公共库：profile 加载、校验、overlay 应用、元数据
+│   │   ├── bootloader_layouts.sh  # 启动链布局抽象层（rockchip-gpt-idblock-extlinux-v1）
+│   │   └── qemu_smoke.py     # QEMU 冒烟测试驱动（pexpect）
+│   ├── fetch_sources.sh      # SDK 拉取 / 更新（repo + manifest）
+│   ├── build_uboot.sh        # U-Boot + RKNS IDBlock
+│   ├── build_kernel.sh       # 内核 Image / DTB / 模块
+│   ├── build_buildroot.sh    # Buildroot rootfs
+│   ├── build_debian.sh       # Debian rootfs（mmdebstrap）
+│   ├── make_image.sh         # GPT 裸镜像组装
+│   ├── verify_image.sh       # 镜像深度校验
+│   ├── test_debian_qemu.sh   # 调用 qemu_smoke.py
+│   ├── check.sh              # 项目自检（语法/契约/manifest）
+│   ├── entrypoint.sh         # 容器入口（编译器/缓存/git 自检）
+│   └── import_local_sdk.sh   # 本地 SDK 以 bind 卷导入
+├── rootfs/
+│   ├── buildroot/            # Buildroot external tree（defconfig / board overlay / post-build）
+│   └── debian/               # Debian 可选 overlay 插件 + ro-overlay initramfs hook
+│       └── overlays/         # base / console / firstboot / firstboot-info / network
+├── docs/                     # VitePress 文档站点（即本站点）
+├── patches/                  # 可选本地补丁（手动应用，仓库未自动套用）
+└── output/                   # 所有构建产物（按板型 + rootfs 分目录）
 ```
 
 ## 两个 Docker 镜像
 
-`Dockerfile` 是双阶段的：
+`Dockerfile` 定义两个构建阶段（stage）：
 
-**`rk3588-build`（Ubuntu 22.04）** — 主构建器，负责：
+1. **`rk3588-build`**（目标 `rk3588-build`）：基于 `ubuntu:22.04` 的通用构建器，安装交叉编译器 `aarch64-linux-gnu-`、`gcc-arm-linux-gnueabihf`、设备树编译器、`qemu-system-arm`、Python 2.7（Rockchip `make.sh`/FIT 生成器需要）、`repo`、e2fsprogs 1.47.2（支持 Debian trixie 的 ext4 特性）、`shellcheck` 等。amd64 宿主额外启用 i386 兼容（rkbin 工具需要）；arm64 宿主安装 `qemu-user-static` 以运行为 x86-64 的 rkbin 工具。UID 1000 的 `builder` 用户拥有工作区。入口 `entrypoint.sh`。
 
-- 交叉编译 ARM64 内核（`gcc-aarch64-linux-gnu`）
-- 用 Rockchip `make.sh` 构建 U-Boot 引导链
-- 运行 Buildroot 构建 rootfs
-- 用 sgdisk / mtools / dd 组装 GPT 镜像
-- 运行 QEMU 冒烟测试
-
-包含 Python 2.7（Rockchip U-Boot 的 FIT 生成器需要）和 Python 3（其他所有工具）。e2fsprogs 从源码编译 1.47.2，因为 Ubuntu 22.04 自带的版本不支持 Debian Trixie 的 ext4 特性。
-
-**`debian-rootfs`（Debian Trixie ARM64）** — 专用 rootfs 构建器：
-
-- 以 `linux/arm64` 平台运行（x86_64 宿主机上通过 binfmt 模拟）
-- 用 `mmdebstrap` 构建最小化 Debian rootfs
-- 需要 `privileged: true` 来执行 chroot 和 mount 操作
-
-分离的原因：mmdebstrap 必须在目标架构（ARM64）上原生运行，不能用交叉编译。
+2. **`debian-rootfs`**（目标 `debian-rootfs`）：基于 `debian:trixie-slim` 的 ARM64 原生构建器，仅安装 `mmdebstrap`、`systemd`、`squashfs-tools`、`mount` 等 Debian rootfs 构建所需的最小集合。`docker-compose.yml` 中标记为 `platform: linux/arm64` 且 `privileged: true`。Debian rootfs 必须在此镜像中原生构建（x86_64 宿主通过 binfmt 模拟）。
 
 ## 目录映射
 
-| 宿主机路径 | 容器内路径 | 方式 | 说明 |
-|---|---|---|---|
-| `./scripts/` | `/home/builder/scripts/` | 只读 | 构建脚本 |
-| `./manifests/` | `/home/builder/manifests/` | 只读 | repo manifest |
-| `./configs/` | `/home/builder/configs/` | 只读 | 板型与内核配置 |
-| `./rootfs/` | `/home/builder/rootfs/` | 只读 | Buildroot external tree |
-| `./patches/` | `/home/builder/patches/` | 只读 | 可选补丁 |
-| `./output/` | `/home/builder/output/` | 读写 | 构建产物 |
-| (volume) | `/home/builder/sdk/` | 读写 | SDK 源码 |
-| (volume) | `/home/builder/.ccache/` | 读写 | 编译缓存 |
+`docker-compose.yml` 把宿主机源码以只读方式挂入容器，SDK 与输出为可写卷：
 
-脚本和配置以只读 bind mount 挂载，改宿主机上的文件立即生效，不需要重新构建 Docker 镜像。只有 `Dockerfile` 本身变更时才需要 `make build`。
+| 挂载 | 容器内路径 | 模式 |
+|---|---|---|
+| `./scripts` | `/home/builder/scripts` | ro |
+| `./manifests` | `/home/builder/manifests` | ro |
+| `./patches` | `/home/builder/patches` | ro |
+| `./configs` | `/home/builder/configs` | ro |
+| `./rootfs` | `/home/builder/rootfs` | ro |
+| `./boards` | `/home/builder/boards` | ro |
+| `./output` | `/home/builder/output` | 可写 |
+| SDK 卷（`sdk`） | `/home/builder/sdk` | 可写（external） |
+| `rk3588-ccache` | `/home/builder/.ccache` | 可写 |
+| `sbc-apt-cache` | `/var/cache/apt/archives`（仅 debian-rootfs） | 可写 |
+
+`PROJECT_DIR` 容器内固定为 `/home/builder`，`SDK_DIR` 为 `/home/builder/sdk`，`OUTPUT_DIR` 为 `/home/builder/output`。板级脚本只读访问 `boards/`，绝不在构建期写回（见 `boards/README.md` 的 plugin 规则）。
 
 ## SDK Volume
 
-每个 SDK 来源对应一个独立的 Docker volume（如 `rk3588-sdk-rock5c`），容器内挂载为 `/home/builder/sdk`。内部结构：
-
-```
-/home/builder/sdk/
-├── kernel/           # Linux 内核源码
-├── u-boot/           # U-Boot 源码
-├── rkbin/            # Rockchip 闭源固件
-├── buildroot/        # Buildroot 源码
-└── .rk3588-build/    # 构建中间产物（按板型分目录）
-    └── <board>/
-        ├── kernel/       # 内核 O= 构建目录
-        ├── kernel-source/ # 内核符号链接视图
-        ├── buildroot/    # Buildroot O= 构建目录
-        └── debian-*/     # Debian rootfs 构建目录
-```
-
-中间产物放在 SDK volume 而不是 `output/`，因为它们只在构建过程中需要，且可以被安全删除重来。
+SDK 源码保存在名为 `rk3588-sdk-<name>` 的 Docker 卷中（或在 `rk3588-sdk-*` 命名空间内）。`make fetch` 按板级 `SOURCE_MANIFEST` 派生卷名（如 `rk3588-sdk-rock5c`）；`make import-local-sdk` 把本地目录以 bind 卷接入（不复制源码）。卷内固定包含四个组件目录：`kernel`、`u-boot`、`rkbin`、`buildroot`。`make verify-sdk-volume` 校验四目录存在且可写。
 
 ## 输出目录
 
-```
-output/
-└── <board>/                          # 板型名（如 rk3588s-rock-5c）
-    ├── common/                       # 跨 rootfs 共享的产物
-    │   ├── Image                     # 内核镜像
-    │   ├── <board>.dtb              # 设备树二进制
-    │   ├── modules.tar               # 内核模块归档
-    │   ├── kernel.config             # 完整内核配置
-    │   ├── kernel-release            # 内核版本字符串
-    │   ├── System.map                # 内核符号表
-    │   ├── download-loader.bin       # Rockchip 下载 loader
-    │   ├── idblock.img               # RKNS IDBlock
-    │   ├── uboot.img                 # U-Boot 主镜像
-    │   ├── kernel-build-info.txt     # 内核构建元数据
-    │   └── uboot-build-info.txt      # U-Boot 构建元数据
-    ├── buildroot/                    # Buildroot rootfs 产物
-    │   ├── rootfs.ext4
-    │   ├── rootfs.tar
-    │   ├── <board>-buildroot.img     # 完整磁盘镜像
-    │   ├── <board>-buildroot.img.zst
-    │   ├── <board>-buildroot.sha256
-    │   ├── image-build-info.txt
-    │   └── rootfs-build-info.txt
-    └── debian-<release>/             # Debian rootfs 产物（如 debian-13）
-        ├── rootfs.ext4
-        ├── rootfs.tar
-        ├── <board>-debian-<rel>.img
-        ├── <board>-debian-<rel>.img.zst
-        ├── <board>-debian-<rel>.sha256
-        ├── image-build-info.txt
-        ├── rootfs-build-info.txt
-        └── qemu-smoke/               # QEMU 测试产物（可选）
-            ├── serial.log
-            ├── ssh.log
-            └── result.txt
+产物按 `output/<BOARD>/<variant>/` 组织，其中 `<variant>` 为 `common`（跨 rootfs 共享产物）、`buildroot`，或 `debian-<release>`（如 `debian-13`）。
+
+```text
+output/<BOARD>/
+├── common/                 # Image, <DTB>, kernel.config, kernel-release, modules.tar, System.map
+│                          # idblock.img, uboot.img, download-loader.bin, 以及 *-build-info.txt
+├── buildroot/             # rootfs.ext4, rootfs.tar, buildroot.config, rootfs-build-info.txt
+└── debian-13/             # rootfs.ext4 或 rootfs.squashfs, initrd.img, rootfs.tar
+                             # <BOARD>-debian-13.img, .img.zst, .sha256, image-build-info.txt
 ```
 
-`common/` 存内核和 U-Boot 产物，因为它们与 rootfs 类型无关。`buildroot/` 和 `debian-*/` 各自存 rootfs 和最终镜像。
+`IMAGE_STEM` 为 `<BOARD>-<variant>`（如 `rk3588s-rock-5c-debian-13`），镜像与压缩包、校验和同名。`common/` 内的 `kernel-build-info.txt`、`uboot-build-info.txt` 等元数据记录各组件 commit、defconfig、扇区、SHA256 等，供 `verify_image.sh` 与 `image-build-info.txt` 引用。
 
 ## 容器入口
 
-`entrypoint.sh` 做以下事情：
-
-1. 如果以 root 启动，用 `gosu` 降到 `builder` 用户（uid 1000），确保输出文件权限正确
-2. 配置交叉编译环境（`CROSS_COMPILE=aarch64-linux-gnu-`）
-3. 启用 ccache
-4. 配置 Git（用户名、LFS）
-5. 打印环境信息横幅
-6. 如果是交互式 shell，运行环境自检（检查所有工具可用）
-
-在 ARM64 宿主机上可以通过 `USE_NATIVE_BUILD=yes` 切换到原生 GCC 编译，省去交叉编译开销。
+`entrypoint.sh` 在容器启动时：若以 root 进入则通过 `gosu` 降权到 builder 用户；配置交叉编译器或 ARM64 原生编译（`USE_NATIVE_BUILD`）；启用 ccache；配置 git 全局身份与 git-lfs；打印环境横幅；按需 `FETCH_ON_START=yes` 自动拉取或仅检查 SDK 是否存在；交互式 shell 时执行工具链自检。

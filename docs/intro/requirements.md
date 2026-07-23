@@ -1,55 +1,42 @@
 # 环境要求
 
+本页说明宿主机的软硬件前提、架构支持、资源建议与验证方式。
+
 ## 宿主机
 
-| 项目 | 要求 |
-|---|---|
-| 操作系统 | Linux、macOS、Windows（需 WSL2） |
-| Docker | 20.10+，支持 `docker compose`（v2 插件） |
-| Make | GNU Make 3.82+ |
-| 磁盘 | 至少 50 GB 可用空间 |
-| 内存 | 建议 8 GB+（内核编译峰值约 4 GB） |
-
-不需要在宿主机安装交叉编译器、QEMU、Python、repo 工具或任何 Rockchip 专有工具。这些全部在 Docker 镜像里。
+- **Docker**：Linux、macOS（Docker Desktop）或 Windows + WSL2。需要 Docker Engine 与 `docker compose`（Compose v2，`docker compose` 子命令）。
+- **GNU Make**：用于驱动 `Makefile` 全部入口。
+- 约 **50 GB** 可用磁盘空间（SDK 源码 + 构建产物 + 镜像；`fetch_sources.sh` 默认检查至少 10 GB 余量）。
 
 ## 架构支持
 
-| 宿主机架构 | 状态 | 说明 |
-|---|---|---|
-| x86_64 (amd64) | 完整支持 | 首次构建 Debian rootfs 时自动注册 ARM64 binfmt |
-| ARM64 (aarch64) | 完整支持 | 原生运行，Debian rootfs 构建更快 |
-
-x86_64 上构建 Debian rootfs 依赖 QEMU 用户态模拟（`qemu-user-static`），速度比 ARM64 原生慢约 2-3 倍，但功能完全一致。Buildroot rootfs 不受影响（纯交叉编译）。
+- **x86_64 / amd64 宿主**：通用路径。构建器镜像基于 `ubuntu:22.04`，并启用 i386 兼容（rkbin 的 x86-64 预编译工具需要）。首次构建 Debian rootfs 时 `make build-debian-builder` 会自动通过 `tonistiigi/binfmt` 注册 ARM64 binfmt 模拟，使 `debian-rootfs`（`linux/arm64`）容器可在 x86_64 上原生运行。
+- **ARM64 / aarch64 宿主**（如 Apple Silicon、ARM 服务器）：原生运行。Dockerfile 在 arm64 分支安装 `qemu-user-static` 以运行为 x86-64 的 rkbin 工具；`entrypoint.sh` 与 `build_uboot.sh` 配合处理。设 `USE_NATIVE_BUILD=yes` 时清空调 `CROSS_COMPILE` 用原生 GCC 加速（仅 ARM64 宿主有效，其它架构回退交叉编译）。
 
 ## Docker 资源建议
 
-默认 Docker Desktop 分配可能不够，建议：
-
-- **内存**: 8 GB+
-- **磁盘**: Docker 数据目录预留 60 GB+
-- **CPU**: 不限，编译自动用满
+- 构建内核与 U-Boot 较吃 CPU 与内存；`JOBS` 默认 `0`（自动取 `nproc`）。
+- Debian rootfs 构建在 ARM64 容器中做 `mmdebstrap`，建议宿主有 >= 4 GB 内存。QEMU 测试默认 `QEMU_MEMORY_MIB=1024`、`QEMU_CPUS=2`，可按需调大。
+- ccache 缓存在 `rk3588-ccache` 卷（上限 `CCACHE_MAXSIZE` 默认 10G），跨构建复用加速。
 
 ## 网络
 
-- 首次 `make build` 需要拉取 Ubuntu 22.04 和 Debian Trixie 基础镜像（约 500 MB）
-- `make fetch BOARD=<board>` / `make fetch-custom` 需要从 GitHub / GitLab 拉取源码（约 3-5 GB，取决于 manifest）
-- 内核编译过程完全离线，不需要网络
+- `make fetch`（或 `fetch-custom`）需要访问 manifest 中声明的 git 远端（如 `github.com/radxa`、`github.com/rockchip-linux`、`gitlab.com/buildroot.org`）。
+- Debian rootfs 构建需访问 `DEBIAN_MIRROR` / `DEBIAN_SECURITY_MIRROR`（默认 `deb.debian.org` / `security.debian.org`）；Debian 11 在常规镜像失败时可回退 `archive.debian.org`。
 
 ## 验证环境
 
-```bash
-docker --version          # 需要 20.10+
-docker compose version    # 需要 v2
-make --version            # 需要 GNU Make
-df -h .                   # 确认当前分区有 50 GB+
-```
+- 运行 `make build` 后，可 `make shell SDK_VOLUME=<v>` 进入主构建器，`make debian-shell SDK_VOLUME=<v>` 进入 ARM64 Debian 构建器手动排查。
+- `make check` 运行项目自检：bash 语法、ShellCheck、manifest XML 与锁版本、板型 profile、buildroot 外部树、U-Boot 契约、内核契约、QEMU 契约、Debian 包/overlay 契约等。CI 或本地改动后建议先跑一次。
 
 ## 项目自检
 
-环境装好后先跑一次自检，确认所有脚本和配置本身没有问题：
+`scripts/check.sh` 是独立于构建的契约测试集，覆盖：
 
-```bash
-make check
-```
-
-这会校验 Bash 语法、ShellCheck 规则、manifest XML 格式、板级 profile 完整性、Makefile 目标契约等。全部通过说明项目文件本身是健康的。
+- `check_bash_syntax` / `check_shellcheck`：所有 `*.sh` 语法与 lint。
+- `check_manifests`：manifest XML 合法且含 `buildroot` remote（板级拥有的 manifest 还需锁 Buildroot tag）。
+- `check_board_profiles` / `run_board_self_checks`：每个板型 `board.conf` 走 `validate_board_profile`，并运行板级 `check.sh` 的 `board_check`。
+- `check_kernel_contract` / `check_uboot_boot_contract_guard` / `check_qemu_smoke_contract`：核心脚本含预期的契约标记（如 extlinux 校验、binfmt 注册、overlay 插件文件存在）。
+- `check_debian_packages`：包名解析拒绝别名、overlay 选中/禁用/未知、板级 plugin 分发、networkd/NM 互斥等。
+- `check_rootfs_configuration` / `check_compose`：rootfs 配置键与 `docker-compose.yml` 结构。
+- `self_tests`：失败路径（缺板型、非法 rootfs、危险路径重置）必须按预期报错。

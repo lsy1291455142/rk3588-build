@@ -1,105 +1,65 @@
 # 磁盘与启动契约
 
-所有板型共享同一个磁盘布局和启动流程，由板级 profile 中的 `BOOTLOADER_LAYOUT="rockchip-gpt-idblock-extlinux-v1"` 声明。
+构建系统对磁盘布局、启动链、extlinux 配置和 DTB 处理有严格契约，由 `verify_image.sh` 在产出后强制校验。本页记录这些契约，便于理解镜像为何这样布局，以及改动时哪些约束不可破坏。
 
-## 磁盘布局
+## 磁盘布局（GPT）
 
-```
-扇区 0-33        GPT 主表
-扇区 34-63       未使用
-扇区 64           IDBlock（RKNS 格式，Rockchip 一级引导）
-扇区 64-N         IDBlock 数据（到 UBOOT_SECTOR 之前）
-扇区 16384        uboot.img（U-Boot 主镜像）
-扇区 16384-N      U-Boot 数据（到 BOOT_START 之前）
+镜像总大小为 `IMAGE_SIZE_MIB`（默认 2048 MiB）。以 512 字节扇区计，总扇区数 `IMAGE_SIZE_MIB * 2048`，末 34 扇区保留给次级 GPT。三个分区的几何由 `make_image.sh` 计算，常量来自板级 profile：
 
-16 MiB            BOOT 分区开始（FAT32）
-  ├── Image                   内核镜像
-  ├── <board>.dtb            设备树
-  └── extlinux/extlinux.conf  启动配置
+| 分区 | 编号 | 类型 | 标签 | 起始 | 大小 | 内容 |
+|---|---|---|---|---|---|---|
+| boot | 1 | `0700` | `BOOT` | `BOOT_START_MIB * 2048`（默认扇区 32768） | `BOOT_SIZE_MIB`（默认 256 MiB） | FAT32：Image、`<DTB>`、extlinux.conf（及 DTBO、initrd） |
+| rootfs | 2 | `8300` | `rootfs` | boot 末扇区 +1 | rw-ext4：`ROOTFS_SIZE_MIB`（默认 1700 MiB）；ro-overlay：SquashFS 体积 +1 MiB 余量 | ext4（rw-ext4）或 SquashFS（ro-overlay） |
+| data | 3 | `8300` | `data` | rootfs 末扇区 +1 | ro-overlay 专属：`DATA_SIZE_MIB`（0 = 占满剩余） | ext4，作为 OverlayFS upper，挂载 `/data` |
 
-16+256 MiB        rootfs 分区开始（ext4）
-  └── （完整 Linux 根文件系统）
+约束（来自 `common.sh` 的 `validate_board_profile`）：`BOOT_START_MIB >= 16`（保留 IDBlock/U-Boot 空间）；`IDBLOCK_SECTOR < UBOOT_SECTOR`（默认 64 < 16384）；`UBOOT_SECTOR` 在 boot 分区之前；`ROOTFS_SIZE_MIB` 不超过剩余容量；`IDBLOCK_SECTOR >= 34`（不覆盖主 GPT）。
 
-IMAGE_SIZE_MIB-33 GPT 备份表
-```
-
-具体数值由板级 profile 中的四个字段决定：
-
-| 字段 | 当前值 | 含义 |
-|---|---|---|
-| `IDBLOCK_SECTOR` | 64 | IDBlock 写入的扇区号 |
-| `UBOOT_SECTOR` | 16384 | uboot.img 写入的扇区号（= 8 MiB） |
-| `BOOT_START_MIB` | 16 | boot 分区起始位置 |
-| `BOOT_SIZE_MIB` | 256 | boot 分区大小 |
-
-约束：`IDBLOCK_SECTOR < UBOOT_SECTOR < BOOT_START_MIB * 2048`，且 `BOOT_START_MIB >= 16`。前 16 MiB 完全保留给引导链。
+bootloader 区域（idblock 在 `IDBLOCK_SECTOR`，uboot 在 `UBOOT_SECTOR`）由 `bootloader_layouts.sh` 的 `rockchip-gpt-idblock-extlinux-v1` 写入，与 GPT 分区并存于镜像前段。
 
 ## 启动流程
 
-```
-SoC ROM
-  → 从 sector 64 加载 IDBlock（DDR 初始化 + TF-A + U-Boot SPL）
-    → U-Boot SPL 初始化 DRAM
-      → 加载完整 U-Boot（uboot.img，sector 16384）
-        → U-Boot 执行 distro_bootcmd
-          → 扫描 MMC 分区，找到 FAT32 boot 分区
-            → 读取 extlinux/extlinux.conf
-              → 加载 Image 和 DTB 到内存
-              → 用 APPEND 行作为内核命令行启动
-```
+1. SoC 上电从 eMMC/SD 读取 `IDBLOCK_SECTOR` 处的 RKNS IDBlock（含 DDR 初始化与 TF-A 等），随后加载 `UBOOT_SECTOR` 的 U-Boot。
+2. U-Boot 启用 `CONFIG_DISTRO_DEFAULTS`，执行 `run distro_bootcmd`，扫描 boot 分区（FAT32）的 `extlinux/extlinux.conf`。
+3. extlinux 选择 `EXTLINUX_LABEL` 条目，加载 `/Image`、设备树 `/<DTB>`（ro-overlay 还加载 `/initrd.img`），以 `APPEND` 的内核命令行启动。
+4. rw-ext4：内核挂载第 2 分区为可读写根（`root=PARTLABEL=rootfs rootwait rw`）。
+5. ro-overlay：initramfs 的 `overlayroot` hook（由 `overlayroot=PARTLABEL=data` 触发）把 SquashFS 根作为 lower、data 分区的 overlay 作为 upper，组装可读写 OverlayFS 后 `switch_root`；data 分区即用户可写层。
 
 ## extlinux 配置
 
-`make_image.sh` 生成的 `extlinux.conf`：
+`make_image.sh` 生成的 `extlinux.conf` 形态：
 
-```
-DEFAULT rk3588
+```text
+DEFAULT <EXTLINUX_LABEL>
 TIMEOUT 10
 
-LABEL rk3588
+LABEL <EXTLINUX_LABEL>
     LINUX /Image
-    FDT /rk3588s-rock-5c.dtb
-    APPEND root=PARTLABEL=rootfs rootwait rw console=ttyFIQ0,1500000n8 earlycon=...
+    FDT /<KERNEL_DTB>
+    FDTOVERLAYS /overlays/<dtbo> ...   # 仅当 KERNEL_DTBO 非空
+    INITRD /initrd.img                  # 仅 ro-overlay
+    APPEND root=PARTLABEL=rootfs rootwait rw console=<CONSOLE> <EXTRA_KERNEL_ARGS>   # rw-ext4
+    APPEND root=PARTLABEL=rootfs rootwait ro overlayroot=PARTLABEL=data console=<CONSOLE> <EXTRA_KERNEL_ARGS>  # ro-overlay
 ```
 
-关键参数：
-
-- `root=PARTLABEL=rootfs` — 按 GPT 分区标签查找根文件系统，不依赖设备节点名（SD 卡和 eMMC 通用）
-- `rootwait` — 等待根设备就绪
-- `rw` — 可读写挂载
-- `console=` — 来自板级 profile 的 `CONSOLE` 字段
-- 其余来自 `EXTRA_KERNEL_ARGS`
+校验点：`verify_image.sh` 确认 `FDT /<DTB>` 命中、`rw`/`ro`、`overlayroot=PARTLABEL=data`（ro-overlay）、`console=<CONSOLE>` 与板级 `CONSOLE` 一致；从镜像提取的 DTB 不得再含 `/chosen/bootargs`（见下）。
 
 ## DTB bootargs 清除
 
-Rockchip U-Boot 在加载 DTB 后会读取 `/chosen/bootargs` 并合并到内核命令行，可能覆盖 extlinux 的 APPEND 行。为避免这个问题，`build_kernel.sh` 在打包前用 `fdtput -d` 删除 DTB 中的 `/chosen/bootargs`，`verify_image.sh` 再次确认。
-
-这保证了 extlinux.conf 是内核命令行的唯一来源。
+Rockchip U-Boot 会在 extlinux `APPEND` 之后合并 DTB 的 `/chosen/bootargs`，并覆盖 `root=` 等重复键。`build_kernel.sh` 在打包前，若 `DTB_STRIP_BOOTARGS=yes`（默认），用 `fdtput -d` 删除编译产物 DTB 的 `/chosen/bootargs`，使 extlinux 的 `APPEND` 始终权威（保证镜像启动的是其标签对应的根分区）。`kernel-build-info.txt` 记录 `dtb_bootargs=extlinux-only-v1`；`verify_image.sh` 既校验打包 DTB 无 `/chosen/bootargs`，也复检产物 DTB，防止重新编译后回退。设 `DTB_STRIP_BOOTARGS=no` 可保留 DTB 中的 bootargs（用于板子确需自带命令行的情况）。
 
 ## U-Boot 配置契约
 
-`build_uboot.sh` 校验 U-Boot 编译配置必须包含：
+`build_uboot.sh` 的 `validate_extlinux_boot_contract` 强制：
 
-- `CONFIG_DISTRO_DEFAULTS=y` — 启用 distro 启动模式
-- `CONFIG_CMD_MMC=y`、`CONFIG_CMD_FAT=y`、`CONFIG_CMD_FS_GENERIC=y` — 能从 MMC FAT 分区读文件
-- `CONFIG_CMD_PXE=y`、`CONFIG_CMD_BOOTI=y` — extlinux 和内核启动支持
+- 必需：`CONFIG_DISTRO_DEFAULTS`、`CONFIG_CMD_MMC`、`CONFIG_CMD_FAT`、`CONFIG_CMD_FS_GENERIC`、`CONFIG_CMD_PXE`、`CONFIG_CMD_BOOTI`。
+- 禁止：`CONFIG_FIT_SIGNATURE`、`CONFIG_AVB_VBMETA_PUBLIC_KEY_VALIDATE`（避免覆盖 extlinux 启动路径）。
+- 二进制须含字符串 `run distro_bootcmd;` 与 `extlinux/extlinux.conf`。
 
-同时必须不包含：
-
-- `CONFIG_FIT_SIGNATURE=y` — FIT 签名验证（会阻止非签名内核启动）
-- `CONFIG_AVB_VBMETA_PUBLIC_KEY_VALIDATE=y` — AVB 验证（同上）
-
-此外在 `u-boot.bin` 二进制中搜索 `run distro_bootcmd;` 和 `extlinux/extlinux.conf` 字符串，确认 distro 启动回退和 extlinux 路径确实编译进了二进制。
+这是因为镜像启动完全依赖 U-Boot 的 distro 自动扫描，而非硬编码的 FIT/AVB 启动。
 
 ## 首次启动扩容
 
-镜像的 rootfs 分区只有 `ROOTFS_SIZE_MIB`（默认 2048 MB），但磁盘可能更大。首次启动时：
+- **Debian**：`firstboot` overlay 安装 `sbc-firstboot`（服务 `sbc-firstboot.service`，`WantedBy=multi-user.target`，`Before=ssh.service`、`TimeoutStartSec=10min`、`ExecStart=-/usr/local/sbin/sbc-firstboot`）。该脚本从 sysfs 取根分区号，`growpart` 扩容分区，`resize2fs` 扩容文件系统，完成后写 `/var/lib/sbc-firstboot.done`。`firstboot-info` overlay 可选地让其在首启打印 banner/MOTD。
+- **Buildroot**：`board/rk3588/overlay/etc/init.d/S02rootfs-resize` 在 BusyBox init 启动时对根设备 `resize2fs`（用 `/var/lib/rk3588-rootfs-expanded` 去重）。
 
-**Buildroot**：`S02rootfs-resize` 脚本直接对根设备执行 `resize2fs`，标记 `/var/lib/rk3588-rootfs-expanded`。
-
-**Debian**：`rk3588-firstboot` systemd 服务执行三步操作：
-1. `sgdisk -e` 把 GPT 备份头移到磁盘末尾
-2. `growpart` 扩展根分区到磁盘剩余空间
-3. `resize2fs` 扩展 ext4 文件系统
-
-完成后标记 `/var/lib/rk3588-firstboot.done`，后续启动跳过。服务配置了 `TimeoutStartSec=10min` 和 `ExecStart=-`（失败不阻塞启动），且不会延迟 SSH 启动。
+ro-overlay 不扩容根（SquashFS 只读、固定），仅 data 分区在运行时按 OverlayFS 自然增长；"恢复出厂"等价于清空/重建 data 分区。

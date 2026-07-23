@@ -1,54 +1,35 @@
 # 设计：纯构建核心 + 插件化 + 板子为单元
 
-目标：构建核心（scripts/Makefile/Dockerfile）只做通用引擎，不认识任何具体板子/SoC；
-一切差异化是插件；一个板子的全部关切聚合在一处，新增板子 = 丢一个目录。
-
-## 实施状态（已完成）
-
-- **Phase 1（check.sh 解耦）**：已落地。各板子携带 `boards/<board>/check.sh` 自检钩子；
-  `scripts/check.sh` 遍历 `boards/*/check.sh` 调用 `board_check`，删除了
-  `check_cokepi_board_contract` / `check_rock5c_source_contract` 等硬编码函数与 `run_check`
-  里的板名分支。core 不再出现具体板名。
-- **Phase 2（SoC 特性外移）**：已落地。`qemu_smoke.py` 的 initcall 黑名单与 `serial-getty`
-  屏蔽改由 `configs/soc/<soc>.conf`（经 `board.conf` 的 `SOC=`）提供；`test_debian_qemu.sh`
-  透传 `--initcall-blacklist` / `--serial-getty-mask`。
-- **Phase 3（单目录聚合）**：已落地。一个板子的全部资产聚到 `boards/<board>/`
-  （`board.conf` / `kernel.config` / `rootfs/` / `check.sh`）；`common.sh`、`build_kernel.sh`、
-  `Makefile`（`new-board`/`list-boards`/`use-board`/`info` 等）、`TEMPLATE` 与本文档均已切换。
-- **Phase 4（模式目录查表）**：已落地。`build_debian.sh` 用 `ROOTFS_MODE`→目录映射
-  （`rootfs_mode_overlay_dir()`），去掉写死路径。
-
-## 当前不合理点（原始问题，均已修复）
-
-1. `scripts/check.sh` 写死板子契约：`check_cokepi_board_contract`(108)/`check_rock5c_source_contract`(79)
-   及 `check_debian_features` 内大量硬编码板名路径(411-506)，主流程 `run_check "CokePi.."`(638)。
-2. `scripts/lib/qemu_smoke.py` 写死 Rockchip SoC 假设：`QEMU_INITCALL_BLACKLIST`(34) 与
-   `serial-getty@ttyFIQ0` 屏蔽(270) —— SoC 族耦合，非板子。
-3. `scripts/build_debian.sh` 写死 `.../ro-overlay/overlay`(314) —— 模式耦合。
-4. 板子资产散在 `configs/boards/`、`configs/kernel/`、`rootfs/debian/boards/` 三处。
+本页记录构建系统的架构取向与当前实现状态，作为后续维护的参考。所有描述均对应 `scripts/`、`boards/`、`configs/`、`rootfs/` 的实际代码。
 
 ## 目标结构
 
-```
-boards/<board>/
-  board.conf        # 原 configs/boards/<board>.conf
-  kernel.config     # 原 configs/kernel/<board>.config
-  rootfs/           # 原 rootfs/debian/boards/<board>/
-  check.sh          # 板子自检钩子（新增）
-configs/soc/<soc>.conf   # SoC 特性：QEMU 黑名单/串口 getty 等
-```
+- **纯构建核心（board-name-free）**：`scripts/lib/common.sh`、`build_*.sh`、`make_image.sh`、`verify_image.sh` 不硬编码任何板型名、WiFi/BT 芯片或具体 manifest。板型差异只通过数据（profile、overlay、hook）注入。
+- **板子为单元（board-as-unit）**：每个板型一个目录 `boards/<BOARD>/`，含 `board.conf`（配置）、`kernel.config`（自动合并的 fragment）、`rootfs/`（plugin/overlay）、`check.sh`（自检）、`board.hooks.sh`（构建钩子）。
+- **可选能力外置为插件**：Debian 的可选能力（`base`/`console`/`firstboot`/`firstboot-info`/`network`）是 `rootfs/debian/overlays/<name>/` 下的目录化插件，由 `DEBIAN_OVERLAYS` 选择，核心只负责分发。
+- **平台事实与板型解耦**：SoC 级限制（如 QEMU `virt` 的 initcall 黑名单、FiQ 串口 mask）放在 `configs/soc/<SOC>.conf`，由板级 `SOC=` 选择加载，不进核心脚本。
+- **端到端校验即契约**：`verify_image.sh` 与 `scripts/check.sh` 把「镜像长什么样、脚本必须含哪些标记」写成可执行契约，而非文档约定。
 
-核心只认 `BOARD_DIR=boards/<board>`，按 `SOC=` 解析 `configs/soc/<soc>.conf`。
+## 实施状态（已完成）
 
-## 分阶段迁移
+- 板型零脚本改动：新增板子只改 `boards/`（`make new-board` 从 `TEMPLATE` 复制）。
+- 内核 fragment 分层：`rootfs-base.config` + `squashfs-overlay.config`（始终合并）+ 板级 `kernel.config`（自动合并、可覆盖）。
+- Debian 包名精确化：移除 `nm`/`wifibt`/`hwdebug` 等别名，`resolve_debian_packages` 仅接受真实 apt 包名。
+- overlay 插件化：`DEBIAN_OVERLAYS` 选择 + `run_debian_overlay_plugins` 顺序应用；板级 `boards/<BOARD>/rootfs/` 始终应用且先于可选 overlay。
+- ro-overlay 模式：`ROOTFS_MODE=ro-overlay` 走 SquashFS 根 + ext4 data 分区 + initramfs `overlayroot` hook；内核始终含 OverlayFS/SquashFS 支持。
+- QEMU 契约外置：`configs/soc/rk3588.conf` 提供 `QEMU_INITCALL_BLACKLIST` 与 `QEMU_SERIAL_GETTY_MASK`，由 `qemu_smoke.py` 消费。
+- 构建器双阶段：`Dockerfile` 的 `rk3588-build`（ubuntu:22.04，通用）与 `debian-rootfs`（debian:trixie，arm64 原生 Debian 构建）。
+- 项目自检：`scripts/check.sh` 覆盖语法/lint、manifest、板型 profile、buildroot 外部树、U-Boot 契约、内核契约、QEMU 契约、Debian 包/overlay 契约、失败路径。
 
-- **Phase 1（check.sh 解耦）**：各板子加 `check.sh` 自检钩子；`check.sh` 遍历板子目录调用，
-  删掉 `check_cokepi_board_contract` / `check_rock5c_source_contract` 等硬编码函数，相关
-  断言移入对应钩子。core 不出现具体板名。
-- **Phase 2（SoC 特性外移）**：`qemu_smoke.py` 的黑名单/`ttyFIQ0` 改由
-  `configs/soc/<soc>.conf`（经 board.conf 的 `SOC=`）提供；`test_debian_qemu.sh` 传递。
-- **Phase 3（单目录聚合）**：把 conf/kernel frag/rootfs 聚到 `boards/<board>/`，更新所有引用
-  （common.sh、build_kernel.sh、Makefile new-board、TEMPLATE、docs）。
-- **Phase 4（模式目录查表）**：`build_debian.sh` 用 `ROOTFS_MODE`→目录映射，去掉写死路径。
+## 约束与不可破坏点
 
-每阶段后用 `make check` / 对 cokepi 跑 `build-rootfs`+`image`+`test-debian-qemu` 验证。
+以下由代码强制，重构时不得破坏：
+
+- `validate_board_profile`：必填字段、`KERNEL_DTB` 后缀、几何约束（`BOOT_START_MIB>=16`、`IDBLOCK_SECTOR<UBOOT_SECTOR`、剩余容量 >0）、`ROOTFS_MODE` ∈ {rw-ext4, ro-overlay}、`UBOOT_PYTHON` ∈ {python2, python3}、`BOOTLOADER_LAYOUT` == rockchip-gpt-idblock-extlinux-v1（旧名归并）。
+- `verify_extlinux_dtb`：打包 DTB 不得含 `/chosen/bootargs`（`DTB_STRIP_BOOTARGS=yes` 默认清除）。
+- `validate_extlinux_boot_contract`：U-Boot 必须含 `CONFIG_DISTRO_DEFAULTS` 等且二进制含 `run distro_bootcmd;` 与 `extlinux/extlinux.conf`，不得含 `CONFIG_FIT_SIGNATURE`/`CONFIG_AVB_VBMETA_PUBLIC_KEY_VALIDATE`。
+- `ro-overlay` 必须含 `busybox` 与 `initramfs-tools`，且 `overlayroot` hook 用规范 `mount -t overlay` 参数顺序。
+
+## 分阶段迁移（历史）
+
+项目从「单板硬编码」演进到当前「配置驱动 + 插件化」。迁移原则：每步保持 `make check` 全绿，核心脚本不引入板型名，差异下沉到 `boards/`、`configs/`、`rootfs/debian/overlays/`。当前结构已稳定，新增能力优先以插件/hook/overlay 形式落地，而非修改核心。

@@ -1,145 +1,108 @@
 # 变量与 .env
 
-所有变量可以通过三种方式设置，优先级从高到低：
+本页列出构建系统所有可配置变量，按作用域分组。变量的最终取值遵循固定的优先级：命令行 `make KEY=val` > `.env` 文件 > 板级 profile 默认值（`board.conf`）> 脚本内置默认值。所有变量都通过 `docker-compose.yml` 以环境变量形式注入构建容器。
 
-1. 命令行：`make build-all BOARD=my-board`
-2. `.env` 文件：`BOARD=my-board`
-3. Makefile 默认值
+> 准确性说明：以下默认值均取自 `Makefile`、`scripts/lib/common.sh`、`boards/TEMPLATE/board.conf` 与 `scripts/[build_*.sh]` 的实际赋值，与代码完全一致。旧文档中出现的 `IMAGE_SIZE_MIB=4096`、`ROOTFS_SIZE_MIB=2048` 等数值为过时笔误，请以本页为准。
 
-`make use-board` / `use-volume` / `use-rootfs` 系列目标会自动写入 `.env`。
+## 核心变量（Makefile / 顶层）
 
-## 核心变量
-
-| 变量 | 默认值 | 说明 |
+| 变量 | 默认 | 说明 |
 |---|---|---|
-| `BOARD` | （必填） | 板级 profile 名（`.conf` 文件名去掉后缀） |
-| `SDK_VOLUME` | （必填） | Docker volume 名，指向 SDK 源码 |
-| `ROOTFS` | （构建 rootfs 时必填） | `buildroot`、`debian` 或 `all` |
-
-## rootfs 变量
-
-| 变量 | 默认值 | 说明 |
-|---|---|---|
-| `ROOTFS_USERNAME` | `user` | 非 root 用户名 |
-| `ROOTFS_PASSWORD` | `password` | 用户和 root 密码 |
-| `ROOTFS_HOSTNAME` | `(板型名)` | 主机名 |
-
-## Debian 变量
-
-| 变量 | 默认值 | 说明 |
-|---|---|---|
-| `DEBIAN_RELEASE` | `13` | Debian 版本：11、12 或 13 |
-| `DEBIAN_PACKAGES` | （空） | 指定 APT 包名列表（逗号/空格）；**会整体覆盖**板级 `DEBIAN_PACKAGES_DEFAULT`；`none`=仅 minbase |
-| `DEBIAN_PACKAGES_DEFAULT` | （板级配置） | 板级配置文件 (`boards/<BOARD>/board.conf`) 中预设的标准基础软件包列表 |
-| `DEBIAN_OVERLAYS` | （空） | 可选 overlay 插件列表；空=使用板级默认；`none`=关闭所有；`all`=启用全部 |
-| `DEBIAN_OVERLAYS_DEFAULT` | （板级配置） | 板级配置文件中默认启用的 Overlay 插件列表 |
-| `DEBIAN_MIRROR` | `http://deb.debian.org/debian` | Debian 主镜像源 |
-| `DEBIAN_SECURITY_MIRROR` | `http://security.debian.org/debian-security` | 安全更新源 |
-| `DEBIAN_ALLOW_ARCHIVE_FALLBACK` | `yes` | Debian 11 过期时回退到 archive.debian.org |
+| `BOARD` | 空（必填） | 板型名称，对应 `boards/<BOARD>/board.conf`。设置后 `SDK_VOLUME` 会自动从板级 `SOURCE_MANIFEST` 派生。 |
+| `ROOTFS` | 空（必填） | 根文件系统类型：`buildroot`、`debian` 或 `all`。 |
+| `SDK_VOLUME` | 空（构建时必填） | Docker 卷名，承载 SDK 源码。若设置 `BOARD` 且其 `SOURCE_MANIFEST` 存在，会自动派生为 `rk3588-sdk-<manifest 去前缀>`。 |
+| `DEBIAN_RELEASE` | `13` | Debian 发行版代号：`11`=bullseye、`12`=bookworm、`13`=trixie。仅 Debian rootfs 使用。 |
+| `ROOTFS_USERNAME` | `user` | 非 root 普通用户名（Debian）。Buildroot 路径的脚本内置回退为 `rk3588`。 |
+| `ROOTFS_PASSWORD` | `password` | 上述用户与 root 的密码（Debian）。Buildroot 路径脚本内置回退为 `rk3588`。 |
+| `ROOTFS_HOSTNAME` | 空 | 主机名。为空时回退到板级 `ROOTFS_HOSTNAME_DEFAULT`，再回退到 `BOARD`。 |
+| `DEBIAN_PACKAGES` | 空 | 额外 APT 包，精确包名，逗号或空格分隔；`none`/`minbase`/`off`/`-` 表示仅 minbase。不接受功能别名（如 `nm`、`wifibt`）。 |
+| `DEBIAN_OVERLAYS` | 空 | 可选 overlay 插件，逗号分隔；`none`/`off`/`-` 关闭；`all` 启用全部；空时回退板级 `DEBIAN_OVERLAYS_DEFAULT`。 |
+| `DEBIAN_MIRROR` | `http://deb.debian.org/debian` | Debian 主仓库地址。 |
+| `DEBIAN_SECURITY_MIRROR` | `http://security.debian.org/debian-security` | Debian 安全仓库地址。 |
+| `DEBIAN_ALLOW_ARCHIVE_FALLBACK` | `yes` | 仅 Debian 11 在常规镜像失败时回退 `archive.debian.org`（`check-valid-until=no`）。 |
+| `JOBS` | `0` | 并行编译数；`0` 表示自动取 `nproc`。 |
+| `ZSTD_LEVEL` | `6` | 镜像 zstd 压缩级别（1–19，整数）。 |
+| `QEMU_TIMEOUT` | `600` | QEMU 冒烟测试总超时（秒，正整数）。 |
+| `QEMU_MEMORY_MIB` | `1024` | QEMU 客户机内存（MiB，正整数）。 |
+| `QEMU_CPUS` | `2` | QEMU 客户机 CPU 数（正整数）。 |
+| `ROOTFS_MODE` | 空 | 根文件系统布局：`rw-ext4` 或 `ro-overlay`。为空时回退板级 `ROOTFS_MODE_DEFAULT`，再回退 `rw-ext4`。 |
+| `DATA_SIZE_MIB` | 空 | `ro-overlay` 模式下 ext4 数据分区大小（MiB）。`0` 表示占满剩余空间；为空时回退板级 `DATA_SIZE_MIB_DEFAULT`，再回退 `0`。 |
 
 ## 根文件系统布局变量
 
-| 变量 | 默认值 | 说明 |
+`ROOTFS_MODE` 与 `DATA_SIZE_MIB` 共同决定分区结构：
+
+- `rw-ext4`（默认）：单个可写 ext4 根分区（第 2 分区，标签 `rootfs`），大小为 `ROOTFS_SIZE_MIB`。
+- `ro-overlay`：只读 SquashFS 根（第 2 分区）+ ext4 数据分区（第 3 分区，标签 `data`，挂载 `/data`，作为 OverlayFS upper）。SquashFS 分区尺寸由镜像体积加 1 MiB 余量自动推算；数据分区尺寸由 `DATA_SIZE_MIB` 决定（`0` 占满剩余）。该模式需要内核 `CONFIG_SQUASHFS` 与 `CONFIG_OVERLAY_FS`（已由 `configs/kernel/squashfs-overlay.config` 始终合并），并由 initramfs `overlayroot` hook 在启动期组装。
+
+## Debian 专用变量
+
+| 变量 | 来源 | 说明 |
 |---|---|---|
-| `ROOTFS_MODE` | `rw-ext4` | 根文件系统布局：`rw-ext4`=单可写 ext4 根（默认）；`ro-overlay`=只读 SquashFS 根 + ext4 数据/overlay 分区（防掉电损坏、可恢复出厂） |
-| `DATA_SIZE_MIB` | `0` | `ro-overlay` 模式下 ext4 数据分区大小（MiB）；`0`=占满根分区之后的剩余磁盘空间 |
+| `DEBIAN_PACKAGES` | CLI / `.env` / 板级 `DEBIAN_PACKAGES_DEFAULT` | 板级默认仅在 CLI/`.env` 未指定时生效；指定 `none` 强制仅 minbase。 |
+| `DEBIAN_OVERLAYS` | CLI / `.env` / 板级 `DEBIAN_OVERLAYS_DEFAULT` | 同上；内置插件：`base`、`console`、`firstboot`、`firstboot-info`、`network`。 |
+| `ROOTFS_HOSTNAME` | CLI / `.env` / 板级 `ROOTFS_HOSTNAME_DEFAULT` | 同上。 |
+| `DEBIAN_CODENAME` | 由 `DEBIAN_RELEASE` 推导 | `11→bullseye`、`12→bookworm`、`13→trixie`。 |
+| `DEBIAN_COMPONENTS` | 由 `DEBIAN_RELEASE` 推导 | `11`: `main contrib non-free`；`12/13`: `main contrib non-free non-free-firmware`（mmdebstrap `--components` 用逗号连接）。 |
 
-优先级：**命令行/CLI（`make ROOTFS_MODE=...`）> 板级默认值 > 内置默认**。板级 profile
-可在 `boards/<BOARD>/board.conf` 中用 `ROOTFS_MODE_DEFAULT`（内置默认 `rw-ext4`）与
-`DATA_SIZE_MIB_DEFAULT`（内置默认 `0`）预配置默认值；二者均可被命令行覆盖。直接写
-`ROOTFS_MODE=` / `DATA_SIZE_MIB=` 也能硬编码，但会强制覆盖命令行，一般不推荐。
-
-示例：本仓库的 `rk3588s-cokepi-model-lp4-v10` 板型已设置
-`ROOTFS_MODE_DEFAULT="ro-overlay"`，因此对该板执行 `make build-all BOARD=... ROOTFS=debian`
-即默认产出只读 overlay 镜像，无需再传 `ROOTFS_MODE=ro-overlay`。
-
-`ro-overlay` 模式的额外依赖（均由构建自动处理，无需手动安装）：
-
-- **内核支持**：`scripts/build_kernel.sh` 在板级 defconfig 之后**始终合并**
-  `configs/kernel/rootfs-base.config` 与 `configs/kernel/squashfs-overlay.config`
-  （含 `CONFIG_SQUASHFS=y`、`CONFIG_OVERLAY_FS=y` 等），所以同一个内核产物可同时启动
-  `rw-ext4` 与 `ro-overlay` 两种镜像，无需为 overlay 单独编内核。
-- **initramfs 的 mount**：`ro-overlay` 会在 rootfs 阶段自动加入 `initramfs-tools` 与
-  `busybox` 包。initramfs-tools 在缺少 busybox 时会回退到 klibc 的 `mount`，而 klibc
-  mount **不支持 overlay 文件系统**（`mount -t overlay` 会打印 usage 并失败）。busybox 的
-  mount 支持 overlay，且 `overlayroot` 钩子会优先调用 `/bin/busybox mount`。
-
-详见 [`boards/TEMPLATE/board.conf`](../../boards/TEMPLATE/board.conf)。
-
-### 包控制变量说明
-
-- **`DEBIAN_PACKAGES_DEFAULT`** (板级定义)：固化在该板型 `.conf` 中的标准基础包。
-- **`DEBIAN_PACKAGES`** (命令行/环境变量)：**覆盖模式**。如果传入此变量，板级 `DEBIAN_PACKAGES_DEFAULT` 会被直接替换；设为 `none` 则强制仅 minbase。
-
-**示例：**
-```bash
-# 1. 默认构建：使用板级 DEBIAN_PACKAGES_DEFAULT (包含 network-manager 等)
-make build-rootfs BOARD=rk3588-muse
-
-# 2. 覆盖模式：忽略板级默认，只安装 htop 和 curl
-make build-rootfs BOARD=rk3588-muse DEBIAN_PACKAGES=htop,curl
-
-# 3. 在板级默认基础上追加：直接编辑 board.conf 的 DEBIAN_PACKAGES_DEFAULT，
-#    或在命令行给出完整列表（默认项 + 新增项）
-make build-rootfs BOARD=rk3588-muse DEBIAN_PACKAGES="network-manager,wpasupplicant,htop,python3-pip"
-```
-
-
-WiFi/BT 固件走板级 `boards/<BOARD>/plugin.sh`，不在通用变量里控制。
-CokePi：`make build-rootfs` 从 `packages/*.deb` 装入 rootfs；host 可选手动：
-
-```bash
-make build-rootfs
-./boards/rk3588s-cokepi-model-lp4-v10/rootfs/stage-aic8800-firmware.sh   # optional
-```
-
+Debian 基础包（始终包含，`build_debian.sh` 内 `PACKAGES` 数组）：`ca-certificates`、`cloud-guest-utils`、`curl`、`dbus`、`e2fsprogs`、`ethtool`、`gdisk`、`iproute2`、`iputils-ping`、`kmod`、`less`、`net-tools`、`openssh-server`、`passwd`、`procps`、`psmisc`、`sudo`、`systemd-sysv`、`udev`、`util-linux`、`vim-tiny`、`wget`；非 11 版本追加 `systemd-resolved`；`ro-overlay` 模式追加 `initramfs-tools`、`busybox`。
 
 ## 构建变量
 
-| 变量 | 默认值 | 说明 |
+| 变量 | 默认 | 说明 |
 |---|---|---|
-| `JOBS` | `0`（= CPU 核数） | 编译并行数 |
-| `ZSTD_LEVEL` | `6` | 镜像压缩级别（1-19） |
-| `DEPTH` | `1` | repo 浅克隆深度，`0` = 完整克隆 |
-| `CCACHE_MAXSIZE` | `10G` | ccache 缓存上限 |
-| `USE_NATIVE_BUILD` | `no` | ARM64 宿主机上用原生 GCC 替代交叉编译 |
+| `JOBS` | `0` | 见上。 |
+| `ZSTD_LEVEL` | `6` | 见上。 |
+| `CCACHE_DIR` | `/home/builder/.ccache` | ccache 缓存目录（挂载于 `rk3588-ccache` 卷）。 |
+| `CCACHE_MAXSIZE` | `10G` | ccache 上限（`docker-compose.yml` 注入）。 |
+| `USE_NATIVE_BUILD` | `no` | 仅 ARM64 宿主机有效：设为 `yes` 时清空调 `CROSS_COMPILE` 用原生 GCC。 |
+| `ARCH` | `arm64` | 目标架构（构建容器内固定）。 |
+| `CROSS_COMPILE` | `aarch64-linux-gnu-` | 交叉编译器前缀（`USE_NATIVE_BUILD=yes` 且 ARM64 宿主时清空）。 |
 
 ## SDK 拉取变量
 
-| 变量 | 默认值 | 说明 |
+| 变量 | 默认 | 说明 |
 |---|---|---|
-| `MANIFEST` | （空） | 本地 manifest 文件名 |
-| `CUSTOM_MANIFEST_URL` | （空） | 远程 manifest 仓库 URL |
-| `CUSTOM_MANIFEST_NAME` | （空） | 远程 manifest 文件名 |
-| `SDK_PATH` | （空） | 本地 SDK 路径（import-local-sdk 用） |
-| `FETCH_ON_START` | `no` | 容器启动时自动拉取 SDK |
-| `EXTRA_COMPONENTS` | `no` | 拉取额外组件 |
-| `MAX_RETRIES` | `3` | repo sync 重试次数 |
-| `MIN_DISK_GB` | `10` | 最小磁盘空间检查 |
+| `MANIFEST` | 空 | 本地 manifest 文件名（位于 `manifests/`，不含路径）。`make fetch` 时从板级 `SOURCE_MANIFEST` 自动获得。 |
+| `CUSTOM_MANIFEST_URL` | 空 | 自定义远程 manifest 仓库 URL（`make fetch-custom`）。 |
+| `CUSTOM_MANIFEST_NAME` | 空 | 自定义 manifest 文件名（`make fetch-custom`）。 |
+| `BRANCH` | `main` | 自定义 manifest 的默认分支。 |
+| `DEPTH` | `1` | `repo` 浅克隆深度；`0` 表示完整克隆。 |
+| `JOBS` | `nproc` | `repo sync` 并行数（`fetch_sources.sh` 内）。 |
+| `MAX_RETRIES` | `3` | `repo sync` 最大重试次数。 |
+| `MIN_DISK_GB` | `10` | 拉取前最小可用磁盘空间（GB）检查门槛。 |
+| `FETCH_ON_START` | `no` | 容器启动时是否自动拉取 SDK（`entrypoint.sh`）。 |
+| `EXTRA_COMPONENTS` | `no` | 自定义 manifest 拉取时的额外组件开关。 |
 
 ## QEMU 测试变量
 
-| 变量 | 默认值 | 说明 |
+| 变量 | 默认 | 说明 |
 |---|---|---|
-| `QEMU_TIMEOUT` | `600` | 启动超时（秒） |
-| `QEMU_MEMORY_MIB` | `1024` | 虚拟机内存 |
-| `QEMU_CPUS` | `2` | 虚拟机 CPU 数 |
+| `QEMU_TIMEOUT` | `600` | 见上。 |
+| `QEMU_MEMORY_MIB` | `1024` | 见上。 |
+| `QEMU_CPUS` | `2` | 见上。 |
+
+以上三个变量仅在 `make test-debian-qemu` / `make test-debian-all` 中生效（Debian rootfs）。
+
+## 板级 profile 变量（`boards/<BOARD>/board.conf`）
+
+完整字段定义见 [新增板型](/boards/add-board) 与 `boards/TEMPLATE/board.conf`。常用字段：
+
+`BOARD_DESCRIPTION`（必填）、`SOC`、`SOURCE_MANIFEST`、`EXPECTED_KERNEL_REVISION` / `EXPECTED_UBOOT_REVISION` / `EXPECTED_RKBIN_REVISION` / `EXPECTED_BUILDROOT_REVISION`（设置 `SOURCE_MANIFEST` 时必填，40 位完整 SHA）、`KERNEL_DEFCONFIG`（必填）、`KERNEL_DTB`（必填，须 `.dtb` 结尾）、`KERNEL_DTBO`、`KERNEL_EXTRA_FRAGMENTS`、`DTB_STRIP_BOOTARGS`（默认 `yes`）、`UBOOT_DEFCONFIG`（必填）、`UBOOT_BOARD`（必填）、`UBOOT_BUILD_SYSTEM`（默认 `rockchip-make-sh`）、`UBOOT_PYTHON`（默认 `python3`）、`BOOTLOADER_LAYOUT`（默认 `rockchip-gpt-idblock-extlinux-v1`）、`DOWNLOAD_LOADER_GLOBS`、`UBOOT_IMAGE_NAMES`、`IDBLOCK_SECTOR`（默认 `64`）、`UBOOT_SECTOR`（默认 `16384`）、`CONSOLE`（必填，如 `ttyFIQ0,1500000n8`）、`EXTRA_KERNEL_ARGS`、`IMAGE_SIZE_MIB`（默认 `2048`）、`BOOT_START_MIB`（默认 `16`）、`BOOT_SIZE_MIB`（默认 `256`）、`ROOTFS_SIZE_MIB`（默认 `1700`）、`ROOTFS_MODE_DEFAULT`、`DATA_SIZE_MIB_DEFAULT`、`OUTPUT_IMAGE_PREFIX`、`EXTLINUX_LABEL`、`ROOTFS_HOSTNAME_DEFAULT`、`DEBIAN_PACKAGES_DEFAULT`、`DEBIAN_OVERLAYS_DEFAULT`。
 
 ## .env 文件示例
 
-```bash
-# 当前选择（由 make use-* 自动写入）
+`.env` 由 `make use-*` 系列目标自动维护（仅写入被切换的键）。以下为手动编辑示例：
+
+```ini
 BOARD=rk3588s-rock-5c
 SDK_VOLUME=rk3588-sdk-rock5c
 ROOTFS=debian
-
-# 可选覆盖
 DEBIAN_RELEASE=13
+ROOTFS_USERNAME=user
+ROOTFS_PASSWORD=password
 DEBIAN_PACKAGES=network-manager,wpasupplicant,i2c-tools
 DEBIAN_OVERLAYS=base,console,firstboot,firstboot-info,network
-ROOTFS_USERNAME=admin
-ROOTFS_PASSWORD=mysecret
-JOBS=8
 ```
 
-`.env` 文件在 Makefile 顶部通过 `-include .env` 加载，所有变量同时传入 docker compose 环境。
+所有 `make` 目标在运行前通过 `require-board` / `require-rootfs` / `require-sdk-volume` 校验必要变量；缺失时给出 `make use-*` 或命令行示例提示。

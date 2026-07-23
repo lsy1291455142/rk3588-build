@@ -1,46 +1,26 @@
 # 这是什么
 
-rk3588-build 是一个面向 RK3588 / RK3588S 开发板的全系统镜像构建项目。它把「拉源码 → 编译引导 → 编译内核 → 做根文件系统 → 拼磁盘镜像 → 校验 → 测试」这条原本需要在宿主机上装一堆工具、手动执行几十条命令的流程，收敛成一条 `make build-all`。
+`rk3588-build` 是一个基于 Docker 容器化的 SBC（单板计算机）Linux 系统镜像构建工具，专门为 RK3588 / RK3588S 开发板生成可直接烧录启动的 GPT 磁盘镜像。宿主机只需 Docker 与 GNU Make，无需安装交叉工具链、QEMU 或任何 Rockchip 专有工具。
 
 ## 解决什么问题
 
-RK3588 的 BSP 构建有几个公认的痛点：
-
-**工具链碎片化。** 内核要交叉编译器，U-Boot 要 Rockchip 私有的 `make.sh` 和 `rkbin` 里的闭源工具，rootfs 要 Buildroot 或 debootstrap，拼镜像要 sgdisk / mtools / dd。在宿主机上把这些装齐本身就要半天。
-
-**版本不可复现。** 厂商 SDK 通常是一个庞大的 repo 集合，今天拉下来的代码和上周的可能不一样。出了问题很难定位是哪次提交引入的。
-
-**产物不可靠。** 手动 dd 拼镜像容易写错扇区偏移，DTB 里的 `bootargs` 可能覆盖 extlinux 配置，rootfs 可能缺内核模块。镜像能烧不代表能启动。
-
-rk3588-build 用三个手段应对：
-
-1. **Docker 双阶段构建器** — 一个 Ubuntu 镜像负责编译内核和 U-Boot，一个 ARM64 Debian 镜像负责用 mmdebstrap 做 rootfs。宿主机零依赖。
-2. **repo manifest + 板级 profile 锁定** — 每个 SDK 来源一个 XML manifest，锁定四个组件的 Git commit。板级 profile 里可以写 `EXPECTED_*_REVISION`，构建前强制校验。
-3. **自动化深度校验** — `make_image.sh` 拼完镜像后 `verify_image.sh` 逐字节比对 IDBlock、U-Boot、内核、DTB、rootfs，检查 extlinux 配置、内核配置、文件系统完整性、用户账号、首次启动脚本。
+在没有此类工具时，为 RK3588 板子做镜像需要手动搭建交叉编译环境、理解 Rockchip 的 U-Boot `make.sh` 与 IDBlock 打包、拼装 extlinux 启动、处理 Debian/ Buildroot rootfs，并自行保证 SDK 版本可复现。本工具把这些步骤收敛进一套配置驱动的流水线：板型差异只体现在 `boards/<BOARD>/board.conf` 与少量 overlay 中，核心脚本保持板型无关。
 
 ## 产出什么
 
-一次 `make build-all` 最终产出：
-
-- 一个 `.img` 裸 GPT 磁盘镜像，可直接 `dd` 到 SD 卡或 eMMC
-- 对应的 `.img.zst` zstd 压缩版本，适合分发
-- `.sha256` 校验和文件
-- `image-build-info.txt` 元数据，记录每个组件的 Git commit、分区布局、所有哈希值
-
-镜像内置 extlinux 启动配置，首次启动自动扩容根分区到实际磁盘大小，自动开启 SSH（密码登录）。
+一条命令（`make build-all`）即可产出裸 GPT 镜像（`.img`）、zstd 压缩镜像（`.img.zst`）、SHA-256 校验和（`.sha256`）与完整构建元数据（`image-build-info.txt`）。镜像内含 Rockchip 启动链（RKNS IDBlock + U-Boot）、FAT32 boot 分区（内核/DTB/extlinux）、以及 ext4 或 SquashFS+OverlayFS 的根文件系统。可选择在 QEMU `virt` 中做串口登录 + SSH + systemd 健康检查。
 
 ## 不是什么
 
-- **不是发行版。** 不包含桌面环境，不追求开箱即用的用户体验。目标是可靠的 headless 服务器/开发板镜像。
-- **不是内核/U-Boot 源码。** 所有源码通过 manifest 从上游拉取，本仓库只有构建编排。
-- **不是通用 ARM 构建框架。** 只针对 RK3588/RK3588S，复用 Rockchip 的引导链约定（IDBlock + uboot.img + GPT + extlinux）。
+- 不含任何 Rockchip 厂商源码。`kernel`/`u-boot`/`rkbin`/`buildroot` 全部通过 `repo` manifest 从上游拉取，或导入本地已下载的 SDK；许可证遵循各自上游。
+- 不是发行版。`patches/` 仅作可选本地补丁存放，构建系统不会自动套用。
+- 不替你写板级驱动。新板型需要正确的 defconfig、DTB 与（必要时）固件，本工具只负责把它们组合成可启动镜像。
 
 ## 设计理念
 
-**声明式板型。** 每块板一个 `.conf` 文件，声明内核 defconfig、DTB 文件名、U-Boot 配置、磁盘几何参数。不加板型判断逻辑到脚本里。
-
-**单一事实来源。** 磁盘布局（起始扇区、分区大小、保留区域）只在板级 profile 里定义一次，镜像组装和镜像校验都从同一个变量读取。
-
-**失败即停。** 所有脚本 `set -Eeuo pipefail`，任何一步校验失败立即退出并给出具体原因，不产出半成品。
-
-**可追溯。** 每个构建产物旁边都有一份 `*-build-info.txt`，记录源码 commit、构建参数、产物哈希。出问题时可以精确定位差异。
+- **配置驱动的多板型支持**：新增板子只需新增 `board.conf`，不改脚本。
+- **版本可复现**：每个 SDK 用 `repo` manifest 锁定四个组件的 Git commit，板级 profile 可强制校验（Rockchip EVB1/MUSE 设 `SOURCE_MANIFEST`，ROCK 5C 还锁 `EXPECTED_*_REVISION`）。
+- **纯构建核心 + 插件化**：核心脚本只处理通用逻辑；板级差异通过 overlay（`rootfs/debian/overlays/`、`boards/<BOARD>/rootfs/`）与 hooks（`board.hooks.sh`）注入。
+- **双 rootfs 同一套组装/校验**：Buildroot 最小化系统或 Debian 11/12/13，共用 `make_image.sh` 与 `verify_image.sh`。
+- **端到端校验**：`verify_image.sh` 从分区几何到 rootfs 内容逐项比对，确保产出的镜像与源码、配置一致。
+- **可测**：QEMU `virt` 冒烟测试无需真实硬件即可验证 Debian 镜像可启动、可登录、服务健康。

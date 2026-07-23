@@ -4,22 +4,18 @@
 
 整条流水线在一个命令里完成：拉取 SDK → 编译 U-Boot → 编译内核 → 生成根文件系统（Buildroot 或 Debian）→ 组装 GPT 镜像 → 校验镜像 → 可选 QEMU 冒烟启动测试。宿主机只需要 Docker 和 GNU Make，不需要安装交叉工具链、QEMU 或任何 Rockchip 专有工具。
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/lsy1291455142/rk3588-build)
-
-> [!TIP]
-> **一键云端构建**：本项目已完整支持 GitHub Codespaces。点击上方按钮可直接在云端打开预配置好 Docker-in-Docker 和编译工具链的开发环境，无需在本地配置 Docker 和运行环境。
-> * **免费额度**：GitHub 个人账户每月赠送 **120 核时**（默认 2 核机器可运行 60 小时）与 **15 GB 存储**空间。
-> * **省流建议**：不使用时容器会自动暂停（不计运行时间）。为了避免持续占用 15 GB 存储额度，编译/测试完成后建议及时去 [GitHub Codespaces 管理页](https://github.com/codespaces) 删除不用的实例。
+完整文档在 `docs/`（VitePress 站点，见下方「文档」）。本文档为仓库总览，详细内容以 `docs/` 为准。
 
 ## 能做什么
 
-- 配置驱动的多板型支持 — 新增板子只需创建一个 `.conf` 配置文件
-- 用 `repo` manifest 锁定 kernel / u-boot / rkbin / buildroot 四个组件的来源与版本
-- 用板级 defconfig 加共享 fragment 构建内核，产出 Image、DTB 和模块包
-- 用 Buildroot external tree 或 mmdebstrap 生成最小化根文件系统；Debian 额外 APT 包 + plugins（网络/console 等）与板级 overlay
-- 按 GPT 布局组装裸镜像，内置 extlinux 启动配置、SHA-256 校验和与构建元数据
-- 支持板级构建钩子（hooks），可在构建各阶段插入自定义逻辑
-- 用 QEMU virt 机器对 Debian 镜像做完整的串口登录 + SSH + systemd 健康检查
+- 配置驱动的多板型支持 — 新增板子只需创建一个 `board.conf` 配置文件，不改任何脚本。
+- 用 `repo` manifest 锁定 kernel / u-boot / rkbin / buildroot 四个组件的来源与版本（ROCK 5C 还锁全部组件 commit）。
+- 用板级 defconfig 加共享 fragment 构建内核，产出 Image、DTB 和模块包（板级 `kernel.config` 自动合并可覆盖）。
+- 用 Buildroot external tree 或 mmdebstrap 生成最小化根文件系统；Debian 额外支持精确 APT 包与可选 overlay 插件（base/console/firstboot/firstboot-info/network）及板级 plugin。
+- 按 GPT 布局组装裸镜像，内置 extlinux 启动配置、SHA-256 校验和与构建元数据。
+- 双 rootfs 布局：`rw-ext4`（可写 ext4 根）与 `ro-overlay`（只读 SquashFS 根 + ext4 数据分区，由 initramfs 组装 OverlayFS）。
+- 支持板级构建钩子（hooks）与板级 rootfs 附件（plugin/overlay）。
+- 用 QEMU `virt` 机器对 Debian 镜像做完整的串口登录 + SSH + systemd 健康检查。
 
 ## 快速开始
 
@@ -46,7 +42,7 @@ make build-all \
 - `rk3588s-rock-5c-debian-13.sha256` — 校验和
 - `image-build-info.txt` — 完整的构建元数据（各组件 commit、分区布局、哈希）
 
-默认账号 `user` / `password`，root 密码同为 `password`。首次启动自动扩容根分区并开启 SSH。
+Debian 默认账号 `user` / `password`，root 密码同为 `password`。Buildroot 默认账号为 `rk3588` / `rk3588`（见 `scripts/build_buildroot.sh` 内置回退）。首次启动自动扩容根分区并开启 SSH。
 
 ### QEMU 冒烟测试
 
@@ -67,13 +63,13 @@ make info                   # 查看当前配置
 
 ## 已支持的板型
 
-| Profile | 硬件 | 内核 | 说明 |
+| Profile | 硬件 | 内核 defconfig | 说明 |
 |---|---|---|---|
-| `rk3588-evb1-lp4-v10-linux` | Rockchip EVB1 参考板 | rockchip_linux_defconfig | 参考实现 |
-| `rk3588s-rock-5c` | Radxa ROCK 5C | rockchip_linux_defconfig | manifest 全量锁定 commit |
-| `rk3588-cokepi-plus-lp4-v10` | CokePi Plus (RK3588) | cokepi_main_defconfig | 需本地 CokePi SDK |
-| `rk3588s-cokepi-model-lp4-v10` | CokePi Model (RK3588S) | cokepi_main_defconfig | 需本地 CokePi SDK |
-| `rk3588-muse` | MUSE RK3588 (eMMC) | rockchip_linux_defconfig | kernel 来自 MUSEInstitute fork |
+| `rk3588-evb1-lp4-v10-linux` | Rockchip EVB1 参考板 | `rockchip_linux_defconfig` | 官方 5.10 SDK（manifest `rk3588-linux-5.10.xml`） |
+| `rk3588s-rock-5c` | Radxa ROCK 5C | `rockchip_linux_defconfig` | manifest 全量锁定 commit |
+| `rk3588-cokepi-plus-lp4-v10` | CokePi Plus (RK3588) | `cokepi_main_defconfig` | 需本地 CokePi SDK 导入 |
+| `rk3588s-cokepi-model-lp4-v10` | CokePi Model (RK3588S) | `cokepi_main_defconfig` | 需本地 CokePi SDK 导入；默认 `ro-overlay` |
+| `rk3588-muse` | MUSE RK3588 (eMMC) | `rockchip_linux_defconfig` | kernel 来自 MUSE fork（`rk3588-muse-5.10.xml`） |
 
 运行 `make list-boards` 查看完整列表。
 
@@ -81,91 +77,24 @@ make info                   # 查看当前配置
 
 这是本工具的核心设计 — 添加新板子**无需修改任何构建脚本或 Makefile**。
 
-### 步骤 1: 创建配置文件
+1. `make new-board BOARD=my-board` 生成 `boards/my-board/board.conf` 与空 `kernel.config`。
+2. 按 `boards/TEMPLATE/board.conf` 注释填写必填字段（`KERNEL_DEFCONFIG` / `KERNEL_DTB` / `UBOOT_DEFCONFIG` / `UBOOT_BOARD` / `CONSOLE` 等）。
+3. `make validate-board BOARD=my-board` 校验。
+4. 若从上游拉取 SDK，在 `manifests/` 建 manifest 并设 `SOURCE_MANIFEST`；否则 `make import-local-sdk`。
+5. 可选：板级 `rootfs/`（plugin/overlay）与 `board.hooks.sh`。
 
-```bash
-make new-board BOARD=my-board
-# 编辑 boards/my-board/board.conf
-```
+完整字段说明见 `docs/boards/add-board.md` 与 `boards/TEMPLATE/board.conf`。
 
-### 步骤 2: 填写配置
+## 高级定制
 
-打开生成的 `boards/my-board/board.conf`，按注释提示填写：
-
-- **`BOARD_DESCRIPTION`** — 板型描述
-- **`KERNEL_DEFCONFIG`** / **`KERNEL_DTB`** — 内核配置
-- **`UBOOT_DEFCONFIG`** / **`UBOOT_BOARD`** — U-Boot 配置
-- **`CONSOLE`** — 串口配置（如 `ttyFIQ0,1500000n8`）
-- **`BOOTLOADER_LAYOUT`** — 启动链布局（Rockchip 统一用 `rockchip-gpt-idblock-extlinux-v1`）
-- 磁盘/分区尺寸、扇区偏移等
-
-完整配置变量说明见 `boards/TEMPLATE/board.conf`。
-
-### 步骤 3: 验证配置
-
-```bash
-make validate-board BOARD=my-board
-```
-
-### 步骤 4: 添加 SDK manifest（如需要）
-
-在 `manifests/` 下创建对应的 `.xml` manifest 文件，并在 board.conf 中设置 `SOURCE_MANIFEST`。
-
-### 步骤 5: 构建钩子（可选）
-
-如果需要在构建流程中执行板级特殊逻辑，创建 `boards/my-board/board.hooks.sh`：
-
-```bash
-# 可用钩子函数（均可选，不需要的不用定义）：
-pre_build_kernel()    { echo "自定义内核预处理"; }
-post_build_kernel()   { echo "自定义内核后处理"; }
-pre_build_uboot()     { echo "自定义 U-Boot 预处理"; }
-post_build_uboot()    { echo "自定义 U-Boot 后处理"; }
-pre_build_rootfs()    { echo "自定义 rootfs 预处理"; }
-post_build_rootfs()   { echo "自定义 rootfs 后处理"; }
-pre_make_image()      { echo "自定义镜像组装预处理"; }
-post_make_image()     { echo "自定义镜像组装后处理"; }
-```
-
-## 高级定制：添加预装软件包与固件
-
-### 1. 预装额外的 APT 软件包 (Debian)
-
-无需修改源码脚本，有两种常用方式添加（包名用逗号或空格分隔）：
-
-- **方式 A (命令行 / `.env` 直接指定，覆盖板级默认)**:
-  ```bash
-  make build-all BOARD=rk3588s-rock-5c DEBIAN_PACKAGES="htop i2c-tools python3-pip"
-  ```
-  ```ini
-  # 或在 .env 中全局指定
-  DEBIAN_PACKAGES=htop i2c-tools network-manager-gnome docker.io
-  ```
-- **方式 B (在板级配置中固定默认)**:
-  在 `boards/<my-board>/board.conf` 中增加 `DEBIAN_PACKAGES_DEFAULT`：
-  ```bash
-  DEBIAN_PACKAGES_DEFAULT="htop i2c-tools python3-pip"
-  ```
-
-### 2. 预装自定义硬件固件 (Firmware)
-
-静态硬件固件直接放入板级或插件的 `overlay/lib/firmware/` 目录中，构建时会自动平铺同步到 Rootfs 的 `/lib/firmware/` 目录：
-
-```text
-boards/<my-board>/rootfs/
-└── overlay/
-    └── lib/
-        └── firmware/
-            ├── my_custom_firmware.bin
-            └── rtl_bt/
-```
-
-若是特定模组的动态固件（如从 `.deb` 包提取），可通过板级插件 `plugin.sh` 脚本在构建时自动解包并生成到该板型的 `overlay/` 树中。
-
+- **额外 APT 包（Debian）**：`DEBIAN_PACKAGES="network-manager,wpasupplicant,i2c-tools"`（精确包名；`none` 仅 minbase；功能别名如 `nm`/`wifibt` 已被拒绝），或板级 `DEBIAN_PACKAGES_DEFAULT`。
+- **可选 overlay 插件**：`DEBIAN_OVERLAYS=base,console,network`（`all` / `none` / 显式列表）。
+- **静态硬件固件**：放入板级或插件的 `overlay/lib/firmware/`；动态固件（如 `.deb` 提取）由板级 `plugin.sh` 在构建期生成。
+- **只读根（ro-overlay）**：`ROOTFS_MODE=ro-overlay`，生成 SquashFS 根 + ext4 数据分区，防掉电损坏。
 
 ## 文档
 
-完整文档在 `docs/` 目录，用 VitePress 构建：
+完整文档在 `docs/`，用 VitePress 构建（导航与侧边栏见 `docs/.vitepress/config.ts`）。本地预览：
 
 ```bash
 cd docs
@@ -174,71 +103,63 @@ npm run dev      # 本地预览
 npm run build    # 构建静态站点
 ```
 
-或者直接阅读 Markdown：
+或直接阅读 Markdown：
 
-- [简介](docs/intro/what-is.md) — 项目定位与设计理念
-- [快速上手](docs/usage/quick-start.md) — 从零到烧录镜像
-- [日常构建](docs/usage/daily-build.md) — 增量构建与切换
-- [烧录与启动](docs/usage/flash-and-boot.md) — 写入 SD/eMMC 与首次启动
-- [SDK 来源](docs/usage/sdk.md) — fetch、import、自定义 manifest
-- [架构](docs/how-it-works/architecture.md) — 目录、容器、volume 布局
-- [构建流水线](docs/how-it-works/pipeline.md) — 五个阶段的详细数据流
-- [磁盘与启动契约](docs/how-it-works/boot-contract.md) — GPT 布局与引导链
-- [板型](docs/boards/supported.md) — 已支持板型详解
-- [新增板型](docs/boards/add-board.md) — 板级 profile 编写指南
-- [Make 目标](docs/reference/make-targets.md) — 完整目标参考
-- [变量与 .env](docs/reference/variables.md) — 所有可配置变量
-- [排错](docs/reference/troubleshooting.md) — 常见问题与修复
+- [简介 / 这是什么](docs/intro/what-is.md)
+- [环境要求](docs/intro/requirements.md)
+- [快速上手](docs/usage/quick-start.md)
+- [日常构建](docs/usage/daily-build.md)
+- [烧录与启动](docs/usage/flash-and-boot.md)
+- [Debian 软件包与可选 Overlay](docs/usage/debian-features.md)
+- [SDK 来源](docs/usage/sdk.md)
+- [架构](docs/how-it-works/architecture.md)
+- [构建流水线](docs/how-it-works/pipeline.md)
+- [磁盘与启动契约](docs/how-it-works/boot-contract.md)
+- [已支持板型](docs/boards/supported.md)
+- [新增板型](docs/boards/add-board.md)
+- [Make 目标](docs/reference/make-targets.md)
+- [变量与 .env](docs/reference/variables.md)
+- [排错](docs/reference/troubleshooting.md)
 
 ## 环境要求
 
-- Docker（Linux、macOS 或 Windows + WSL2）
-- GNU Make
+- Docker（Linux、macOS 或 Windows + WSL2）与 GNU Make
 - 约 50 GB 可用磁盘空间（SDK 源码 + 构建产物 + 镜像）
-
-x86_64 宿主机首次构建 Debian rootfs 时会自动注册 ARM64 binfmt 模拟，无需手动干预。ARM64 宿主机（如 Apple Silicon）则原生运行。
+- x86_64 宿主首次构建 Debian rootfs 时自动注册 ARM64 binfmt 模拟；ARM64 宿主（如 Apple Silicon）原生运行
 
 ## 项目结构一览
 
-```
+```text
 rk3588-build/
 ├── Makefile                  # 所有构建入口（make help 查看）
-├── Dockerfile                # 双阶段：Ubuntu 构建器 + Debian rootfs 构建器
+├── Dockerfile                # 双阶段：ubuntu:22.04 构建器 + debian:trixie ARM64 rootfs 构建器
 ├── docker-compose.yml        # 服务与 volume 编排
 ├── manifests/                # repo manifest（每个 SDK 来源一个 XML）
-├── boards/                  # 板子为单元：每板一个目录（board.conf/kernel.config/rootfs/check.sh）
-│   ├── TEMPLATE/            # 配置模板（make new-board 的起点）
-│   │   └── board.conf
-│   ├── rk3588s-rock-5c/     # 示例板型
-│   │   ├── board.conf
-│   │   ├── kernel.config    # 板级内核 fragment（自动合并）
-│   │   ├── rootfs/          # 板级 plugin/overlay（始终应用；如 CokePi AIC）
-│   │   └── check.sh         # 板级自检钩子
+├── boards/                   # 板子为单元：每板一个目录（board.conf / kernel.config / rootfs / check.sh）
+│   ├── TEMPLATE/             # 配置模板（make new-board 的起点）
 │   └── ...
 ├── configs/
-│   ├── kernel/              # 共享内核 config fragment（rootfs-base/squashfs-overlay）
-│   └── soc/                 # SoC 特性（如 rk3588.conf：QEMU 黑名单/串口 getty）
+│   ├── kernel/               # 共享内核 fragment（rootfs-base.config / squashfs-overlay.config）
+│   └── soc/                  # SoC 特性（rk3588.conf：QEMU 黑名单 / 串口 getty mask）
 ├── scripts/
 │   ├── lib/
-│   │   ├── common.sh         # 公共 shell 库（配置加载、钩子、overlay）
-│   │   └── bootloader_layouts.sh  # 启动链布局抽象层
+│   │   ├── common.sh         # 公共库：profile 加载、校验、overlay、元数据
+│   │   ├── bootloader_layouts.sh  # 启动链布局抽象层
+│   │   └── qemu_smoke.py     # QEMU 冒烟测试驱动
 │   ├── fetch_sources.sh      # SDK 拉取与更新
 │   ├── build_kernel.sh       # 内核编译
-│   ├── build_uboot.sh        # U-Boot 引导链编译
+│   ├── build_uboot.sh        # U-Boot + IDBlock
 │   ├── build_buildroot.sh    # Buildroot rootfs
-│   ├── build_debian.sh       # Debian rootfs (mmdebstrap)
+│   ├── build_debian.sh       # Debian rootfs（mmdebstrap）
 │   ├── make_image.sh         # GPT 镜像组装
 │   ├── verify_image.sh       # 镜像深度校验
-│   └── test_debian_qemu.sh   # QEMU 冒烟测试
+│   ├── test_debian_qemu.sh   # QEMU 冒烟测试入口
+│   ├── check.sh              # 项目自检
+│   ├── entrypoint.sh         # 容器入口
+│   └── import_local_sdk.sh   # 本地 SDK 以 bind 卷导入
 ├── rootfs/
 │   ├── buildroot/            # Buildroot external tree
-│   └── debian/               # Debian rootfs 附件
-│       └── overlays/         # 可选功能插件（DEBIAN_OVERLAYS 选择）
-│           ├── base/         #   SSH/udev/resolved
-│           ├── console/      #   串口 getty 波特率
-│           ├── firstboot/    #   首次启动 rootfs 扩容
-│           ├── firstboot-info/ # 首次启动 banner/MOTD
-│           └── network/      #   NM / networkd 自适应
+│   └── debian/               # Debian rootfs 附件与可选 overlay 插件
 ├── patches/                  # 可选本地补丁（手动应用）
 ├── docs/                     # VitePress 文档站点
 └── output/                   # 所有构建产物（按板型和 rootfs 分目录）

@@ -1,83 +1,113 @@
 # Make 目标参考
 
-运行 `make` / `make menu` 进入编号菜单，或 `make help` 查看完整摘要。
+所有构建入口集中在 `Makefile`。默认目标为 `menu`（交互式数字菜单）。本页列出面向用户的全部 `make` 目标，按用途分组。目标内部依赖关系（如 `build-all` 依次调用 `build-uboot` → `build-kernel` → `build-rootfs` → `image`）也一并说明。
+
+> 提示：运行 `make help` 可随时查看内建帮助与完整 ROCK 5C 工作流示例。
 
 ## 环境与信息
 
 | 目标 | 说明 |
 |---|---|
-| `make` / `make menu` | 编号交互菜单（默认目标） |
-| `make build` | 构建主 Docker 构建器镜像 |
-| `make build-nocache` | 无缓存重新构建 |
-| `make build-debian-builder` | 预构建 ARM64 Debian rootfs 构建器（含 binfmt 注册） |
-| `make register-arm64-binfmt` | 手动注册 ARM64 binfmt（x86_64 宿主机） |
-| `make check` | 项目自检（语法、配置、契约校验） |
-| `make list-boards` | 列出所有可用的板型及其描述 |
-| `make new-board BOARD=<name>` | 从模版快速创建新的板型配置文件 |
-| `make validate-board BOARD=<name>` | 校验指定板型配置文件的格式正确性 |
-| `make info` | 显示当前构建环境配置与状态 |
+| `make menu` | 默认目标。编号菜单，按数字选择 `build`/`fetch`/`build-all`/`test-debian-qemu` 等 24 项。 |
+| `make help` | 打印完整命令行帮助，含 ROCK 5C 一键构建示例。 |
+| `make info` | 显示当前 `.env` 配置、当前板型（描述、manifest）、SDK 卷、rootfs、Debian 发行版。 |
+| `make status` | 执行 `docker compose ps` 并列出 `rk3588` 前缀的 Docker 卷。 |
+| `make list-boards` | 列出所有板型 profile 及其 `BOARD_DESCRIPTION`。 |
+
+## 构建 Docker 构建器
+
+| 目标 | 说明 |
+|---|---|
+| `make build` | 构建主构建器镜像 `rk3588-build:latest`（`SDK_VOLUME=rk3588-sdk-build`，即 `docker compose build rk3588-build`）。 |
+| `make build-nocache` | 同上，但 `--no-cache`。 |
+| `make build-builder` | 同 `make build`（别名）。 |
+| `make build-debian-builder` | 预构建 ARM64 Debian rootfs 构建器（`debian-rootfs` 服务），并先 `register-arm64-binfmt`。 |
+| `make register-arm64-binfmt` | 在 x86_64 宿主用 `tonistiigi/binfmt` 注册 ARM64 模拟；ARM64 宿主跳过。 |
 
 ## SDK 管理
 
 | 目标 | 说明 |
 |---|---|
-| `make fetch [BOARD=<name>]` | 读取板型 `SOURCE_MANIFEST` 拉取 SDK；无 manifest 的板需用 import/fetch-custom |
-| `make fetch-custom SDK_VOLUME=... MANIFEST=...` | 自定义本地 manifest 拉取 |
-| `make fetch-custom SDK_VOLUME=... CUSTOM_MANIFEST_URL=... CUSTOM_MANIFEST_NAME=...` | 自定义远程 manifest 拉取 |
-| `make import-local-sdk SDK_PATH=... SDK_VOLUME=...` | 导入本地已有 SDK |
-| `make update SDK_VOLUME=...` | 更新已有 SDK（repo sync） |
-| `make verify-sdk-volume SDK_VOLUME=...` | 校验 SDK 完整性 |
-
-> WiFi/BT 固件**不是** Makefile 核心目标。由板级 `plugin.sh` 在
-> `build-rootfs` 时从 `packages/*.deb` 装入 rootfs；host 可选手动：
-> `./boards/rk3588s-cokepi-model-lp4-v10/rootfs/stage-aic8800-firmware.sh`
+| `make fetch BOARD=<board>` | 按板级 `SOURCE_MANIFEST` 用 `repo` 拉取 SDK 到派生卷（如 `rk3588-sdk-rock5c`），随后切换 `.env` 的 `SDK_VOLUME`。 |
+| `make fetch-custom SDK_VOLUME=<v> MANIFEST=<f.xml>` | 用本地 manifest 文件拉取。也可用 `CUSTOM_MANIFEST_URL` + `CUSTOM_MANIFEST_NAME` 指定远程 manifest。 |
+| `make update SDK_VOLUME=<v>` | 重新初始化并 `repo sync` 更新已有 SDK 卷。 |
+| `make import-local-sdk SDK_PATH=/abs SDK_VOLUME=<v>` | 把本地已下载的 SDK 目录以 bind 卷方式接入（不复制源码），随后切换 `.env`。 |
+| `make verify-sdk-volume SDK_VOLUME=<v>` | 校验卷内 `kernel`/`u-boot`/`rkbin`/`buildroot` 四组件目录存在且卷可被 builder 用户（uid 1000）写入。 |
+| `make shell SDK_VOLUME=<v>` | 打开主构建器交互 shell。 |
+| `make debian-shell SDK_VOLUME=<v>` | 打开 ARM64 Debian 构建器交互 shell。 |
 
 ## 切换与查看配置
 
-修改 `.env` 文件保存全局默认选择，或通过 CLI 参数重写。
-
 | 目标 | 说明 |
 |---|---|
-| `make use-board` | 编号选择板型（始终弹菜单） |
-| `make use-board BOARD=<name>` | 直接切换到指定板型 |
-| `make use-volume` | 交互式选择 SDK volume |
-| `make use-rootfs` | 交互式选择 rootfs |
-| `make use-rootfs-buildroot` | 切换 rootfs 为 `buildroot` |
-| `make use-rootfs-debian` | 切换 rootfs 为 `debian` |
-| `make use-rootfs-all` | 切换 rootfs 为 `all`（同时构建两种） |
-| `make use-current` | 显示当前已选择的配置 |
+| `make use-volume` | 交互式选择 `rk3588-sdk-*` 卷并写入 `.env` 的 `SDK_VOLUME`。 |
+| `make use-board [BOARD=<b>]` | 交互式或指定式选择板型，写入 `.env` 的 `BOARD`；若 `SDK_VOLUME` 为空会按 `SOURCE_MANIFEST` 派生。 |
+| `make use-rootfs` | 交互式选择 `buildroot`/`debian`/`all`，写入 `.env` 的 `ROOTFS`。 |
+| `make use-rootfs-buildroot` | 直接写入 `ROOTFS=buildroot`。 |
+| `make use-rootfs-debian` | 直接写入 `ROOTFS=debian`。 |
+| `make use-rootfs-all` | 直接写入 `ROOTFS=all`。 |
+| `make use-current` | 显示当前 `SDK_VOLUME` / `BOARD` / `ROOTFS`。 |
 
 ## 构建
 
 | 目标 | 说明 |
 |---|---|
-| `make build-uboot` | 编译 U-Boot 引导链 |
-| `make build-kernel` | 编译内核 Image + DTB + 模块 |
-| `make build-rootfs` | 构建 rootfs（按 `ROOTFS` 变量选路径） |
-| `make image` | 组装 GPT 镜像 + 自动校验 |
-| `make verify-image` | 单独重新校验镜像 |
-| `make build-all` | 依次执行 uboot → kernel → rootfs → image |
+| `make build-uboot BOARD=.. SDK_VOLUME=..` | 编译 U-Boot + 打包 RKNS IDBlock，产物写入 `output/<BOARD>/common/`。 |
+| `make build-kernel BOARD=.. SDK_VOLUME=..` | 合并 defconfig + 共享/板级 fragment，编译 `Image`、`rockchip/<DTB>`、模块包。 |
+| `make build-rootfs ROOTFS=<buildroot\|debian>` | 构建指定 rootfs（分派 `_buildroot-rootfs` / `_debian-rootfs`）。`all` 时两者都构建。 |
+| `make _buildroot-rootfs` | 内部：Buildroot external tree 构建（需 `build-kernel` 产物）。 |
+| `make _debian-rootfs` | 内部：先 `debian-preflight` 校验 ARM64 架构，再用 mmdebstrap 构建 Debian rootfs。 |
+| `make debian-preflight` | 内部：探测 `debian-rootfs` 容器架构是否为 `arm64`。 |
+| `make build-all [DEBIAN_RELEASE=..] [DEBIAN_PACKAGES=..] [DEBIAN_OVERLAYS=..]` | 依次 `build-uboot` → `build-kernel` → `build-rootfs` → `image`（完整镜像流水线）。 |
 
-所有构建目标需要指定 `BOARD`，`SDK_VOLUME` 会根据 `BOARD` 配置自动推导（亦可显式指定）。`build-rootfs`、`image`、`verify-image` 额外需要 `ROOTFS`。
+## 镜像与校验
+
+| 目标 | 说明 |
+|---|---|
+| `make image` | 按 `ROOTFS` 组装 GPT 裸镜像（`_image-one`），随后 `_verify-one`。 |
+| `make verify-image` | 仅对已有镜像执行深度校验（`_verify-one`），不重新组装。 |
+| `make _image-one` | 内部：调用 `make_image.sh` 生成 `.img` / `.img.zst` / `.sha256` / `image-build-info.txt`。 |
+| `make _verify-one` | 内部：以 root 身份调用 `verify_image.sh` 校验分区几何、嵌入式组件、rootfs 内容。 |
 
 ## 测试
 
 | 目标 | 说明 |
 |---|---|
-| `make test-debian-qemu` | QEMU 冒烟测试（需要已构建的 Debian 镜像） |
-| `make test-debian-all` | 构建 Debian 11/12/13 三个版本并分别出镜像 |
+| `make test-debian-qemu BOARD=.. SDK_VOLUME=.. [DEBIAN_RELEASE=13]` | 在 QEMU `virt` 中用构建内核与完整 GPT 镜像做串口登录 + SSH + systemd 健康检查。 |
+| `make test-debian-all BOARD=.. SDK_VOLUME=..` | 依次对 Debian 11/12/13 各构建 rootfs + 镜像（验证跨版本可构建性）。 |
 
-## 调试
-
-| 目标 | 说明 |
-|---|---|
-| `make shell SDK_VOLUME=...` | 进入主构建器交互式 shell |
-| `make debian-shell SDK_VOLUME=...` | 进入 Debian rootfs 构建器 shell |
-| `make status` | 显示 Docker 容器和 volume 状态 |
-
-## 清理
+## 板型管理
 
 | 目标 | 说明 |
 |---|---|
-| `make clean` | 停止并删除容器 |
-| `make clean-all` | 同时删除 volume 和镜像 |
+| `make new-board BOARD=<name>` | 从 `TEMPLATE` 复制 `board.conf` 并生成空的 `kernel.config` 片段。 |
+| `make validate-board BOARD=<name>` | 加载并校验板级 profile（`load_board_profile` 的校验逻辑）。 |
+
+## 校验与清理
+
+| 目标 | 说明 |
+|---|---|
+| `make check` | 运行项目检查：bash 语法、ShellCheck、manifest 校验、板型 profile、buildroot 外部树、U-Boot 契约、内核契约、QEMU 契约、Debian 包/overlay 契约等。 |
+| `make clean` | `docker compose down --remove-orphans`。 |
+| `make clean-all` | 同上并移除卷与本地镜像（`--volumes --rmi local`）。 |
+
+## 内部/依赖目标
+
+以下目标供上述目标调用，一般不直接使用：`require-board`、`require-rootfs`、`require-sdk-volume`、`validate-rootfs`、`prepare-output`、`_use_sdk_switch`、`_use_board_switch`、`_use_rootfs_switch`。
+
+## 典型组合
+
+完整 Debian 13 构建（ROCK 5C）：
+
+```bash
+make build
+make fetch BOARD=rk3588s-rock-5c
+make build-all BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c ROOTFS=debian DEBIAN_RELEASE=13
+make test-debian-qemu BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c DEBIAN_RELEASE=13
+```
+
+跨版本可构建性（仅 Debian）：
+
+```bash
+make test-debian-all BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c
+```
