@@ -605,10 +605,15 @@ apply_rootfs_overlay_tree() {
             expand_overlay_template_text "${content}" >"${dest}"
             mode="$(stat -c '%a' "${src}" 2>/dev/null || printf '644')"
             chmod "${mode}" "${dest}"
+            # Overlay-shipped files must never be world-writable: systemd
+            # rejects such unit files, and bind-mount/umask quirks on some
+            # build hosts can leave the (0444/0666) source files world-writable.
+            chmod o-w "${dest}" 2>/dev/null || true
         else
             dest="${root_dir}/${rel}"
             mkdir -p "$(dirname "${dest}")"
             cp -a "${src}" "${dest}"
+            chmod o-w "${dest}" 2>/dev/null || true
         fi
     done < <(find "${overlay_src}" \( -type f -o -type l \) -print0 | sort -z)
 }
