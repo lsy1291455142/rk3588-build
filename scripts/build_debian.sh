@@ -165,6 +165,16 @@ ensure_chroot_dev() {
     [ -e "${d}/null" ]   || mknod -m 666 "${d}/null"   c 1 3 2>/dev/null || true
     [ -e "${d}/zero" ]   || mknod -m 666 "${d}/zero"   c 1 5 2>/dev/null || true
     [ -e "${d}/full" ]   || mknod -m 666 "${d}/full"   c 1 7 2>/dev/null || true
+    # /dev/console as a real char device (5,1) so mkinitramfs can copy it into
+    # the initramfs; without it update-initramfs prints
+    # "W: skipping creation of ./dev/console because ./dev/console does not
+    # exist on the outside". A symlink is useless here (mkinitramfs needs a
+    # device node to copy), and the build container itself has no /dev/console,
+    # so bind-mounting the host /dev does not help either.
+    if [ -e "${d}/console" ] && [ ! -c "${d}/console" ]; then
+        rm -f "${d}/console" 2>/dev/null || true
+    fi
+    [ -c "${d}/console" ] || mknod -m 600 "${d}/console" c 5 1 2>/dev/null || true
     [ -e "${d}/stdin" ]  || ln -sf /proc/self/fd/0 "${d}/stdin" 2>/dev/null || true
     [ -e "${d}/stdout" ] || ln -sf /proc/self/fd/1 "${d}/stdout" 2>/dev/null || true
     [ -e "${d}/stderr" ] || ln -sf /proc/self/fd/2 "${d}/stderr" 2>/dev/null || true
@@ -313,7 +323,7 @@ if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
     fi
     chmod 0755 "${ROOT_DIR}/etc/initramfs-tools/scripts/local-bottom/overlayroot"
     mkdir -p "${ROOT_DIR}/boot"
-    with_host_dev chroot "${ROOT_DIR}" update-initramfs -c -k "${KERNEL_RELEASE}"
+    chroot "${ROOT_DIR}" update-initramfs -c -k "${KERNEL_RELEASE}"
     require_file "${ROOT_DIR}/boot/initrd.img-${KERNEL_RELEASE}" "generated initramfs"
     install -m 0644 "${ROOT_DIR}/boot/initrd.img-${KERNEL_RELEASE}" "${INITRD_IMAGE}"
 fi
