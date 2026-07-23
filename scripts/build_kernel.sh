@@ -130,7 +130,7 @@ kernel_git_dir="$(
     git -c safe.directory="${KERNEL_DIR}" -C "${KERNEL_DIR}" \
         rev-parse --absolute-git-dir 2>/dev/null || true
 )"
-if [ -n "${kernel_git_dir}" ]; then
+if [ -n "${kernel_git_dir}" ] && [ -d "${kernel_git_dir}" ]; then
     KERNEL_GIT_ENV=(GIT_DIR="${kernel_git_dir}" GIT_WORK_TREE="${KERNEL_DIR}")
 fi
 
@@ -146,7 +146,7 @@ make_args=(
 
 log_step "Configuring kernel for ${BOARD}"
 run_hook pre_build_kernel
-"${KERNEL_GIT_ENV[@]}" make "${make_args[@]}" "${KERNEL_DEFCONFIG}"
+env "${KERNEL_GIT_ENV[@]}" make "${make_args[@]}" "${KERNEL_DEFCONFIG}"
 merge_args=("${KERNEL_FRAGMENT}" "${KERNEL_OVERLAY_FRAGMENT}")
 if [ ${#KERNEL_EXTRA_FRAGMENT_PATHS[@]} -gt 0 ]; then
     merge_args+=("${KERNEL_EXTRA_FRAGMENT_PATHS[@]}")
@@ -157,7 +157,7 @@ fi
         scripts/kconfig/merge_config.sh -m -O "${KERNEL_BUILD}" \
         "${KERNEL_BUILD}/.config" "${merge_args[@]}"
 )
-"${KERNEL_GIT_ENV[@]}" make "${make_args[@]}" olddefconfig
+env "${KERNEL_GIT_ENV[@]}" make "${make_args[@]}" olddefconfig
 
 # Rockchip's Bifrost driver embeds this firmware with an assembler .incbin
 # path relative to the build directory, which needs mirroring for O= builds.
@@ -201,14 +201,14 @@ for required_config in "${required_configs[@]}"; do
 done
 
 log_step "Building Image, ${KERNEL_DTB}, and modules"
-"${KERNEL_GIT_ENV[@]}" make "${make_args[@]}" -j"${JOBS_RESOLVED}" \
+env "${KERNEL_GIT_ENV[@]}" make "${make_args[@]}" -j"${JOBS_RESOLVED}" \
     Image "rockchip/${KERNEL_DTB}" modules
 
 safe_reset_dir "${MODULES_STAGE}" "${KERNEL_BUILD}"
-"${KERNEL_GIT_ENV[@]}" make "${make_args[@]}" -j"${JOBS_RESOLVED}" \
+env "${KERNEL_GIT_ENV[@]}" make "${make_args[@]}" -j"${JOBS_RESOLVED}" \
     modules_install "INSTALL_MOD_PATH=${MODULES_STAGE}"
 
-KERNEL_RELEASE="$("${KERNEL_GIT_ENV[@]}" make "${make_args[@]}" -s kernelrelease)"
+KERNEL_RELEASE="$(env "${KERNEL_GIT_ENV[@]}" make "${make_args[@]}" -s kernelrelease)"
 require_dir "${MODULES_STAGE}/lib/modules/${KERNEL_RELEASE}" "installed kernel modules"
 
 find "${MODULES_STAGE}/lib/modules/${KERNEL_RELEASE}" -maxdepth 1 -type l \
