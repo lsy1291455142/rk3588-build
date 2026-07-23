@@ -206,12 +206,18 @@ rk3588-build/
 ├── Dockerfile                # 双阶段：Ubuntu 构建器 + Debian rootfs 构建器
 ├── docker-compose.yml        # 服务与 volume 编排
 ├── manifests/                # repo manifest（每个 SDK 来源一个 XML）
+├── boards/                  # 板子为单元：每板一个目录（board.conf/kernel.config/rootfs/check.sh）
+│   ├── TEMPLATE/            # 配置模板（make new-board 的起点）
+│   │   └── board.conf
+│   ├── rk3588s-rock-5c/     # 示例板型
+│   │   ├── board.conf
+│   │   ├── kernel.config    # 板级内核 fragment（自动合并）
+│   │   ├── rootfs/          # 板级 plugin/overlay（始终应用；如 CokePi AIC）
+│   │   └── check.sh         # 板级自检钩子
+│   └── ...
 ├── configs/
-│   ├── boards/               # 板级 profile（每板一个 .conf + 可选 .hooks.sh）
-│   │   ├── TEMPLATE.conf     # 配置模板（新增板型的起点）
-│   │   ├── rk3588s-rock-5c.conf
-│   │   └── ...
-│   └── kernel/               # 共享内核 config fragment
+│   ├── kernel/              # 共享内核 config fragment（rootfs-base/squashfs-overlay）
+│   └── soc/                 # SoC 特性（如 rk3588.conf：QEMU 黑名单/串口 getty）
 ├── scripts/
 │   ├── lib/
 │   │   ├── common.sh         # 公共 shell 库（配置加载、钩子、overlay）
@@ -227,7 +233,6 @@ rk3588-build/
 ├── rootfs/
 │   ├── buildroot/            # Buildroot external tree
 │   └── debian/               # Debian rootfs 附件
-│       ├── boards/<board>/   # 板级 plugin/overlay（始终应用；如 CokePi AIC）
 │       └── overlays/         # 可选功能插件（DEBIAN_OVERLAYS 选择）
 │           ├── base/         #   SSH/udev/resolved
 │           ├── console/      #   串口 getty 波特率
