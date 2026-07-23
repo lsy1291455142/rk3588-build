@@ -605,6 +605,12 @@ _buildroot-rootfs: prepare-output
 		rk3588-build bash /home/builder/scripts/build_buildroot.sh
 
 debian-preflight: build-debian-builder
+	@if ! SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T --pull never -e SDK_VOLUME=$(SDK_VOLUME) --entrypoint /bin/true debian-rootfs >/dev/null 2>&1; then \
+		echo "ERROR: Cannot execute the linux/arm64 Debian builder." >&2; \
+		echo "       ARM64 binfmt_misc/qemu emulation is not registered on this Docker host." >&2; \
+		echo "       Run 'make register-arm64-binfmt' first (requires a Docker host that supports binfmt_misc)." >&2; \
+		exit 1; \
+	fi
 	@probe_output=$$(SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
 		--pull never \
 		-e SDK_VOLUME=$(SDK_VOLUME) \

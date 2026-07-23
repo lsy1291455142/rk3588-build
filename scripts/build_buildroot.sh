@@ -20,8 +20,8 @@ KERNEL_RELEASE_FILE="${COMMON_OUTPUT}/kernel-release"
 USERS_TABLE="${BUILD_DIR}/users.txt"
 POST_BUILD_SCRIPT="${BUILD_DIR}/post-build.sh"
 JOBS_RESOLVED="$(resolve_jobs)"
-ROOTFS_USERNAME="${ROOTFS_USERNAME:-rk3588}"
-ROOTFS_PASSWORD="${ROOTFS_PASSWORD:-rk3588}"
+# ROOTFS_USERNAME / ROOTFS_PASSWORD defaults are applied by
+# validate_rootfs_credentials() below; do not preset them here.
 
 require_dir "${BUILDROOT_DIR}" "Buildroot source"
 require_dir "${BUILDROOT_EXTERNAL}" "Buildroot external tree"

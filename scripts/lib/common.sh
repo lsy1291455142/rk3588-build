@@ -10,17 +10,9 @@ ROOTFS_CONFIG_DIR="${ROOTFS_CONFIG_DIR:-${PROJECT_DIR}/rootfs}"
 OUTPUT_DIR="${OUTPUT_DIR:-/home/builder/output}"
 BUILD_BASE_DIR="${BUILD_BASE_DIR:-${SDK_DIR}/.sbc-build}"
 
-log_info() {
-    printf '[INFO] %s\n' "$*" >&2
-}
-
-log_warn() {
-    printf '[WARN] %s\n' "$*" >&2
-}
-
-log_step() {
-    printf '[STEP] %s\n' "$*" >&2
-}
+# Shared logging helpers (log_info / log_warn / log_error / log_step).
+# shellcheck source=log.sh
+source "${COMMON_DIR}/log.sh"
 
 die() {
     printf '[ERROR] %s\n' "$*" >&2
@@ -66,9 +58,29 @@ is_positive_integer() {
     [[ "$1" =~ ^[1-9][0-9]*$ ]]
 }
 
+# Normalize a comma/space/plus/semicolon separated list into a clean comma
+# list with no empty tokens or leading/trailing commas. Shared by the Debian
+# package and overlay resolvers so their normalization never drifts apart.
+normalize_comma_list() {
+    local raw="$1"
+    raw="${raw//[[:space:]]/,}"
+    raw="${raw//+/,}"
+    raw="${raw//;/,}"
+    while [[ "${raw}" == *,,* ]]; do
+        raw="${raw//,,/,}"
+    done
+    raw="${raw#,}"
+    raw="${raw%,}"
+    printf '%s' "${raw}"
+}
+
 # Source the bootloader layout abstraction layer.
 # shellcheck source=bootloader_layouts.sh
 source "${COMMON_DIR}/bootloader_layouts.sh"
+
+# Source the Debian rootfs systemd unit enabler (enable_unit).
+# shellcheck source=enable_unit.sh
+source "${COMMON_DIR}/enable_unit.sh"
 
 # Board-specific hooks (optional). If boards/<board>/board.hooks.sh exists,
 # it is sourced after the board profile is loaded. Hook functions:
@@ -103,7 +115,9 @@ load_board_profile() {
     BOARD_DIR="${PROJECT_DIR}/boards/${BOARD}"
 
     BOARD_PROFILE="${BOARD_DIR}/board.conf"
-    require_file "${BOARD_PROFILE}" "board profile '${BOARD}'. Available boards: $(ls -1 \"${PROJECT_DIR}/boards/\"*/board.conf 2>/dev/null | sed 's|.*/boards/||; s|/board.conf$||' | grep -v '^TEMPLATE$' | tr '\n' ' ')"
+    if [ ! -f "${BOARD_PROFILE}" ]; then
+        die "Missing board profile '${BOARD}'. Available boards: $(ls -1 \"${PROJECT_DIR}/boards/\"*/board.conf 2>/dev/null | sed 's|.*/boards/||; s|/board.conf$||' | grep -v '^TEMPLATE$' | tr '\n' ' ')"
+    fi
 
     # shellcheck disable=SC1090
     source "${BOARD_PROFILE}"
@@ -186,6 +200,13 @@ validate_board_profile() {
     done
 
     [[ "${KERNEL_DTB}" = *.dtb ]] || die "KERNEL_DTB must name one .dtb file"
+
+    # CONSOLE must be "<device>,<baud>[<parity><bits>]"; require a comma with a
+    # digit after it so CONSOLE_SPEED extraction never silently yields garbage
+    # (e.g. a bare "ttyFIQ0" would otherwise produce an invalid getty config).
+    if [[ "${CONSOLE}" != *,*[0-9]* ]]; then
+        die "CONSOLE must be in <device>,<baud> form (e.g. ttyFIQ0,1500000), got '${CONSOLE}'"
+    fi
 
     case "${UBOOT_PYTHON}" in
         python2|python3) ;;
@@ -319,15 +340,7 @@ resolve_debian_packages() {
     DEBIAN_CUSTOM_PACKAGES=()
 
     # DEBIAN_PACKAGES is canonical.
-    raw="${DEBIAN_PACKAGES:-}"
-    raw="${raw//[[:space:]]/,}"
-    raw="${raw//+/,}"
-    raw="${raw//;/,}"
-    while [[ "${raw}" == *,,* ]]; do
-        raw="${raw//,,/,}"
-    done
-    raw="${raw#,}"
-    raw="${raw%,}"
+    raw="$(normalize_comma_list "${DEBIAN_PACKAGES:-}")"
     case "${raw}" in
         none|minbase|off|-)
             raw=""
@@ -434,6 +447,11 @@ git_revision() {
         rev-parse HEAD 2>/dev/null || printf 'unknown\n'
 }
 
+read_image_magic() {
+    local path="$1"
+    dd if="${path}" bs=1 count=4 status=none
+}
+
 metadata_value() {
     local metadata_file="$1"
     local key="$2"
@@ -490,15 +508,7 @@ resolve_debian_overlays() {
     local -A seen=()
     local d name
 
-    raw="${DEBIAN_OVERLAYS:-}"
-    raw="${raw//[[:space:]]/,}"
-    raw="${raw//+/,}"
-    raw="${raw//;/,}"
-    while [[ "${raw}" == *,,* ]]; do
-        raw="${raw//,,/,}"
-    done
-    raw="${raw#,}"
-    raw="${raw%,}"
+    raw="$(normalize_comma_list "${DEBIAN_OVERLAYS:-}")"
 
     case "${raw}" in
         none|off|-)
@@ -547,20 +557,23 @@ debian_overlay_enabled() {
 # Expand @PLACEHOLDER@ tokens using current board/rootfs shell variables.
 expand_overlay_template_text() {
     local content="$1"
-    local packages_value="${DEBIAN_PACKAGES:-none}"
-    local overlays_value="${DEBIAN_OVERLAYS:-none}"
-    [ -n "${packages_value}" ] || packages_value="none"
-    [ -n "${overlays_value}" ] || overlays_value="none"
-
-    content="${content//@BOARD@/${BOARD:-}}"
-    content="${content//@BOARD_DESCRIPTION@/${BOARD_DESCRIPTION:-}}"
-    content="${content//@ROOTFS_HOSTNAME@/${ROOTFS_HOSTNAME:-${BOARD:-sbc}}}"
-    content="${content//@KERNEL_DTB@/${KERNEL_DTB:-}}"
-    content="${content//@DEBIAN_PACKAGES@/${packages_value}}"
-    content="${content//@DEBIAN_OVERLAYS@/${overlays_value}}"
-    content="${content//@CONSOLE_DEVICE@/${CONSOLE_DEVICE:-}}"
-    content="${content//@CONSOLE_SPEED@/${CONSOLE_SPEED:-}}"
-    content="${content//@ROOTFS_USERNAME@/${ROOTFS_USERNAME:-}}"
+    # token -> value map; the loop keeps the nine substitutions in one place
+    # and makes adding a placeholder a one-line change.
+    local -A tokens=(
+        [BOARD]="${BOARD:-}"
+        [BOARD_DESCRIPTION]="${BOARD_DESCRIPTION:-}"
+        [ROOTFS_HOSTNAME]="${ROOTFS_HOSTNAME:-${BOARD:-sbc}}"
+        [KERNEL_DTB]="${KERNEL_DTB:-}"
+        [DEBIAN_PACKAGES]="${DEBIAN_PACKAGES:-none}"
+        [DEBIAN_OVERLAYS]="${DEBIAN_OVERLAYS:-none}"
+        [CONSOLE_DEVICE]="${CONSOLE_DEVICE:-}"
+        [CONSOLE_SPEED]="${CONSOLE_SPEED:-}"
+        [ROOTFS_USERNAME]="${ROOTFS_USERNAME:-}"
+    )
+    local token
+    for token in "${!tokens[@]}"; do
+        content="${content//@${token}@/${tokens[${token}]}}"
+    done
     printf '%s' "${content}"
 }
 

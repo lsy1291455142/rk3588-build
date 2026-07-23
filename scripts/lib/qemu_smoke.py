@@ -63,9 +63,13 @@ def parse_args():
 
 
 def reserve_tcp_port():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+    # Reserve an ephemeral port and keep the socket bound so no other local
+    # process can grab it before QEMU forwards to it. The caller must close the
+    # returned socket once QEMU has started (see main()).
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    return sock.getsockname()[1], sock
 
 
 def fail(message, child=None):
@@ -242,9 +246,17 @@ def scan_serial_log(serial_log_path):
     marker_offset = contents.find(SERIAL_LOGIN_MARKER)
     if marker_offset < 0:
         raise RuntimeError("serial log does not contain the successful login marker")
-    for pattern in FATAL_PATTERNS + BOOT_ERROR_PATTERNS:
+    # Fatal patterns are scanned across the whole log. The generic
+    # BOOT_ERROR_PATTERNS (\berror\b, \bfailed\b) are intentionally limited to the
+    # kernel boot phase (everything before the login marker) so that routine
+    # guest self-test command output after login cannot trigger a false failure.
+    boot_phase = contents[:marker_offset]
+    for pattern in FATAL_PATTERNS:
         if re.search(pattern, contents, flags=re.IGNORECASE | re.MULTILINE):
-            raise RuntimeError(f"serial log contains error pattern: {pattern}")
+            raise RuntimeError(f"serial log contains fatal pattern: {pattern}")
+    for pattern in BOOT_ERROR_PATTERNS:
+        if re.search(pattern, boot_phase, flags=re.IGNORECASE | re.MULTILINE):
+            raise RuntimeError(f"serial log contains boot error pattern: {pattern}")
 
 
 def main():
@@ -254,7 +266,7 @@ def main():
     result_path = pathlib.Path(args.result)
     serial_log_path.parent.mkdir(parents=True, exist_ok=True)
     ssh_log_path.write_text("", encoding="utf-8")
-    ssh_port = reserve_tcp_port()
+    ssh_port, reserved_sock = reserve_tcp_port()
     initcall_blacklist = [x for x in args.initcall_blacklist.split(",") if x]
     serial_getty_masks = [x for x in args.serial_getty_mask.split(",") if x]
     mask_args = " ".join(f"systemd.mask={m}" for m in serial_getty_masks)
@@ -322,6 +334,9 @@ def main():
                 timeout=args.timeout,
             )
             child.logfile_read = serial_log
+            # QEMU now owns the forwarded port; release our reservation so no
+            # other process can race for it.
+            reserved_sock.close()
             wait_for_login(child, args.timeout)
             login_serial(child, args.username, args.password)
             run_guest_checks(

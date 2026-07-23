@@ -181,10 +181,6 @@ IDBLOCK_PATH="${UBOOT_DIR}/idblock.bin"
     die "Rockchip make.sh completed but no uboot image matched: ${UBOOT_IMAGE_NAMES}"
 require_file "${IDBLOCK_PATH}" "Rockchip RKNS IDBlock"
 
-read_image_magic() {
-    dd if="$1" bs=1 count=4 status=none
-}
-
 [ "$(read_image_magic "${LOADER_PATH}")" = "LDR " ] ||
     die "Download loader is not an LDR container: ${LOADER_PATH}"
 [ "$(read_image_magic "${IDBLOCK_PATH}")" = "RKNS" ] ||

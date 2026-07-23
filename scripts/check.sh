@@ -66,7 +66,7 @@ check_manifests() {
         [ -n "${m}" ] && owned_manifests+=("${m}")
     done
 
-    local base owned o
+    local base owned o expected_br_rev="" br_rev=""
     while IFS= read -r -d '' manifest; do
         if [ "${parser}" = "xmllint" ]; then
             xmllint --noout "${manifest}" || return 1
@@ -84,7 +84,20 @@ check_manifests() {
         done
         [ "${owned}" -eq 1 ] && continue
 
-        grep -q 'revision="refs/tags/2025.02.15"' "${manifest}" || return 1
+        # Generic (non-board-owned) manifests must pin a consistent Buildroot
+        # tag. We no longer hardcode the literal tag here (that drifted from the
+        # manifests and broke CI on every version bump); instead we assert that
+        # every generic manifest pins the SAME buildroot revision under refs/tags/.
+        br_rev="$(grep -o 'remote="buildroot" revision="[^"]*"' "${manifest}" | sed -n 's/.*revision="\([^"]*\)"$/\1/p')"
+        case "${br_rev}" in
+            refs/tags/*) ;;
+            *) return 1 ;;
+        esac
+        if [ -z "${expected_br_rev}" ]; then
+            expected_br_rev="${br_rev}"
+        elif [ "${expected_br_rev}" != "${br_rev}" ]; then
+            return 1
+        fi
     done < <(find "${PROJECT_DIR}/manifests" -maxdepth 1 -type f \
         -name '*.xml' -print0)
 }
@@ -535,8 +548,10 @@ check_uboot_boot_contract_guard() {
         grep -Fq "${marker}" "${script}" || return 1
     done
 
-    grep -Fq 'ARG PYTHON2_VERSION=2.7.18' "${dockerfile}" || return 1
-    grep -Fq 'ARG PYELFTOOLS_PY2_VERSION=0.27' "${dockerfile}" || return 1
+    # Verify the Dockerfile defines these ARGs without pinning the exact
+    # version here (that hardcoded the value and broke CI on every bump).
+    grep -Fq 'ARG PYTHON2_VERSION=' "${dockerfile}" || return 1
+    grep -Fq 'ARG PYELFTOOLS_PY2_VERSION=' "${dockerfile}" || return 1
     grep -Fq "python2 -c 'from elftools.elf.elffile import ELFFile'" \
         "${dockerfile}" || return 1
     grep -Fq 'python-is-python3' "${dockerfile}" || return 1
@@ -555,7 +570,7 @@ self_tests() {
     expect_failure bash -c \
         "source '${SCRIPT_DIR}/lib/common.sh'; ROOTFS=invalid; validate_rootfs_choice"
     expect_failure bash -c \
-        "source '${SCRIPT_DIR}/lib/common.sh'; safe_reset_dir /tmp /tmp"
+        "source '${SCRIPT_DIR}/lib/common.sh'; p=\$(mktemp -d); safe_reset_dir \"\${p}\" \"\${p}\"; rm -rf \"\${p}\""
 }
 
 check_compose() {

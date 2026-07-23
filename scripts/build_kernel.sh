@@ -95,14 +95,25 @@ mkdir -p "${KERNEL_BUILD}" "${COMMON_OUTPUT}"
 # Pre-seed .scmversion in the source view so the kernel never needs to run git
 # during the build, without creating files in the imported SDK source.
 KERNEL_SCMVERSION_FILE="${KERNEL_SOURCE}/.scmversion"
+KERNEL_SCMREVISION_FILE="${KERNEL_SOURCE}/.scmrevision"
 
+# Record the kernel revision the cached .scmversion was generated from. If the
+# SDK kernel version changes between builds, the cache would otherwise go stale
+# and produce a wrong LOCALVERSION suffix, so compare and regenerate on mismatch.
+kernel_rev="$(git_revision "${KERNEL_DIR}" | tr -d '\r\n')"
+if [ -e "${KERNEL_SCMVERSION_FILE}" ] && [ -e "${KERNEL_SCMREVISION_FILE}" ]; then
+    scm_cached_rev="$(cat "${KERNEL_SCMREVISION_FILE}" 2>/dev/null || true)"
+    if [ "${scm_cached_rev}" != "${kernel_rev}" ]; then
+        rm -f "${KERNEL_SCMVERSION_FILE}" "${KERNEL_SCMREVISION_FILE}"
+    fi
+fi
 if [ ! -e "${KERNEL_SCMVERSION_FILE}" ]; then
-    kernel_rev="$(git_revision "${KERNEL_DIR}" | tr -d '\r\n')"
     if [[ "${kernel_rev}" =~ ^[0-9a-fA-F]{12,}$ ]]; then
         printf -- '-g%s\n' "${kernel_rev:0:12}" >"${KERNEL_SCMVERSION_FILE}"
     else
         : >"${KERNEL_SCMVERSION_FILE}"
     fi
+    printf '%s\n' "${kernel_rev}" >"${KERNEL_SCMREVISION_FILE}"
 fi
 
 # Prevent accidental git discovery from crossing the SDK volume mount.
@@ -110,14 +121,17 @@ export GIT_CEILING_DIRECTORIES="${SDK_DIR}${GIT_CEILING_DIRECTORIES:+:${GIT_CEIL
 
 # Several Rockchip driver Makefiles (for example drivers/video/rockchip/mpp)
 # run bare "git log" while make is executing from the O= build directory.
-# Point git at the kernel worktree so those probes work without noise.
+# Point git at the kernel worktree ONLY for the make subprocess (via
+# KERNEL_GIT_ENV) so those probes work, without polluting the global environment
+# (which would otherwise make a later git_revision() call for u-boot/rkbin
+# resolve to the kernel tree).
+KERNEL_GIT_ENV=()
 kernel_git_dir="$(
     git -c safe.directory="${KERNEL_DIR}" -C "${KERNEL_DIR}" \
         rev-parse --absolute-git-dir 2>/dev/null || true
 )"
 if [ -n "${kernel_git_dir}" ]; then
-    export GIT_DIR="${kernel_git_dir}"
-    export GIT_WORK_TREE="${KERNEL_DIR}"
+    KERNEL_GIT_ENV=(GIT_DIR="${kernel_git_dir}" GIT_WORK_TREE="${KERNEL_DIR}")
 fi
 
 make_args=(
@@ -132,7 +146,7 @@ make_args=(
 
 log_step "Configuring kernel for ${BOARD}"
 run_hook pre_build_kernel
-make "${make_args[@]}" "${KERNEL_DEFCONFIG}"
+"${KERNEL_GIT_ENV[@]}" make "${make_args[@]}" "${KERNEL_DEFCONFIG}"
 merge_args=("${KERNEL_FRAGMENT}" "${KERNEL_OVERLAY_FRAGMENT}")
 if [ ${#KERNEL_EXTRA_FRAGMENT_PATHS[@]} -gt 0 ]; then
     merge_args+=("${KERNEL_EXTRA_FRAGMENT_PATHS[@]}")
@@ -143,7 +157,7 @@ fi
         scripts/kconfig/merge_config.sh -m -O "${KERNEL_BUILD}" \
         "${KERNEL_BUILD}/.config" "${merge_args[@]}"
 )
-make "${make_args[@]}" olddefconfig
+"${KERNEL_GIT_ENV[@]}" make "${make_args[@]}" olddefconfig
 
 # Rockchip's Bifrost driver embeds this firmware with an assembler .incbin
 # path relative to the build directory, which needs mirroring for O= builds.
@@ -187,14 +201,14 @@ for required_config in "${required_configs[@]}"; do
 done
 
 log_step "Building Image, ${KERNEL_DTB}, and modules"
-make "${make_args[@]}" -j"${JOBS_RESOLVED}" \
+"${KERNEL_GIT_ENV[@]}" make "${make_args[@]}" -j"${JOBS_RESOLVED}" \
     Image "rockchip/${KERNEL_DTB}" modules
 
 safe_reset_dir "${MODULES_STAGE}" "${KERNEL_BUILD}"
-make "${make_args[@]}" -j"${JOBS_RESOLVED}" \
+"${KERNEL_GIT_ENV[@]}" make "${make_args[@]}" -j"${JOBS_RESOLVED}" \
     modules_install "INSTALL_MOD_PATH=${MODULES_STAGE}"
 
-KERNEL_RELEASE="$(make "${make_args[@]}" -s kernelrelease)"
+KERNEL_RELEASE="$("${KERNEL_GIT_ENV[@]}" make "${make_args[@]}" -s kernelrelease)"
 require_dir "${MODULES_STAGE}/lib/modules/${KERNEL_RELEASE}" "installed kernel modules"
 
 find "${MODULES_STAGE}/lib/modules/${KERNEL_RELEASE}" -maxdepth 1 -type l \

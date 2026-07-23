@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Per-board self-check hook for CokePi Plus LP4 V1.0 (sourced by scripts/check.sh).
 # The core check.sh must not hardcode any board name; board contracts live here.
 board_check() {

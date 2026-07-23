@@ -4,6 +4,8 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 source "${SCRIPT_DIR}/lib/common.sh"
+# shellcheck source=lib/disk_geometry.sh
+source "${SCRIPT_DIR}/lib/disk_geometry.sh"
 
 load_board_profile
 validate_board_source_revisions
@@ -56,27 +58,10 @@ FINAL_ZSTD="${FINAL_IMAGE}.zst"
 FINAL_SHA256="${VARIANT_OUTPUT}/${IMAGE_STEM}.sha256"
 FINAL_METADATA="${VARIANT_OUTPUT}/image-build-info.txt"
 
-IMAGE_SECTORS=$((IMAGE_SIZE_MIB * 2048))
-BOOT_FIRST_SECTOR=$((BOOT_START_MIB * 2048))
-BOOT_SECTORS=$((BOOT_SIZE_MIB * 2048))
-BOOT_LAST_SECTOR=$((BOOT_FIRST_SECTOR + BOOT_SECTORS - 1))
-ROOT_FIRST_SECTOR=$((BOOT_LAST_SECTOR + 1))
 ROOTFS_BYTES="$(stat -c '%s' "${ROOTFS_IMAGE}")"
-# Leave 33 sectors for secondary GPT (LBA-1 header + 32-sector table).
-DISK_LAST_USABLE_SECTOR=$((IMAGE_SECTORS - 34))
+compute_partition_layout
 
 if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
-    # SquashFS root partition sized to the image plus 1 MiB slack; the rest of
-    # the disk becomes the ext4 data partition (overlay upper + user data).
-    ROOT_MIB=$(((ROOTFS_BYTES + 1048575) / 1048576 + 1))
-    ROOT_SECTORS=$((ROOT_MIB * 2048))
-    ROOT_LAST_SECTOR=$((ROOT_FIRST_SECTOR + ROOT_SECTORS - 1))
-    DATA_FIRST_SECTOR=$((ROOT_LAST_SECTOR + 1))
-    if [ "${DATA_SIZE_MIB}" -gt 0 ]; then
-        DATA_LAST_SECTOR=$((DATA_FIRST_SECTOR + DATA_SIZE_MIB * 2048 - 1))
-    else
-        DATA_LAST_SECTOR="${DISK_LAST_USABLE_SECTOR}"
-    fi
     [ "${ROOT_LAST_SECTOR}" -lt "${DATA_FIRST_SECTOR}" ] ||
         die "SquashFS root geometry invalid"
     [ "${DATA_FIRST_SECTOR}" -lt "${DATA_LAST_SECTOR}" ] ||
@@ -87,7 +72,6 @@ if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
     [ "${ROOTFS_BYTES}" -le "${ROOT_PARTITION_BYTES}" ] ||
         die "rootfs.squashfs exceeds root partition (${ROOTFS_BYTES} > ${ROOT_PARTITION_BYTES})"
 else
-    ROOT_LAST_SECTOR="${DISK_LAST_USABLE_SECTOR}"
     [ "${ROOT_FIRST_SECTOR}" -lt "${ROOT_LAST_SECTOR}" ] ||
         die "Boot partition geometry invalid (BOOT_START_MIB + BOOT_SIZE_MIB exceeds IMAGE_SIZE_MIB)"
     ROOT_PARTITION_BYTES=$(((ROOT_LAST_SECTOR - ROOT_FIRST_SECTOR + 1) * 512))

@@ -6,6 +6,8 @@ export LC_ALL=C
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 source "${SCRIPT_DIR}/lib/common.sh"
+# shellcheck source=lib/disk_geometry.sh
+source "${SCRIPT_DIR}/lib/disk_geometry.sh"
 
 load_board_profile
 validate_board_source_revisions
@@ -43,7 +45,7 @@ KERNEL_BUILD_INFO="${COMMON_OUTPUT}/kernel-build-info.txt"
 UBOOT_BUILD_INFO="${COMMON_OUTPUT}/uboot-build-info.txt"
 ROOTFS_BUILD_INFO="${VARIANT_OUTPUT}/rootfs-build-info.txt"
 IMAGE_BUILD_INFO="${VARIANT_OUTPUT}/image-build-info.txt"
-ROOTFS_USERNAME="${ROOTFS_USERNAME:-rk3588}"
+ROOTFS_USERNAME="${ROOTFS_USERNAME:-user}"
 
 require_file "${IMAGE_PATH}" "raw disk image"
 require_file "${SHA256_PATH}" "image checksum file"
@@ -108,30 +110,17 @@ done
 WORK_DIR="$(mktemp -d "${VARIANT_OUTPUT}/.image-verify.XXXXXX")"
 trap 'rm -rf -- "${WORK_DIR}"' EXIT
 
-IMAGE_SECTORS=$((IMAGE_SIZE_MIB * 2048))
-BOOT_FIRST_EXPECTED=$((BOOT_START_MIB * 2048))
-BOOT_LAST_EXPECTED=$((BOOT_FIRST_EXPECTED + BOOT_SIZE_MIB * 2048 - 1))
-ROOT_FIRST_EXPECTED=$((BOOT_LAST_EXPECTED + 1))
-
 # The embedded rootfs artifact (ext4 for rw-ext4, SquashFS for ro-overlay) drives
-# the on-disk geometry. Mirror the formulas used by make_image.sh.
+# the on-disk geometry. Reuse the exact formulas from make_image.sh via the
+# shared compute_partition_layout so writer and checker never drift.
 ROOTFS_BYTES="$(stat -c '%s' "${ROOTFS_IMAGE}")"
-if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
-    # SquashFS root sized to the image plus 1 MiB slack; the data partition
-    # (overlay upper + user data) starts after it and is sized by DATA_SIZE_MIB
-    # or fills the rest of the disk.
-    ROOT_MIB=$(((ROOTFS_BYTES + 1048575) / 1048576 + 1))
-    ROOT_SECTORS=$((ROOT_MIB * 2048))
-    ROOT_LAST_EXPECTED=$((ROOT_FIRST_EXPECTED + ROOT_SECTORS - 1))
-    DATA_FIRST_EXPECTED=$((ROOT_LAST_EXPECTED + 1))
-    if [ "${DATA_SIZE_MIB}" -gt 0 ]; then
-        DATA_LAST_EXPECTED=$((DATA_FIRST_EXPECTED + DATA_SIZE_MIB * 2048 - 1))
-    else
-        DATA_LAST_EXPECTED=$((IMAGE_SECTORS - 34))
-    fi
-else
-    ROOT_LAST_EXPECTED=$((IMAGE_SECTORS - 34))
-fi
+compute_partition_layout
+BOOT_FIRST_EXPECTED="${BOOT_FIRST_SECTOR}"
+BOOT_LAST_EXPECTED="${BOOT_LAST_SECTOR}"
+ROOT_FIRST_EXPECTED="${ROOT_FIRST_SECTOR}"
+ROOT_LAST_EXPECTED="${ROOT_LAST_SECTOR}"
+DATA_FIRST_EXPECTED="${DATA_FIRST_SECTOR}"
+DATA_LAST_EXPECTED="${DATA_LAST_SECTOR}"
 
 IMAGE_BYTES_EXPECTED=$((IMAGE_SIZE_MIB * 1024 * 1024))
 
@@ -214,10 +203,6 @@ compare_embedded_file() {
     extract_bytes "${IMAGE_PATH}" "${extracted}" "$((sector * 512))" "${size}"
     cmp --silent "${expected}" "${extracted}" ||
         die "Embedded data does not match $(basename "${expected}")"
-}
-
-read_image_magic() {
-    dd if="$1" bs=1 count=4 status=none
 }
 
 bootloader_layout_verify "${IMAGE_PATH}" "${COMMON_OUTPUT}" "${WORK_DIR}"
@@ -330,6 +315,9 @@ else
     if [ -z "${DEBIAN_OVERLAYS_META}" ] && [ -f "${ROOTFS_META}" ]; then
         DEBIAN_OVERLAYS_META="base,console,firstboot,firstboot-info,network"
     fi
+    # NOTE: this mirrors debian_overlay_enabled() in common.sh but reads the
+    # recorded build metadata (DEBIAN_OVERLAYS_META) rather than the runtime
+    # DEBIAN_OVERLAY_LIST, so the two intentionally cannot be merged.
     overlay_enabled() {
         local want="$1"
         case ",${DEBIAN_OVERLAYS_META}," in

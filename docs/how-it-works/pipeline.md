@@ -39,7 +39,7 @@
 
 ### Buildroot 路径（`build_buildroot.sh`）
 
-使用 `rootfs/buildroot/` 外部树（`BR2_EXTERNAL`），`rk3588_rootfs_defconfig` 选择 aarch64/cortex-a76_a55、GLIBC、BusyBox init、Dropbear SSH、e2fsprogs 等，输出 ext4（标签 `rootfs`，2048M）与 tar。`post-build.sh` 解包内核模块、写入 sudoers、置可执行 `S02rootfs-resize`/`S40network`。产出 `buildroot/rootfs.ext4`、`buildroot/rootfs.tar`、`buildroot/buildroot.config`。默认账号为 `rk3588`/`rk3588`（脚本内置回退）。
+使用 `rootfs/buildroot/` 外部树（`BR2_EXTERNAL`），`rk3588_rootfs_defconfig` 选择 aarch64/cortex-a76_a55、GLIBC、BusyBox init、Dropbear SSH、e2fsprogs 等，输出 ext4（标签 `rootfs`，2048M）与 tar。`post-build.sh` 解包内核模块、写入 sudoers、置可执行 `S02rootfs-resize`/`S40network`。产出 `buildroot/rootfs.ext4`、`buildroot/rootfs.tar`、`buildroot/buildroot.config`。默认账号为 `user`/`password`（由 `validate_rootfs_credentials` 统一提供，可通过 `ROOTFS_USERNAME`/`ROOTFS_PASSWORD` 覆盖）。
 
 ### Debian 路径（`build_debian.sh`）
 

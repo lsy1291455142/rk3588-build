@@ -13,17 +13,10 @@ resolve_debian_release
 # Empty DEBIAN_PACKAGES means "use board default if any".
 # Force minbase with DEBIAN_PACKAGES=none (or minbase/off).
 # DEBIAN_PACKAGES is canonical; board default comes from DEBIAN_PACKAGES_DEFAULT.
-DEBIAN_PACKAGES="${DEBIAN_PACKAGES:-}"
-case "${DEBIAN_PACKAGES:-}" in
-    '')
-        if [ -n "${DEBIAN_PACKAGES_DEFAULT:-}" ]; then
-            DEBIAN_PACKAGES="${DEBIAN_PACKAGES_DEFAULT:-}"
-        fi
-        ;;
-    none|minbase|off|-)
-        DEBIAN_PACKAGES=""
-        ;;
-esac
+# Explicit DEBIAN_PACKAGES wins; fall back to the board default; empty means
+# "use board default if any". resolve_debian_packages below handles the
+# none|minbase|off|- sentinels, so no pre-normalization is needed here.
+DEBIAN_PACKAGES="${DEBIAN_PACKAGES:-${DEBIAN_PACKAGES_DEFAULT:-}}"
 if [ -z "${ROOTFS_HOSTNAME:-}" ]; then
     ROOTFS_HOSTNAME="${ROOTFS_HOSTNAME_DEFAULT:-${BOARD:-sbc}}"
 fi
@@ -59,8 +52,8 @@ DEBIAN_BUILD="$(board_build_dir "debian-${DEBIAN_RELEASE}")"
 ROOT_DIR="${DEBIAN_BUILD}/root"
 MODULES_TAR="${COMMON_OUTPUT}/modules.tar"
 KERNEL_RELEASE_FILE="${COMMON_OUTPUT}/kernel-release"
-ROOTFS_USERNAME="${ROOTFS_USERNAME:-user}"
-ROOTFS_PASSWORD="${ROOTFS_PASSWORD:-password}"
+# ROOTFS_USERNAME / ROOTFS_PASSWORD defaults are applied by
+# validate_rootfs_credentials() below; do not preset them here.
 ROOTFS_HOSTNAME="${ROOTFS_HOSTNAME:-${BOARD:-sbc}}"
 CONSOLE_DEVICE="${CONSOLE%%,*}"
 CONSOLE_SPEED="${CONSOLE#*,}"
@@ -187,6 +180,12 @@ esac
 printf '%s\n' "${ROOTFS_HOSTNAME}" >"${ROOT_DIR}/etc/hostname"
 printf '127.0.0.1 localhost\n127.0.1.1 %s\n' "${ROOTFS_HOSTNAME}" >"${ROOT_DIR}/etc/hosts"
 
+# Early guard: confirm the staged Debian userspace can actually execute under
+# binfmt/qemu before any write chroot. On x86_64 hosts this fails fast with a
+# clear message instead of an obscure exec-format error deep in useradd/chpasswd.
+chroot "${ROOT_DIR}" /bin/true ||
+    die "Debian userspace is not executable (is ARM64 binfmt/qemu registered?)"
+
 chroot "${ROOT_DIR}" useradd -m -s /bin/bash -G sudo "${ROOTFS_USERNAME}"
 printf '%s:%s\n' "${ROOTFS_USERNAME}" "${ROOTFS_PASSWORD}" |
     chroot "${ROOT_DIR}" chpasswd
@@ -213,52 +212,7 @@ tar --no-same-owner --strip-components=1 -xpf "${MODULES_TAR}" \
     -C "${ROOT_DIR}/usr/lib"
 KERNEL_RELEASE="$(cat "${KERNEL_RELEASE_FILE}")"
 depmod -b "${ROOT_DIR}" "${KERNEL_RELEASE}"
-chroot "${ROOT_DIR}" /bin/true ||
-    die "Debian userspace is not executable after installing kernel modules"
 
-
-enable_unit() {
-    local unit="$1"
-    local unit_file target wants_dir
-    # Try systemctl first; on x86_64+QEMU it may fail due to missing linker.
-    if systemctl --root="${ROOT_DIR}" enable "${unit}" 2>/dev/null; then
-        return 0
-    fi
-    # Fall back: create the [Install] symlink(s) manually.
-    # Check both /lib and /usr/lib for the unit file.
-    for unit_file in "${ROOT_DIR}/lib/systemd/system/${unit}" \
-                     "${ROOT_DIR}/usr/lib/systemd/system/${unit}"; do
-        if [ -f "${unit_file}" ]; then
-            break
-        fi
-        unit_file=""
-    done
-    # Handle template instances: serial-getty@ttyFIQ0.service -> serial-getty@.service
-    if [ -z "${unit_file}" ]; then
-        local template="${unit%%@*}@.service"
-        for unit_file in "${ROOT_DIR}/lib/systemd/system/${template}" \
-                         "${ROOT_DIR}/usr/lib/systemd/system/${template}"; do
-            if [ -f "${unit_file}" ]; then
-                break
-            fi
-            unit_file=""
-        done
-    fi
-    # Match the [Install] target used by the Debian unit.
-    case "${unit}" in
-        *.socket) target="sockets.target.wants" ;;
-        serial-getty@*.service) target="getty.target.wants" ;;
-        systemd-resolved.service) target="sysinit.target.wants" ;;
-        *) target="multi-user.target.wants" ;;
-    esac
-    wants_dir="${ROOT_DIR}/etc/systemd/system/${target}"
-    mkdir -p "${wants_dir}"
-    if [ -n "${unit_file}" ]; then
-        ln -sf "${unit_file#"${ROOT_DIR}"}" "${wants_dir}/${unit}"
-        return 0
-    fi
-    die "Unable to enable Debian systemd unit: ${unit}"
-}
 
 # Optional overlay plugins (network/firstboot/console/...).
 run_debian_overlay_plugins "${ROOT_DIR}"
@@ -374,6 +328,17 @@ fi
 
 run_hook post_build_rootfs
 
+# Determine the active network stack for metadata (NetworkManager wins over
+# systemd-networkd; default to none). Computed once into a variable so the
+# write_common_metadata call below stays readable.
+if [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/NetworkManager.service" ]; then
+    NETWORK_STACK=NetworkManager
+elif [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/systemd-networkd.service" ]; then
+    NETWORK_STACK=systemd-networkd
+else
+    NETWORK_STACK=none
+fi
+
 write_common_metadata "${VARIANT_OUTPUT}/rootfs-build-info.txt" \
     "source_manifest=${SOURCE_MANIFEST:-}" \
     "kernel_revision=$(git_revision "${SDK_DIR}/kernel")" \
@@ -385,7 +350,7 @@ write_common_metadata "${VARIANT_OUTPUT}/rootfs-build-info.txt" \
     "debian_overlays=${DEBIAN_OVERLAYS:-}" \
     "rootfs_mode=${ROOTFS_MODE}" \
     "hostname=${ROOTFS_HOSTNAME}" \
-    "network_stack=$(if [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/NetworkManager.service" ]; then printf NetworkManager; elif [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/systemd-networkd.service" ]; then printf systemd-networkd; else printf none; fi)" \
+    "network_stack=${NETWORK_STACK}" \
     "kernel_release=${KERNEL_RELEASE}" \
     "username=${ROOTFS_USERNAME}" \
     "root_login=enabled" \

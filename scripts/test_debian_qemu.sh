@@ -20,8 +20,11 @@ KERNEL_RELEASE_FILE="${COMMON_OUTPUT}/kernel-release"
 IMAGE_METADATA="${VARIANT_OUTPUT}/image-build-info.txt"
 QEMU_OUTPUT="${VARIANT_OUTPUT}/qemu-smoke"
 QEMU_DISK="${QEMU_OUTPUT}/disk.img"
-ROOTFS_USERNAME="${ROOTFS_USERNAME:-rk3588}"
-ROOTFS_PASSWORD="${ROOTFS_PASSWORD:-rk3588}"
+# Debian images default to the 'user' account; rely on the same default as the
+# build path (validate_rootfs_credentials). When invoked via make, ROOTFS_USERNAME
+# is supplied explicitly, so this fallback only applies to standalone runs.
+ROOTFS_USERNAME="${ROOTFS_USERNAME:-user}"
+ROOTFS_PASSWORD="${ROOTFS_PASSWORD:-password}"
 QEMU_TIMEOUT="${QEMU_TIMEOUT:-600}"
 QEMU_MEMORY_MIB="${QEMU_MEMORY_MIB:-1024}"
 QEMU_CPUS="${QEMU_CPUS:-2}"
