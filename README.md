@@ -131,20 +131,20 @@ post_make_image()     { echo "自定义镜像组装后处理"; }
 
 ### 1. 预装额外的 APT 软件包 (Debian)
 
-无需修改源码脚本，有三种极简方式添加：
+无需修改源码脚本，有两种常用方式添加（包名用逗号或空格分隔）：
 
-- **方式 A (命令行直接指定)**:
+- **方式 A (命令行 / `.env` 直接指定，覆盖板级默认)**:
   ```bash
-  make build-all BOARD=rk3588s-rock-5c DEBIAN_EXTRA_PACKAGES="htop i2c-tools python3-pip"
+  make build-all BOARD=rk3588s-rock-5c DEBIAN_PACKAGES="htop i2c-tools python3-pip"
   ```
-- **方式 B (在 `.env` 中全局指定)**:
   ```ini
-  DEBIAN_EXTRA_PACKAGES=htop i2c-tools network-manager-gnome docker.io
+  # 或在 .env 中全局指定
+  DEBIAN_PACKAGES=htop i2c-tools network-manager-gnome docker.io
   ```
-- **方式 C (在板级配置中固定)**:
-  在 `boards/<my-board>/board.conf` 中增加：
+- **方式 B (在板级配置中固定默认)**:
+  在 `boards/<my-board>/board.conf` 中增加 `DEBIAN_PACKAGES_DEFAULT`：
   ```bash
-  DEBIAN_EXTRA_PACKAGES="htop i2c-tools python3-pip"
+  DEBIAN_PACKAGES_DEFAULT="htop i2c-tools python3-pip"
   ```
 
 ### 2. 预装自定义硬件固件 (Firmware)

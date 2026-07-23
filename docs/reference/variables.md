@@ -31,7 +31,6 @@
 | `DEBIAN_RELEASE` | `13` | Debian 版本：11、12 或 13 |
 | `DEBIAN_PACKAGES` | （空） | 指定 APT 包名列表（逗号/空格）；**会整体覆盖**板级 `DEBIAN_PACKAGES_DEFAULT`；`none`=仅 minbase |
 | `DEBIAN_PACKAGES_DEFAULT` | （板级配置） | 板级配置文件 (`boards/<BOARD>/board.conf`) 中预设的标准基础软件包列表 |
-| `DEBIAN_EXTRA_PACKAGES` | （空） | **追加**额外 APT 包（在现有包列表末尾追加，**不覆盖**已有包，适合临时调试） |
 | `DEBIAN_OVERLAYS` | （空） | 可选 overlay 插件列表；空=使用板级默认；`none`=关闭所有；`all`=启用全部 |
 | `DEBIAN_OVERLAYS_DEFAULT` | （板级配置） | 板级配置文件中默认启用的 Overlay 插件列表 |
 | `DEBIAN_MIRROR` | `http://deb.debian.org/debian` | Debian 主镜像源 |
@@ -67,11 +66,10 @@
 
 详见 [`boards/TEMPLATE/board.conf`](../../boards/TEMPLATE/board.conf)。
 
-### 包控制变量对比说明
+### 包控制变量说明
 
 - **`DEBIAN_PACKAGES_DEFAULT`** (板级定义)：固化在该板型 `.conf` 中的标准基础包。
-- **`DEBIAN_PACKAGES`** (命令行/环境变量)：**覆盖模式**。如果传入此变量，板级 `DEBIAN_PACKAGES_DEFAULT` 会被直接替换。
-- **`DEBIAN_EXTRA_PACKAGES`** (命令行/环境变量)：**追加模式**。在最终决定的包列表末尾追加新包，不改变已有包。
+- **`DEBIAN_PACKAGES`** (命令行/环境变量)：**覆盖模式**。如果传入此变量，板级 `DEBIAN_PACKAGES_DEFAULT` 会被直接替换；设为 `none` 则强制仅 minbase。
 
 **示例：**
 ```bash
@@ -81,8 +79,9 @@ make build-rootfs BOARD=rk3588-muse
 # 2. 覆盖模式：忽略板级默认，只安装 htop 和 curl
 make build-rootfs BOARD=rk3588-muse DEBIAN_PACKAGES=htop,curl
 
-# 3. 追加模式：保留板级默认包，另外临时多装 htop 和 python3-pip
-make build-rootfs BOARD=rk3588-muse DEBIAN_EXTRA_PACKAGES=htop,python3-pip
+# 3. 在板级默认基础上追加：直接编辑 board.conf 的 DEBIAN_PACKAGES_DEFAULT，
+#    或在命令行给出完整列表（默认项 + 新增项）
+make build-rootfs BOARD=rk3588-muse DEBIAN_PACKAGES="network-manager,wpasupplicant,htop,python3-pip"
 ```
 
 

@@ -323,9 +323,6 @@ else
     if [ -f "${ROOTFS_META}" ]; then
         NETWORK_STACK="$(metadata_value "${ROOTFS_META}" network_stack || true)"
         DEBIAN_PACKAGES_META="$(metadata_value "${ROOTFS_META}" debian_packages || true)"
-        if [ -z "${DEBIAN_PACKAGES_META}" ]; then
-            DEBIAN_PACKAGES_META="$(metadata_value "${ROOTFS_META}" debian_features || true)"
-        fi
         DEBIAN_OVERLAYS_META="$(metadata_value "${ROOTFS_META}" debian_overlays || true)"
     fi
     # Back-compat: older images without debian_overlays metadata keep previous

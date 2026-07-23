@@ -260,7 +260,7 @@ check_qemu_smoke_contract() {
 }
 
 
-check_debian_features() {
+check_debian_packages() {
     # shellcheck source=lib/common.sh
     source "${SCRIPT_DIR}/lib/common.sh"
 
@@ -601,7 +601,7 @@ run_check "Buildroot external tree" check_buildroot_external
 run_check "U-Boot GPT/extlinux contract guard" check_uboot_boot_contract_guard
 run_check "make help complete Rock 5C workflow" check_help_contract
 run_check "Cross-host Debian builder contract" check_debian_builder_contract
-run_check "Debian optional features" check_debian_features
+run_check "Debian optional features" check_debian_packages
 run_check "Explicit rootfs configuration" check_rootfs_configuration
 run_check "QEMU Debian smoke-test contract" check_qemu_smoke_contract
 run_check "Failure-path self-tests" self_tests

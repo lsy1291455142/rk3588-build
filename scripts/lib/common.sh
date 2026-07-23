@@ -232,7 +232,6 @@ validate_board_profile() {
     OUTPUT_IMAGE_PREFIX="${OUTPUT_IMAGE_PREFIX:-${BOARD}}"
     EXTLINUX_LABEL="${EXTLINUX_LABEL:-${BOARD}}"
     KERNEL_DTBO="${KERNEL_DTBO:-}"
-    DEBIAN_EXTRA_PACKAGES="${DEBIAN_EXTRA_PACKAGES:-}"
 }
 
 validate_git_revision() {
@@ -319,8 +318,8 @@ resolve_debian_packages() {
     local -a deduped=()
     DEBIAN_CUSTOM_PACKAGES=()
 
-    # DEBIAN_PACKAGES is canonical; DEBIAN_FEATURES is accepted as a legacy alias.
-    raw="${DEBIAN_PACKAGES:-${DEBIAN_FEATURES:-}}"
+    # DEBIAN_PACKAGES is canonical.
+    raw="${DEBIAN_PACKAGES:-}"
     raw="${raw//[[:space:]]/,}"
     raw="${raw//+/,}"
     raw="${raw//;/,}"
@@ -336,7 +335,6 @@ resolve_debian_packages() {
     esac
     if [ -z "${raw}" ]; then
         DEBIAN_PACKAGES=""
-        DEBIAN_FEATURES=""
         return 0
     fi
 
@@ -368,8 +366,6 @@ resolve_debian_packages() {
     done
     DEBIAN_CUSTOM_PACKAGES=("${deduped[@]}")
     DEBIAN_PACKAGES="$(IFS=,; printf '%s' "${DEBIAN_CUSTOM_PACKAGES[*]}")"
-    # Keep debian_features metadata field populated with the package list.
-    DEBIAN_FEATURES="${DEBIAN_PACKAGES}"
 }
 
 debian_package_list() {
@@ -551,7 +547,7 @@ debian_overlay_enabled() {
 # Expand @PLACEHOLDER@ tokens using current board/rootfs shell variables.
 expand_overlay_template_text() {
     local content="$1"
-    local packages_value="${DEBIAN_PACKAGES:-${DEBIAN_FEATURES:-none}}"
+    local packages_value="${DEBIAN_PACKAGES:-none}"
     local overlays_value="${DEBIAN_OVERLAYS:-none}"
     [ -n "${packages_value}" ] || packages_value="none"
     [ -n "${overlays_value}" ] || overlays_value="none"
@@ -560,7 +556,6 @@ expand_overlay_template_text() {
     content="${content//@BOARD_DESCRIPTION@/${BOARD_DESCRIPTION:-}}"
     content="${content//@ROOTFS_HOSTNAME@/${ROOTFS_HOSTNAME:-${BOARD:-sbc}}}"
     content="${content//@KERNEL_DTB@/${KERNEL_DTB:-}}"
-    content="${content//@DEBIAN_FEATURES@/${packages_value}}"
     content="${content//@DEBIAN_PACKAGES@/${packages_value}}"
     content="${content//@DEBIAN_OVERLAYS@/${overlays_value}}"
     content="${content//@CONSOLE_DEVICE@/${CONSOLE_DEVICE:-}}"

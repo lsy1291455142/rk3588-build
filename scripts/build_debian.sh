@@ -12,21 +12,18 @@ resolve_debian_release
 # Board profile may set DEBIAN_PACKAGES_DEFAULT / ROOTFS_HOSTNAME_DEFAULT.
 # Empty DEBIAN_PACKAGES means "use board default if any".
 # Force minbase with DEBIAN_PACKAGES=none (or minbase/off).
-# DEBIAN_FEATURES is accepted only as a legacy env alias for DEBIAN_PACKAGES.
-DEBIAN_PACKAGES="${DEBIAN_PACKAGES:-${DEBIAN_FEATURES:-}}"
+# DEBIAN_PACKAGES is canonical; board default comes from DEBIAN_PACKAGES_DEFAULT.
+DEBIAN_PACKAGES="${DEBIAN_PACKAGES:-}"
 case "${DEBIAN_PACKAGES:-}" in
     '')
-        if [ -n "${DEBIAN_PACKAGES_DEFAULT:-${DEBIAN_FEATURES_DEFAULT:-}}" ]; then
-            DEBIAN_PACKAGES="${DEBIAN_PACKAGES_DEFAULT:-${DEBIAN_FEATURES_DEFAULT:-}}"
+        if [ -n "${DEBIAN_PACKAGES_DEFAULT:-}" ]; then
+            DEBIAN_PACKAGES="${DEBIAN_PACKAGES_DEFAULT:-}"
         fi
         ;;
     none|minbase|off|-)
         DEBIAN_PACKAGES=""
         ;;
 esac
-if [ -n "${DEBIAN_EXTRA_PACKAGES:-}" ]; then
-    DEBIAN_PACKAGES="${DEBIAN_PACKAGES:+$DEBIAN_PACKAGES,}${DEBIAN_EXTRA_PACKAGES}"
-fi
 if [ -z "${ROOTFS_HOSTNAME:-}" ]; then
     ROOTFS_HOSTNAME="${ROOTFS_HOSTNAME_DEFAULT:-${BOARD:-sbc}}"
 fi
@@ -385,7 +382,6 @@ write_common_metadata "${VARIANT_OUTPUT}/rootfs-build-info.txt" \
     "debian_release=${DEBIAN_RELEASE}" \
     "debian_codename=${DEBIAN_CODENAME}" \
     "debian_packages=${DEBIAN_PACKAGES:-}" \
-    "debian_features=${DEBIAN_PACKAGES:-}" \
     "debian_overlays=${DEBIAN_OVERLAYS:-}" \
     "rootfs_mode=${ROOTFS_MODE}" \
     "hostname=${ROOTFS_HOSTNAME}" \

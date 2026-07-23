@@ -30,12 +30,10 @@
 | （空） | 使用板级默认；板级也空则只有 minbase |
 
 优先级：命令行 `DEBIAN_PACKAGES` > 板级 `DEBIAN_PACKAGES_DEFAULT` > minbase。
-`DEBIAN_EXTRA_PACKAGES` 会追加到最终列表。
 
 ```bash
 make build-rootfs DEBIAN_PACKAGES=network-manager,wpasupplicant,i2c-tools
 make build-rootfs DEBIAN_PACKAGES=none
-make build-rootfs DEBIAN_EXTRA_PACKAGES=htop,python3-pip
 ```
 
 构建元数据 `rootfs-build-info.txt` 记录 `debian_packages`、`debian_overlays` 和 `network_stack`。
