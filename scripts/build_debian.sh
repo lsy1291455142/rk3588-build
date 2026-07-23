@@ -171,6 +171,29 @@ ensure_chroot_dev() {
     [ -e "${d}/fd" ]     || ln -sf /proc/self/fd "${d}/fd" 2>/dev/null || true
 }
 
+# Run a command with the host's /dev bind-mounted over the chroot's /dev.
+# Tools such as systemd-analyze verify, sshd -t and update-initramfs need a
+# fully populated /dev (a working /dev/null and /dev/console). The mknod nodes
+# created by ensure_chroot_dev are enough for simple chroot commands, but
+# systemd-analyze verify builds a private /dev for sandboxed units and fails to
+# obtain a usable /dev/null there (reporting "Couldn't open /dev/null: Permission
+# denied"), and the build container itself usually lacks /dev/console. Mounting
+# the host's real /dev over the chroot's /dev satisfies both, then we unmount so
+# the final rootfs tar/squashfs never captures the host device tree.
+with_host_dev() {
+    local mounted=0
+    if mount --bind /dev "${ROOT_DIR}/dev" 2>/dev/null; then
+        mounted=1
+    fi
+    "$@"
+    local rc=$?
+    if [ "${mounted}" -eq 1 ]; then
+        umount "${ROOT_DIR}/dev" 2>/dev/null ||
+            umount -l "${ROOT_DIR}/dev" 2>/dev/null || true
+    fi
+    return "${rc}"
+}
+
 log_step "Building Debian ${DEBIAN_RELEASE} (${DEBIAN_CODENAME}) rootfs"
 run_hook pre_build_rootfs
 if ! run_mmdebstrap "${REGULAR_SOURCES[@]}"; then
@@ -260,11 +283,11 @@ if [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/NetworkManager.s
 elif [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/systemd-networkd.service" ]; then
     VERIFY_UNITS+=(systemd-networkd.service)
 fi
-chroot "${ROOT_DIR}" systemd-analyze verify --man=no "${VERIFY_UNITS[@]}"
+with_host_dev chroot "${ROOT_DIR}" systemd-analyze verify --man=no "${VERIFY_UNITS[@]}"
 if [ -x "${ROOT_DIR}/usr/sbin/sshd" ] || [ -x "${ROOT_DIR}/usr/bin/sshd" ]; then
     chroot "${ROOT_DIR}" ssh-keygen -A
     install -d -m 0755 "${ROOT_DIR}/run/sshd"
-    chroot "${ROOT_DIR}" sshd -t
+    with_host_dev chroot "${ROOT_DIR}" sshd -t
     rm -rf "${ROOT_DIR}/run/sshd"
     rm -f "${ROOT_DIR}"/etc/ssh/ssh_host_*
 fi
@@ -290,7 +313,7 @@ if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
     fi
     chmod 0755 "${ROOT_DIR}/etc/initramfs-tools/scripts/local-bottom/overlayroot"
     mkdir -p "${ROOT_DIR}/boot"
-    chroot "${ROOT_DIR}" update-initramfs -c -k "${KERNEL_RELEASE}"
+    with_host_dev chroot "${ROOT_DIR}" update-initramfs -c -k "${KERNEL_RELEASE}"
     require_file "${ROOT_DIR}/boot/initrd.img-${KERNEL_RELEASE}" "generated initramfs"
     install -m 0644 "${ROOT_DIR}/boot/initrd.img-${KERNEL_RELEASE}" "${INITRD_IMAGE}"
 fi
