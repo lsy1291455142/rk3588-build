@@ -154,6 +154,24 @@ REGULAR_SOURCES=(
     "deb ${DEBIAN_SECURITY_MIRROR} ${DEBIAN_CODENAME}-security ${DEBIAN_COMPONENTS}"
 )
 
+# mmdebstrap does not populate /dev inside the staged rootfs, but several
+# chrooted steps (systemd-analyze verify, sshd -t) and the ro-overlay initramfs
+# generator expect /dev/null and friends to exist. Create the minimal device
+# nodes/symlinks when missing so those commands do not fail with
+# "Couldn't open /dev/null".
+ensure_chroot_dev() {
+    local d="${ROOT_DIR}/dev"
+    mkdir -p "${d}"
+    [ -e "${d}/null" ]   || mknod -m 666 "${d}/null"   c 1 3 2>/dev/null || true
+    [ -e "${d}/zero" ]   || mknod -m 666 "${d}/zero"   c 1 5 2>/dev/null || true
+    [ -e "${d}/full" ]   || mknod -m 666 "${d}/full"   c 1 7 2>/dev/null || true
+    [ -e "${d}/console" ]|| ln -sf /dev/console "${d}/console" 2>/dev/null || true
+    [ -e "${d}/stdin" ]  || ln -sf /proc/self/fd/0 "${d}/stdin" 2>/dev/null || true
+    [ -e "${d}/stdout" ] || ln -sf /proc/self/fd/1 "${d}/stdout" 2>/dev/null || true
+    [ -e "${d}/stderr" ] || ln -sf /proc/self/fd/2 "${d}/stderr" 2>/dev/null || true
+    [ -e "${d}/fd" ]     || ln -sf /proc/self/fd "${d}/fd" 2>/dev/null || true
+}
+
 log_step "Building Debian ${DEBIAN_RELEASE} (${DEBIAN_CODENAME}) rootfs"
 run_hook pre_build_rootfs
 if ! run_mmdebstrap "${REGULAR_SOURCES[@]}"; then
@@ -171,6 +189,11 @@ if ! run_mmdebstrap "${REGULAR_SOURCES[@]}"; then
     run_mmdebstrap "${ARCHIVE_SOURCES[@]}" ||
         die "Debian 11 archive fallback failed"
 fi
+
+# Populate /dev inside the staged rootfs now that it exists, so every chrooted
+# step below (and the systemd-analyze verify / sshd -t checks) can open
+# /dev/null instead of failing with "Couldn't open /dev/null".
+ensure_chroot_dev
 
 case "${ROOTFS_HOSTNAME}" in
     ''|*[!a-zA-Z0-9._-]*)
