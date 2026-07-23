@@ -158,37 +158,70 @@ show_banner
 
 
 # ---- 运行环境自我检测 (仅在进入交互式 Shell 时触发) ----
+# 必检命令对应 rk3588-build 容器内各 build_*.sh / make_image.sh / verify_image.sh
+# 的 require_cmd；选检命令仅特定板型 (CokePi U-Boot 的 python2) 或阶段
+# (test-debian-qemu 的 qemu-system-arm) 需要，缺失只提示不阻断。
 check_environment() {
     log_step "正在执行编译环境自检..."
     local ok=true
 
-    # 1. 检查基础工具链
-    for cmd in gcc g++ aarch64-linux-gnu-gcc make cmake ninja dtc git git-lfs repo; do
-        if command -v $cmd &>/dev/null; then
-            echo -e "  ${GREEN}[✓]${NC} $cmd"
+    _check_cmds() {
+        local label="$1"; shift
+        echo -e "  ${CYAN}${label}${NC}"
+        local c
+        for c in "$@"; do
+            if command -v "$c" >/dev/null 2>&1; then
+                echo -e "    ${GREEN}[✓]${NC} $c"
+            else
+                echo -e "    ${RED}[✗]${NC} $c ${YELLOW}(缺失)${NC}"
+                ok=false
+            fi
+        done
+    }
+
+    _check_cmds_optional() {
+        local label="$1"; shift
+        echo -e "  ${CYAN}${label}${NC}"
+        local c
+        for c in "$@"; do
+            if command -v "$c" >/dev/null 2>&1; then
+                echo -e "    ${GREEN}[✓]${NC} $c"
+            else
+                echo -e "    ${YELLOW}[!]${NC} $c ${YELLOW}(可选: 仅特定板型/阶段需要)${NC}"
+            fi
+        done
+    }
+
+    _check_cmds "基础工具链" gcc g++ aarch64-linux-gnu-gcc make cmake ninja dtc git git-lfs repo
+    _check_cmds "内核构建主机工具" bc bison flex openssl perl fdtget fdtput
+    _check_cmds "镜像组装与校验" sgdisk truncate mkfs.vfat mkfs.ext4 mcopy mmd zstd sha256sum install cmp mdir blkid debugfs e2fsck
+    _check_cmds "rootfs 打包工具" tar
+    _check_cmds_optional "可选: QEMU 测试 / CokePi U-Boot" qemu-system-arm python2
+
+    # Python 解释器与核心库 (特殊适配 pycryptodome 导入名 Crypto/Cryptodome)
+    local py_ok=true
+    if command -v python3 >/dev/null 2>&1; then
+        echo -e "  ${CYAN}Python 运行时${NC}"
+        echo -e "    ${GREEN}[✓]${NC} python3"
+        for lib in elftools jsonschema jinja2 pexpect; do
+            if python3 -c "import $lib" >/dev/null 2>&1; then
+                echo -e "    ${GREEN}[✓]${NC} python3:$lib"
+            else
+                echo -e "    ${RED}[✗]${NC} python3:$lib ${YELLOW}(缺失)${NC}"
+                py_ok=false
+            fi
+        done
+        if ! python3 -c "import Crypto" >/dev/null 2>&1 && ! python3 -c "import Cryptodome" >/dev/null 2>&1; then
+            echo -e "    ${RED}[✗]${NC} python3:Crypto/Cryptodome ${YELLOW}(缺失)${NC}"
+            py_ok=false
         else
-            echo -e "  ${RED}[✗]${NC} $cmd ${YELLOW}(缺失)${NC}"
-            ok=false
+            echo -e "    ${GREEN}[✓]${NC} python3:Crypto/Cryptodome"
         fi
-    done
-
-    # 2. 检查 Python 核心签名/打包库 (特殊适配 pycryptodome 导入名 Crypto/Cryptodome)
-    local py_libs_ok=true
-    for lib in elftools jsonschema jinja2; do
-        if ! python3 -c "import $lib" >/dev/null 2>&1; then
-            py_libs_ok=false
-        fi
-    done
-    if ! python3 -c "import Crypto" >/dev/null 2>&1 && ! python3 -c "import Cryptodome" >/dev/null 2>&1; then
-        py_libs_ok=false
-    fi
-
-    if ${py_libs_ok}; then
-        echo -e "  ${GREEN}[✓]${NC} python3 libraries (Cryptodome, elftools, jsonschema, jinja2)"
     else
-        echo -e "  ${RED}[✗]${NC} python3 libraries ${YELLOW}(存在缺失, 影响固件打包)${NC}"
-        ok=false
+        echo -e "  ${RED}[✗]${NC} python3 ${YELLOW}(缺失)${NC}"
+        py_ok=false
     fi
+    ${py_ok} || ok=false
 
     if ${ok}; then
         log_info "🎉 所有编译工具和系统依赖已就绪，环境验证通过！"
