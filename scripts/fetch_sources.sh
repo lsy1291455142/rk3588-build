@@ -6,6 +6,9 @@
 
 set -e
 
+# Resolve the directory this script lives in (used for sourcing lib/*).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # ---- 共享日志工具 ----
 # shellcheck source=lib/log.sh
 source "${SCRIPT_DIR}/lib/log.sh"
