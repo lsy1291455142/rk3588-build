@@ -15,7 +15,7 @@ Install path:
     and installs blobs into the rootfs. The board tree stays read-only
     (docker mounts ./rootfs:ro).
   - Optional host stage into overlay/:
-    ./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
+    ./boards/rk3588s-cokepi-model-lp4-v10/rootfs/stage-aic8800-firmware.sh
 
 Deb layout remapped from:
   lib/firmware/aic8800_fw/SDIO/aic8800D80/

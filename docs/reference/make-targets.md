@@ -30,7 +30,7 @@
 
 > WiFi/BT 固件**不是** Makefile 核心目标。由板级 `plugin.sh` 在
 > `build-rootfs` 时从 `packages/*.deb` 装入 rootfs；host 可选手动：
-> `./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh`
+> `./boards/rk3588s-cokepi-model-lp4-v10/rootfs/stage-aic8800-firmware.sh`
 
 ## 切换与查看配置
 

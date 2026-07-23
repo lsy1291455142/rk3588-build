@@ -103,7 +103,7 @@ Executable bit is preserved from the source file (`chmod +x` on scripts).
 ## Board plugin example
 
 ```text
-rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/
+boards/rk3588s-cokepi-model-lp4-v10/rootfs/
   plugin.sh
   lib-aic8800.sh
   overlay/lib/firmware/aic8800D80/
@@ -111,4 +111,4 @@ rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/
 ```
 
 Only files you need; boards without `plugin.sh`/`overlay/` are no-ops.
-See `rootfs/debian/boards/README.md` for the board plugin convention.
+See `boards/README.md` for the board plugin convention.

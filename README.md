@@ -85,12 +85,12 @@ make info                   # 查看当前配置
 
 ```bash
 make new-board BOARD=my-board
-# 编辑 configs/boards/my-board.conf
+# 编辑 boards/my-board/board.conf
 ```
 
 ### 步骤 2: 填写配置
 
-打开生成的 `configs/boards/my-board.conf`，按注释提示填写：
+打开生成的 `boards/my-board/board.conf`，按注释提示填写：
 
 - **`BOARD_DESCRIPTION`** — 板型描述
 - **`KERNEL_DEFCONFIG`** / **`KERNEL_DTB`** — 内核配置
@@ -99,7 +99,7 @@ make new-board BOARD=my-board
 - **`BOOTLOADER_LAYOUT`** — 启动链布局（Rockchip 统一用 `rockchip-gpt-idblock-extlinux-v1`）
 - 磁盘/分区尺寸、扇区偏移等
 
-完整配置变量说明见 `configs/boards/TEMPLATE.conf`。
+完整配置变量说明见 `boards/TEMPLATE/board.conf`。
 
 ### 步骤 3: 验证配置
 
@@ -113,7 +113,7 @@ make validate-board BOARD=my-board
 
 ### 步骤 5: 构建钩子（可选）
 
-如果需要在构建流程中执行板级特殊逻辑，创建 `configs/boards/my-board.hooks.sh`：
+如果需要在构建流程中执行板级特殊逻辑，创建 `boards/my-board/board.hooks.sh`：
 
 ```bash
 # 可用钩子函数（均可选，不需要的不用定义）：
@@ -142,7 +142,7 @@ post_make_image()     { echo "自定义镜像组装后处理"; }
   DEBIAN_EXTRA_PACKAGES=htop i2c-tools network-manager-gnome docker.io
   ```
 - **方式 C (在板级配置中固定)**:
-  在 `configs/boards/<my-board>.conf` 中增加：
+  在 `boards/<my-board>/board.conf` 中增加：
   ```bash
   DEBIAN_EXTRA_PACKAGES="htop i2c-tools python3-pip"
   ```
@@ -152,7 +152,7 @@ post_make_image()     { echo "自定义镜像组装后处理"; }
 静态硬件固件直接放入板级或插件的 `overlay/lib/firmware/` 目录中，构建时会自动平铺同步到 Rootfs 的 `/lib/firmware/` 目录：
 
 ```text
-rootfs/debian/boards/<my-board>/
+boards/<my-board>/rootfs/
 └── overlay/
     └── lib/
         └── firmware/

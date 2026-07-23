@@ -15,7 +15,7 @@ SDK 指构建所需的四件套源码：`kernel`、`u-boot`、`rkbin`、`buildro
 
 `make fetch` 会：
 
-1. 读取 `configs/boards/<BOARD>.conf` 的 `SOURCE_MANIFEST`
+1. 读取 `boards/<BOARD>/board.conf` 的 `SOURCE_MANIFEST`
 2. 决定目标 volume：
    - 命令行显式 `SDK_VOLUME=...` 时用该值
    - 否则**始终**从 manifest 名推导（如 `rk3588-rock5c.xml` → `rk3588-sdk-rock5c`），不复用 `.env` 里无关 volume

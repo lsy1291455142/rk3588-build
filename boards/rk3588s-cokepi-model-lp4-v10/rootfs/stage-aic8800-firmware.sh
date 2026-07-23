@@ -5,8 +5,8 @@
 # (docker mounts rootfs/:ro).
 #
 # Usage (on a writable host checkout):
-#   ./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
-#   ./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh /path/or/url.deb
+#   ./boards/rk3588s-cokepi-model-lp4-v10/rootfs/stage-aic8800-firmware.sh
+#   ./boards/rk3588s-cokepi-model-lp4-v10/rootfs/stage-aic8800-firmware.sh /path/or/url.deb
 set -Eeuo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

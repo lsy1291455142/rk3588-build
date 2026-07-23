@@ -85,7 +85,7 @@ CokePi Plus 和 Model 共用 SDK 但 DTB 不同，必须按板子丝印选择 pr
 ## Debian 软件包与可选 Overlay
 
 `DEBIAN_PACKAGES` 写真实 APT 包名（逗号/空格分隔）。无 `nm`/`hwdebug` 等 feature 别名。
-可选附件由 `DEBIAN_OVERLAYS` 选择 `rootfs/debian/overlays/` 插件；板级文件在 `rootfs/debian/boards/<BOARD>/overlay/`（始终应用）。
+可选附件由 `DEBIAN_OVERLAYS` 选择 `rootfs/debian/overlays/` 插件；板级文件在 `boards/<BOARD>/rootfs/overlay/`（始终应用）。
 
 优先级：命令行 `DEBIAN_PACKAGES` > 板级 `DEBIAN_PACKAGES_DEFAULT` > minbase。`DEBIAN_PACKAGES=none` 强制 minbase。
 `DEBIAN_OVERLAYS` 同理：命令行 > 板级 `DEBIAN_OVERLAYS_DEFAULT` > 无插件；`none` 强制关闭。
@@ -95,14 +95,14 @@ make build-rootfs DEBIAN_PACKAGES=network-manager,wpasupplicant,i2c-tools
 make build-rootfs DEBIAN_PACKAGES=none DEBIAN_OVERLAYS=none
 make build-rootfs DEBIAN_PACKAGES=network-manager,wpasupplicant \
   DEBIAN_OVERLAYS=base,console,firstboot,network
-./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
+./boards/rk3588s-cokepi-model-lp4-v10/rootfs/stage-aic8800-firmware.sh
 ```
 
 构建元数据记录 `debian_packages` / `debian_overlays` / `network_stack`。
 
 ## Debian overlay 布局
 
-- `rootfs/debian/boards/<board>/overlay/` — 板级覆盖（始终）
+- `boards/<board>/rootfs/overlay/` — 板级覆盖（始终）
 - `rootfs/debian/overlays/<name>/` — 可选插件（`plugin.sh` + 静态文件）
 
 详见 `rootfs/debian/README.md` 与 `docs/usage/debian-features.md`。

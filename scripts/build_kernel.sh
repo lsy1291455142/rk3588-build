@@ -14,6 +14,12 @@ KERNEL_FRAGMENT="${CONFIG_DIR}/kernel/rootfs-base.config"
 # Always merged so one common kernel can boot both rw-ext4 and ro-overlay
 # images (SquashFS lower + OverlayFS upper + initrd).
 KERNEL_OVERLAY_FRAGMENT="${CONFIG_DIR}/kernel/squashfs-overlay.config"
+# Optional board-specific kernel config fragments (space-separated, paths
+# relative to CONFIG_DIR). Merged LAST so a board can override the shared
+# fragments above. Set KERNEL_EXTRA_FRAGMENTS in the board .conf for
+# additional shared fragments. The board's own fragment is auto-merged from
+# boards/<board>/kernel.config when present (also merged LAST).
+KERNEL_EXTRA_FRAGMENTS="${KERNEL_EXTRA_FRAGMENTS:-}"
 COMMON_OUTPUT="$(board_common_output_dir)"
 KERNEL_BUILD="$(board_build_dir kernel)"
 KERNEL_SOURCE="$(board_build_dir kernel-source)"
@@ -25,6 +31,19 @@ require_dir "${KERNEL_DIR}" "kernel source"
 require_file "${KERNEL_DIR}/arch/arm64/configs/${KERNEL_DEFCONFIG}" "kernel defconfig"
 require_file "${KERNEL_FRAGMENT}" "kernel rootfs config fragment"
 require_file "${KERNEL_OVERLAY_FRAGMENT}" "kernel squashfs/overlay config fragment"
+# Validate and resolve any board-specific extra kernel fragments.
+KERNEL_EXTRA_FRAGMENT_PATHS=()
+for _frag in ${KERNEL_EXTRA_FRAGMENTS}; do
+    _frag_path="${CONFIG_DIR}/${_frag}"
+    require_file "${_frag_path}" "kernel extra config fragment (${_frag})"
+    KERNEL_EXTRA_FRAGMENT_PATHS+=("${_frag_path}")
+done
+# Auto-merge the board's own kernel.config fragment (boards/<board>/kernel.config)
+# when present; merged LAST so it can override the shared fragments above.
+if [ -n "${BOARD_DIR:-}" ] && [ -f "${BOARD_DIR}/kernel.config" ]; then
+    require_file "${BOARD_DIR}/kernel.config" "board kernel config fragment"
+    KERNEL_EXTRA_FRAGMENT_PATHS+=("${BOARD_DIR}/kernel.config")
+fi
 require_file "${KERNEL_DIR}/scripts/kconfig/merge_config.sh" "kernel merge_config.sh"
 
 link_source_children() {
@@ -114,11 +133,15 @@ make_args=(
 log_step "Configuring kernel for ${BOARD}"
 run_hook pre_build_kernel
 make "${make_args[@]}" "${KERNEL_DEFCONFIG}"
+merge_args=("${KERNEL_FRAGMENT}" "${KERNEL_OVERLAY_FRAGMENT}")
+if [ ${#KERNEL_EXTRA_FRAGMENT_PATHS[@]} -gt 0 ]; then
+    merge_args+=("${KERNEL_EXTRA_FRAGMENT_PATHS[@]}")
+fi
 (
     cd "${KERNEL_SOURCE}"
     ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE}" \
         scripts/kconfig/merge_config.sh -m -O "${KERNEL_BUILD}" \
-        "${KERNEL_BUILD}/.config" "${KERNEL_FRAGMENT}" "${KERNEL_OVERLAY_FRAGMENT}"
+        "${KERNEL_BUILD}/.config" "${merge_args[@]}"
 )
 make "${make_args[@]}" olddefconfig
 

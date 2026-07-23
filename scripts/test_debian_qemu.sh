@@ -58,6 +58,10 @@ if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
     QEMU_EXTRA_ARGS+=(--initrd "${INITRD_IMAGE}")
 fi
 QEMU_EXTRA_ARGS+=(--rootfs-mode "${ROOTFS_MODE}")
+# SoC traits (QEMU 'virt' limitations) come from configs/soc/<SOC>.conf,
+# loaded by load_board_profile via the board's SOC= selection.
+QEMU_EXTRA_ARGS+=(--initcall-blacklist "${QEMU_INITCALL_BLACKLIST:-}")
+QEMU_EXTRA_ARGS+=(--serial-getty-mask "${QEMU_SERIAL_GETTY_MASK:-}")
 
 log_step "Booting Debian ${DEBIAN_RELEASE} (${ROOTFS_MODE}) with the built kernel and full GPT image"
 python3 "${SCRIPT_DIR}/lib/qemu_smoke.py" \

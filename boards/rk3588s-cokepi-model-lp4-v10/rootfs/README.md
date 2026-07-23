@@ -44,11 +44,11 @@ uses `info_len=6` and can panic. Keep adid/patch/fmac from the **same** package.
 ```bash
 # Normal: put deb in packages/, then build
 cp aic8800-firmware_3.0+git20240327.3561b08f-7_all.deb \
-  rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/packages/
+  boards/rk3588s-cokepi-model-lp4-v10/rootfs/packages/
 make build-rootfs
 
 # Optional host-only: materialize blobs into overlay/ for inspection
-./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh
+./boards/rk3588s-cokepi-model-lp4-v10/rootfs/stage-aic8800-firmware.sh
 ```
 
 Source: https://github.com/radxa-pkg/aic8800/releases (`aic8800-firmware`, 3.0 line).

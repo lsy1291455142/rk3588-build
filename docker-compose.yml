@@ -38,6 +38,7 @@ services:
       - ./patches:/home/builder/patches:ro
       - ./configs:/home/builder/configs:ro
       - ./rootfs:/home/builder/rootfs:ro
+      - ./boards:/home/builder/boards:ro
       - ./output:/home/builder/output
     init: true
     stdin_open: true
@@ -71,6 +72,7 @@ services:
       - ./manifests:/home/builder/manifests:ro
       - ./configs:/home/builder/configs:ro
       - ./rootfs:/home/builder/rootfs:ro
+      - ./boards:/home/builder/boards:ro
       - ./output:/home/builder/output
     init: true
     stdin_open: true

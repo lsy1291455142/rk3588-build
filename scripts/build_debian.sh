@@ -311,7 +311,10 @@ if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
         [ ! -x "${ROOT_DIR}/usr/bin/update-initramfs" ]; then
         die "ro-overlay requires the initramfs-tools package in the rootfs"
     fi
-    apply_rootfs_overlay_tree "${ROOT_DIR}" "$(debian_rootfs_dir)/ro-overlay/overlay"
+    mode_overlay="$(rootfs_mode_overlay_dir)"
+    if [ -n "${mode_overlay}" ]; then
+        apply_rootfs_overlay_tree "${ROOT_DIR}" "${mode_overlay}"
+    fi
     chmod 0755 "${ROOT_DIR}/etc/initramfs-tools/scripts/local-bottom/overlayroot"
     mkdir -p "${ROOT_DIR}/boot"
     chroot "${ROOT_DIR}" update-initramfs -c -k "${KERNEL_RELEASE}"

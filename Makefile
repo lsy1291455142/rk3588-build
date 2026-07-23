@@ -22,7 +22,7 @@ SDK_VOLUME ?=
 
 # Load SDK_VOLUME and SOURCE_MANIFEST from board profile when BOARD is set
 ifneq ($(strip $(BOARD)),)
-  _BOARD_CONF := configs/boards/$(BOARD).conf
+  _BOARD_CONF := boards/$(BOARD)/board.conf
   ifneq ($(wildcard $(_BOARD_CONF)),)
     _SOURCE_MANIFEST := $(shell grep '^SOURCE_MANIFEST=' $(_BOARD_CONF) | cut -d= -f2- | tr -d '"')
     # Auto-derive SDK_VOLUME from manifest if not explicitly set
@@ -354,10 +354,10 @@ use-volume:
 # ---- Switch active board (writes .env BOARD only) ----
 _use_board_switch:
 	@if [ -z "$(SWITCH_BOARD)" ]; then echo "Internal target"; exit 1; fi
-	@if [ ! -f "configs/boards/$(SWITCH_BOARD).conf" ]; then \
+	@if [ ! -f "boards/$(SWITCH_BOARD)/board.conf" ]; then \
 		echo "ERROR: unknown board profile: $(SWITCH_BOARD)" >&2; \
 		echo "Available board profiles:" >&2; \
-		ls -1 configs/boards/*.conf 2>/dev/null | sed 's|.*/||; s|\.conf$$||; s|^|  |' >&2; \
+		ls -1 boards/*/board.conf 2>/dev/null | sed 's|^boards/||; s|/board.conf$$||; s|^|  |' >&2; \
 		exit 1; \
 	fi
 	touch .env
@@ -367,7 +367,7 @@ _use_board_switch:
 		echo 'BOARD=$(SWITCH_BOARD)' >> .env; \
 	fi
 	@echo "Switched BOARD to: $(SWITCH_BOARD)"
-	@manifest=$$(grep '^SOURCE_MANIFEST=' "configs/boards/$(SWITCH_BOARD).conf" | head -1 | cut -d= -f2- | tr -d '"'); \
+	@manifest=$$(grep '^SOURCE_MANIFEST=' "boards/$(SWITCH_BOARD)/board.conf" | head -1 | cut -d= -f2- | tr -d '"'); \
 	if [ -n "$$manifest" ]; then \
 		derived="rk3588-sdk-$$(printf '%s' "$$manifest" | sed 's/^rk3588-//;s/\.xml$$//')"; \
 		current_sdk="$$(grep '^SDK_VOLUME=' .env 2>/dev/null | cut -d= -f2- || true)"; \
@@ -396,9 +396,9 @@ use-board:
 	@if [ "$(origin BOARD)" = "command line" ]; then \
 		$(MAKE) --no-print-directory _use_board_switch SWITCH_BOARD="$(BOARD)"; \
 	else \
-		boards="$$(ls -1 configs/boards/*.conf 2>/dev/null | sed 's|.*/||; s|\.conf$$||' | grep -v '^TEMPLATE$$' | sort)"; \
+		boards="$$(ls -1d boards/*/ 2>/dev/null | sed 's|^boards/||; s|/$$||' | grep -v '^TEMPLATE$$' | sort)"; \
 		if [ -z "$$boards" ]; then \
-			echo "ERROR: no board profiles found in configs/boards/" >&2; \
+			echo "ERROR: no board profiles found in boards/" >&2; \
 			exit 1; \
 		fi; \
 		current="$$( [ -f .env ] && grep '^BOARD=' .env | cut -d= -f2- || true )"; \
@@ -409,8 +409,8 @@ use-board:
 			mark=""; \
 			[ "$$board" = "$$current" ] && mark=" (current)"; \
 			desc=""; \
-			if [ -f "configs/boards/$$board.conf" ]; then \
-				desc="$$(grep -E '^BOARD_DESCRIPTION=' "configs/boards/$$board.conf" | head -1 | cut -d= -f2- | sed 's/^"//; s/"$$//')"; \
+			if [ -f "boards/$$board/board.conf" ]; then \
+				desc="$$(grep -E '^BOARD_DESCRIPTION=' "boards/$$board/board.conf" | head -1 | cut -d= -f2- | sed 's/^"//; s/"$$//')"; \
 			fi; \
 			if [ -n "$$desc" ]; then \
 				printf '  %d) %s - %s%s\n' "$$i" "$$board" "$$desc" "$$mark"; \
@@ -552,7 +552,7 @@ require-board:
 		echo "Run make use-board, set BOARD in .env, or pass BOARD=... on the command line." >&2; \
 		echo "" >&2; \
 		echo "Available board profiles:" >&2; \
-		ls -1 configs/boards/*.conf 2>/dev/null | sed 's|.*/||; s|\.conf$$||; s|^|  |' >&2; \
+		ls -1 boards/*/board.conf 2>/dev/null | sed 's|^boards/||; s|/board.conf$$||; s|^|  |' >&2; \
 		echo "" >&2; \
 		echo "Example: make use-board && make build-kernel" >&2; \
 		echo "Or:      make build-kernel BOARD=rk3588s-rock-5c SDK_VOLUME=rk3588-sdk-rock5c" >&2; \
@@ -723,8 +723,8 @@ status:
 
 list-boards:
 	@echo "Available board profiles:"
-	@for conf in configs/boards/*.conf; do \
-		board=$$(basename "$$conf" .conf); \
+	@for conf in boards/*/board.conf; do \
+		board=$$(dirname "$$conf" | xargs basename); \
 		[ "$$board" = "TEMPLATE" ] && continue; \
 		desc=$$(grep -E '^BOARD_DESCRIPTION=' "$$conf" | head -1 | cut -d= -f2- | sed 's/^"//' | sed 's/"$$//' ); \
 		if [ -n "$$desc" ]; then \
@@ -739,13 +739,22 @@ new-board:
 		echo "Usage: make new-board BOARD=<name>" >&2; \
 		exit 1; \
 	fi
-	@if [ -f "configs/boards/$(BOARD).conf" ]; then \
-		echo "ERROR: Board profile already exists: configs/boards/$(BOARD).conf" >&2; \
+	@if [ -f "boards/$(BOARD)/board.conf" ]; then \
+		echo "ERROR: Board profile already exists: boards/$(BOARD)/board.conf" >&2; \
 		exit 1; \
 	fi
-	@cp configs/boards/TEMPLATE.conf "configs/boards/$(BOARD).conf"
-	@echo "Created board profile: configs/boards/$(BOARD).conf"
-	@echo "Edit the file to set your board's parameters, then run:"
+	@mkdir -p "boards/$(BOARD)"
+	@cp boards/TEMPLATE/board.conf "boards/$(BOARD)/board.conf"
+	@# 板级内核 fragment 由 build_kernel.sh 自动合并 boards/<BOARD>/kernel.config。
+	@# 创建空的（仅含头注释）内核 fragment 模板。
+	@{ \
+		printf '# %s 专用内核配置 fragment\n' "$(BOARD)"; \
+		printf '# 由 scripts/build_kernel.sh 在共享 fragment (rootfs-base.config + squashfs-overlay.config) 之后自动合并，可覆盖共享配置。\n'; \
+		printf '# 取消注释或新增 CONFIG_XXX=... 行即可生效。\n'; \
+	} > "boards/$(BOARD)/kernel.config"
+	@echo "Created board profile: boards/$(BOARD)/board.conf"
+	@echo "Created kernel fragment template: boards/$(BOARD)/kernel.config"
+	@echo "Edit both files to set your board's parameters, then run:"
 	@echo "  make validate-board BOARD=$(BOARD)"
 
 validate-board: require-board
@@ -763,11 +772,11 @@ info:
 		echo "  No .env file found"; \
 	fi
 	@echo ""
-	@if [ -n "$(strip $(BOARD))" ] && [ -f "configs/boards/$(BOARD).conf" ]; then \
+	@if [ -n "$(strip $(BOARD))" ] && [ -f "boards/$(BOARD)/board.conf" ]; then \
 		echo "Board: $(BOARD)"; \
-		desc=$$(grep -E '^BOARD_DESCRIPTION=' "configs/boards/$(BOARD).conf" | head -1 | cut -d= -f2- | sed 's/^"//' | sed 's/"$$//'); \
+		desc=$$(grep -E '^BOARD_DESCRIPTION=' "boards/$(BOARD)/board.conf" | head -1 | cut -d= -f2- | sed 's/^"//' | sed 's/"$$//'); \
 		if [ -n "$$desc" ]; then echo "  Description: $$desc"; fi; \
-		manifest=$$(grep '^SOURCE_MANIFEST=' "configs/boards/$(BOARD).conf" | head -1 | cut -d= -f2- | tr -d '"'); \
+		manifest=$$(grep '^SOURCE_MANIFEST=' "boards/$(BOARD)/board.conf" | head -1 | cut -d= -f2- | tr -d '"'); \
 		if [ -n "$$manifest" ]; then echo "  Manifest: $$manifest"; fi; \
 	else \
 		echo "Board: (not set)"; \

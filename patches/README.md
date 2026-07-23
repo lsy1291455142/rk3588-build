@@ -39,5 +39,5 @@ git am /home/builder/patches/u-boot/0001-custom-board.patch
 
 - 补丁直接修改 SDK volume 里的源码，容器退出后仍然保留
 - 要撤销补丁：`cd /home/builder/sdk/kernel && git reset --hard HEAD~N`（N = 补丁数）
-- 长期维护的板级差异优先写入 `configs/boards/` 的 profile 字段和可复现的 SDK commit 锁定
+- 长期维护的板级差异优先写入 `boards/<board>/` 的 profile 字段和可复现的 SDK commit 锁定
 - 补丁目录适合临时试验、调试修复或尚未上游化的修改

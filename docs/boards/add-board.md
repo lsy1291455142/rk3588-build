@@ -12,11 +12,11 @@
 make new-board BOARD=my-board
 ```
 
-这会在 `configs/boards/` 下从 `TEMPLATE.conf` 创建 `my-board.conf`。
+这会在 `boards/my-board/` 下从 `TEMPLATE/board.conf` 生成 `board.conf` 与空 `kernel.config`。
 
 ### 2. 编辑配置字段
 
-打开 `configs/boards/my-board.conf`，按注释提示填入具体参数：
+打开 `boards/my-board/board.conf`，按注释提示填入具体参数：
 
 ```bash
 # 板子描述（显示在 make list-boards / make use-board 列表中）
@@ -70,7 +70,7 @@ make fetch BOARD=my-board
 
 ### 5. 可选：配置构建钩子（Hooks）
 
-如果需要为该板型添加特殊的预处理或后处理逻辑，在 `configs/boards/` 下创建 `my-board.hooks.sh`：
+如果需要为该板型添加特殊的预处理或后处理逻辑，在 `boards/my-board/` 下创建 `board.hooks.sh`：
 
 ```bash
 pre_build_kernel()  { log_info "执行内核构建前钩子"; }

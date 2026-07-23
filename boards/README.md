@@ -19,7 +19,7 @@ boards/<BOARD>/
 
 Static firmware files for this board (such as `.bin` or `.fw` blobs) can be placed directly under `overlay/lib/firmware/`. Dynamic firmware (e.g. extracted from `.deb` packages) can be staged by `board_plugin_apply()` inside `plugin.sh`.
 
-`<BOARD>` must match `configs/boards/<BOARD>.conf` / the active `BOARD` value.
+`<BOARD>` must match `boards/<BOARD>/board.conf` / the active `BOARD` value.
 
 ## plugin.sh contract
 

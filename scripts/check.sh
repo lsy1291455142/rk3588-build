@@ -23,6 +23,10 @@ run_check() {
     failures=$((failures + 1))
 }
 
+# Board self-check hooks (boards/<board>/check.sh) each define board_check().
+# This stub only satisfies static analysis; hooks override it at runtime.
+board_check() { return 0; }
+
 check_bash_syntax() {
     local script
     while IFS= read -r -d '' script; do
@@ -51,6 +55,18 @@ check_manifests() {
         log_warn "xmllint and Python XML support unavailable; skipping XML syntax validation"
     fi
 
+    # Manifests owned by a board profile (SOURCE_MANIFEST=) pin exact revisions
+    # and are validated by that board's self-check hook. Only generic manifests
+    # must pin the default Buildroot tag here. Discovery keeps core board-name-free.
+    local -a owned_manifests=()
+    local f m
+    for f in "${PROJECT_DIR}"/boards/*/board.conf; do
+        [ -f "${f}" ] || continue
+        m="$(grep -E '^SOURCE_MANIFEST=' "${f}" 2>/dev/null | head -n1 | cut -d= -f2- | tr -d '"')"
+        [ -n "${m}" ] && owned_manifests+=("${m}")
+    done
+
+    local base owned o
     while IFS= read -r -d '' manifest; do
         if [ "${parser}" = "xmllint" ]; then
             xmllint --noout "${manifest}" || return 1
@@ -60,76 +76,17 @@ check_manifests() {
         fi
 
         grep -q 'remote name="buildroot"' "${manifest}" || return 1
-        if [ "$(basename "${manifest}")" = "rk3588-rock5c.xml" ]; then
-            grep -q 'revision="567401fe17185f0f4a65866158b775a364feb2d3"' \
-                "${manifest}" || return 1
-            grep -q 'revision="4218b05a597f458947f0f4706063b3bb8196e07c"' \
-                "${manifest}" || return 1
-            grep -q 'revision="ecb4fcbe954edf38b3ae037d5de6d9f5bccf81f4"' \
-                "${manifest}" || return 1
-            grep -q 'revision="c49ae7216786d3cb62a8e8de5556007b4b539233"' \
-                "${manifest}" || return 1
-        else
-            grep -q 'revision="refs/tags/2025.02.15"' "${manifest}" || return 1
-        fi
+
+        base="$(basename "${manifest}")"
+        owned=0
+        for o in "${owned_manifests[@]}"; do
+            [ "${o}" = "${base}" ] && owned=1 && break
+        done
+        [ "${owned}" -eq 1 ] && continue
+
+        grep -q 'revision="refs/tags/2025.02.15"' "${manifest}" || return 1
     done < <(find "${PROJECT_DIR}/manifests" -maxdepth 1 -type f \
         -name '*.xml' -print0)
-}
-
-check_rock5c_source_contract() {
-    local profile="${CONFIG_DIR}/boards/rk3588s-rock-5c.conf"
-    local expected
-    local -a markers=(
-        'SOURCE_MANIFEST="rk3588-rock5c.xml"'
-        'EXPECTED_KERNEL_REVISION="567401fe17185f0f4a65866158b775a364feb2d3"'
-        'EXPECTED_UBOOT_REVISION="4218b05a597f458947f0f4706063b3bb8196e07c"'
-        'EXPECTED_RKBIN_REVISION="ecb4fcbe954edf38b3ae037d5de6d9f5bccf81f4"'
-        'EXPECTED_BUILDROOT_REVISION="c49ae7216786d3cb62a8e8de5556007b4b539233"'
-        'UBOOT_PYTHON="python3"'
-    )
-    for expected in "${markers[@]}"; do
-        grep -Fqx "${expected}" "${profile}" || return 1
-    done
-
-    awk '
-        /^  debian-rootfs:/ { in_service = 1; next }
-        in_service && /^  [a-zA-Z0-9_-]+:/ { exit }
-        in_service && /\.\/manifests:\/home\/builder\/manifests:ro/ { found = 1 }
-        END { exit(found ? 0 : 1) }
-    ' "${PROJECT_DIR}/docker-compose.yml" || return 1
-    grep -Fq 'COPY manifests/ /home/builder/manifests/' \
-        "${PROJECT_DIR}/Dockerfile" || return 1
-    grep -Eq '^[[:space:]]+git[[:space:]]' \
-        "${PROJECT_DIR}/Dockerfile" || return 1
-    grep -Fq "git -c safe.directory=\"\${repo}\"" \
-        "${PROJECT_DIR}/scripts/lib/common.sh"
-}
-
-check_cokepi_board_contract() {
-    local plus_profile="${CONFIG_DIR}/boards/rk3588-cokepi-plus-lp4-v10.conf"
-    local model_profile="${CONFIG_DIR}/boards/rk3588s-cokepi-model-lp4-v10.conf"
-    local profile marker
-    local -a shared_markers=(
-        'KERNEL_DEFCONFIG="cokepi_main_defconfig"'
-        'UBOOT_DEFCONFIG="rk3588_defconfig"'
-        'UBOOT_BOARD="rk3588"'
-        'UBOOT_BUILD_SYSTEM="rockchip-make-sh"'
-        'UBOOT_PYTHON="python2"'
-        'EXTRA_KERNEL_ARGS="earlycon=uart8250,mmio32,0xfeb50000 consoleblank=0 irqchip.gicv3_pseudo_nmi=0 rcupdate.rcu_expedited=1 rcu_nocbs=all"'
-    )
-
-    grep -Fqx 'KERNEL_DTB="rk3588-cpp-hdmi.dtb"' "${plus_profile}" || return 1
-    grep -Fqx 'KERNEL_DTB="rk3588s-cpm-hdmi1.dtb"' "${model_profile}" || return 1
-    for profile in "${plus_profile}" "${model_profile}"; do
-        for marker in "${shared_markers[@]}"; do
-            grep -Fqx "${marker}" "${profile}" || return 1
-        done
-    done
-
-    # Board profiles should exist and parse correctly.
-    # Local-SDK boards (CokePi) intentionally omit SOURCE_MANIFEST.
-    grep -Fqx 'UBOOT_PYTHON="python2"' "${plus_profile}" || return 1
-    grep -Fqx 'UBOOT_PYTHON="python2"' "${model_profile}" || return 1
 }
 
 check_kernel_contract() {
@@ -269,30 +226,35 @@ check_rootfs_configuration() (
 check_qemu_smoke_contract() {
     local script="${PROJECT_DIR}/scripts/test_debian_qemu.sh"
     local driver="${PROJECT_DIR}/scripts/lib/qemu_smoke.py"
+    local soc_conf="${CONFIG_DIR}/soc/rk3588.conf"
     local marker
     local -a markers=(
         qemu-system-aarch64
         PARTLABEL=rootfs
-        QEMU_INITCALL_BLACKLIST
-        rockchip_drm_init
-        rockchip_cpufreq_driver_init
-        rga_init
-        regulatory_init_db
         BOOT_ERROR_PATTERNS
         SERIAL_LOGIN_MARKER
         logfile_read
         unit_health
         systemd.default_device_timeout_sec=300s
         systemd.default_timeout_start_sec=300s
-        serial-getty@ttyFIQ0.service
         sbc-firstboot.done
         systemctl
         ssh_password_login
+        'initcall_blacklist='
+        'systemd.mask='
+        --initcall-blacklist
+        --serial-getty-mask
     )
     [ -f "${script}" ] && [ -f "${driver}" ] || return 1
     for marker in "${markers[@]}"; do
-        grep -Fq "${marker}" "${script}" "${driver}" || return 1
+        # -e ensures markers beginning with '-' are treated as patterns.
+        grep -Fq -e "${marker}" "${script}" "${driver}" || return 1
     done
+    # SoC-coupled traits now live in configs/soc/<soc>.conf, not in core.
+    [ -f "${soc_conf}" ] || return 1
+    grep -Fq 'rockchip_drm_init' "${soc_conf}" || return 1
+    grep -Fq 'system_heap_create' "${soc_conf}" || return 1
+    grep -Fq 'serial-getty@ttyFIQ0.service' "${soc_conf}" || return 1
     grep -Fq 'qemu-system-arm' "${PROJECT_DIR}/Dockerfile" || return 1
     grep -Fq 'python3-pexpect' "${PROJECT_DIR}/Dockerfile" || return 1
 }
@@ -376,23 +338,27 @@ check_debian_features() {
     fi
 
     # Board plugin dispatch: plugin.sh preferred; static overlay fallback.
+    # Hermetic: fixtures live under a temp rootfs dir, never the repo tree.
     (
-        src="$(mktemp -d)"
+        tmp_root="$(mktemp -d)"
         dst="$(mktemp -d)"
         board_name="unit-static-board"
-        install -d "${PROJECT_DIR}/rootfs/debian/boards/${board_name}/overlay/etc"
-        printf 'static-ok\n' >"${PROJECT_DIR}/rootfs/debian/boards/${board_name}/overlay/etc/issue"
+        BOARD_DIR="${tmp_root}/debian"
+        install -d "${BOARD_DIR}/rootfs/overlay/etc"
+        printf 'static-ok\n' >"${BOARD_DIR}/rootfs/overlay/etc/issue"
         BOARD="${board_name}"
         apply_debian_board_overlay "${dst}"
         grep -Fq 'static-ok' "${dst}/etc/issue" || exit 1
-        rm -rf "${dst}" "${PROJECT_DIR}/rootfs/debian/boards/${board_name}"
+        rm -rf "${dst}" "${tmp_root}"
     ) || return 1
 
     (
+        tmp_root="$(mktemp -d)"
+        dst="$(mktemp -d)"
         board_name="unit-plugin-board"
-        board_dir="${PROJECT_DIR}/rootfs/debian/boards/${board_name}"
-        install -d "${board_dir}/overlay/etc"
-        cat >"${board_dir}/plugin.sh" <<'PLUGIN'
+        BOARD_DIR="${tmp_root}/debian"
+        install -d "${BOARD_DIR}/rootfs/overlay/etc"
+        cat >"${BOARD_DIR}/rootfs/plugin.sh" <<'PLUGIN'
 board_plugin_apply() {
     local root_dir="$1"
     local self_dir
@@ -401,28 +367,14 @@ board_plugin_apply() {
     apply_rootfs_overlay_tree "${root_dir}" "${self_dir}/overlay"
 }
 PLUGIN
-        dst="$(mktemp -d)"
         BOARD="${board_name}"
         apply_debian_board_overlay "${dst}"
         grep -Fq 'from-plugin' "${dst}/etc/issue" || exit 1
-        rm -rf "${dst}" "${board_dir}"
+        rm -rf "${dst}" "${tmp_root}"
     ) || return 1
 
-    # Board-local CokePi plugin (plugin.sh + firmware stage; no generic wifibt).
-    (
-        BOARD=rk3588s-cokepi-model-lp4-v10
-        tmp="$(mktemp -d)"
-        # Use already-staged blobs if present; otherwise plugin stages from packages/*.deb.
-        apply_debian_board_overlay "${tmp}"
-        [ -L "${tmp}/vendor" ] || exit 1
-        [ "$(readlink "${tmp}/vendor")" = "/system" ] || exit 1
-        [ -L "${tmp}/system/etc/firmware" ] || exit 1
-        [ "$(readlink "${tmp}/system/etc/firmware")" = "/lib/firmware" ] || exit 1
-        [ -f "${tmp}/lib/firmware/aic8800D80/SOURCE.txt" ] || exit 1
-        # After plugin apply, real firmware blobs should exist (cache or download).
-        [ -n "$(find "${tmp}/lib/firmware/aic8800D80" -type f ! -name 'SOURCE.txt' 2>/dev/null | head -n 1)" ] || exit 1
-        rm -rf "${tmp}"
-    ) || return 1
+    # Board-local plugin/firmware contracts now live in each board's
+    # boards/<board>/check.sh hook (sourced by run_board_self_checks).
 
     # Symlink-capable overlay apply (board overlays may ship vendor links).
     (
@@ -442,10 +394,10 @@ PLUGIN
 
     # Selected overlay plugins (host unit test, no packages).
     (
-        BOARD="rk3588-muse"
+        BOARD="unit-overlay-test"
         BOARD_DESCRIPTION="overlay unit test"
-        ROOTFS_HOSTNAME="muse"
-        KERNEL_DTB="rk3588-muse.dtb"
+        ROOTFS_HOSTNAME="unittest"
+        KERNEL_DTB="unit-overlay-test.dtb"
         DEBIAN_PACKAGES="network-manager,wpasupplicant"
         DEBIAN_OVERLAYS="base,console,firstboot,firstboot-info,network"
         CONSOLE_DEVICE="ttyFIQ0"
@@ -464,7 +416,7 @@ PLUGIN
         [ -f "${tmp}/etc/NetworkManager/conf.d/10-sbc.conf" ] || exit 1
         [ -f "${tmp}/etc/udev/rules.d/99-sbc-permissions.rules" ] || exit 1
         [ -f "${tmp}/etc/systemd/system/serial-getty@ttyFIQ0.service.d/10-baud.conf" ] || exit 1
-        grep -Fq 'board=rk3588-muse' "${tmp}/usr/local/sbin/sbc-firstboot-info" || exit 1
+        grep -Fq 'board=unit-overlay-test' "${tmp}/usr/local/sbin/sbc-firstboot-info" || exit 1
         grep -Fq 'wifi.scan-rand-mac-address=no' \
             "${tmp}/etc/NetworkManager/conf.d/10-sbc.conf" || exit 1
         grep -Fq '1500000' \
@@ -492,18 +444,6 @@ PLUGIN
     grep -Fq 'resolve_debian_overlays' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
     grep -Fq 'run_debian_overlay_plugins' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
     grep -Fq 'NetworkManager.service' "${PROJECT_DIR}/rootfs/debian/overlays/network/plugin.sh" || return 1
-    grep -Fq 'DEBIAN_PACKAGES_DEFAULT' \
-        "${PROJECT_DIR}/configs/boards/rk3588-muse.conf" || return 1
-    grep -Fq 'DEBIAN_OVERLAYS_DEFAULT' \
-        "${PROJECT_DIR}/configs/boards/rk3588-muse.conf" || return 1
-    [ -d "${PROJECT_DIR}/rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/overlay" ] || return 1
-    [ -f "${PROJECT_DIR}/rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/plugin.sh" ] || return 1
-    [ -f "${PROJECT_DIR}/rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/lib-aic8800.sh" ] || return 1
-    [ -x "${PROJECT_DIR}/rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh" ] || return 1
-    [ -f "${PROJECT_DIR}/rootfs/debian/boards/README.md" ] || return 1
-    grep -Fq 'board_plugin_apply' "${PROJECT_DIR}/scripts/lib/common.sh" || return 1
-    grep -Fq 'DEBIAN_OVERLAYS_DEFAULT' "${PROJECT_DIR}/configs/boards/rk3588s-cokepi-model-lp4-v10.conf" || return 1
-    grep -Fq 'wifibt' "${PROJECT_DIR}/configs/boards/rk3588s-cokepi-model-lp4-v10.conf" && return 1
     [ -f "${PROJECT_DIR}/rootfs/debian/overlays/firstboot/overlay/usr/local/sbin/sbc-firstboot" ] || return 1
     [ -f "${PROJECT_DIR}/rootfs/debian/overlays/firstboot/overlay/etc/systemd/system/sbc-firstboot.service" ] || return 1
     [ -f "${PROJECT_DIR}/rootfs/debian/overlays/network/overlay-nm/etc/NetworkManager/conf.d/10-sbc.conf" ] || return 1
@@ -534,14 +474,15 @@ PLUGIN
 check_board_profiles() {
     local profile board
     while IFS= read -r -d '' profile; do
-        board="$(basename "${profile}" .conf)"
+        board="$(basename "$(dirname "${profile}")")"
+        [ "${board}" = "TEMPLATE" ] && continue
         (
             BOARD="${board}"
             load_board_profile
             [ "${BOOTLOADER_LAYOUT}" = "rockchip-gpt-idblock-extlinux-v1" ]
         ) || return 1
-    done < <(find "${CONFIG_DIR}/boards" -maxdepth 1 -type f \
-        -name '*.conf' ! -name 'TEMPLATE.conf' -print0)
+    done < <(find "${PROJECT_DIR}/boards" -maxdepth 2 -type f \
+        -name 'board.conf' ! -path '*/TEMPLATE/*' -print0)
 }
 
 check_buildroot_external() {
@@ -627,6 +568,25 @@ check_compose() {
     [ -z "${errors}" ]
 }
 
+# Discover and run each board's self-check hook (boards/<board>/check.sh).
+# Core stays board-name-free; every board contract lives in its own hook.
+run_board_self_checks() {
+    local hook board
+    while IFS= read -r -d '' hook; do
+        board="$(basename "$(dirname "${hook}")")"
+        BOARD_DIR="${PROJECT_DIR}/boards/${board}"
+        unset -f board_check 2>/dev/null || true
+        # shellcheck source=/dev/null
+        source "${hook}"
+        if ! declare -F board_check >/dev/null 2>&1; then
+            log_warn "Check failed: Board self-check: ${board} (no board_check defined)"
+            failures=$((failures + 1))
+            continue
+        fi
+        run_check "Board self-check: ${board}" board_check
+    done < <(find "${PROJECT_DIR}/boards" -maxdepth 2 -type f -name 'check.sh' -print0)
+}
+
 run_check "Bash syntax" check_bash_syntax
 if command -v shellcheck >/dev/null 2>&1; then
     run_check "ShellCheck" check_shellcheck
@@ -635,8 +595,7 @@ else
 fi
 run_check "Manifest XML and pinned source projects" check_manifests
 run_check "Board profiles" check_board_profiles
-run_check "Rock 5C pinned source contract" check_rock5c_source_contract
-run_check "CokePi board profiles and SDK contract" check_cokepi_board_contract
+run_board_self_checks
 run_check "Kernel boot and QEMU configuration contract" check_kernel_contract
 run_check "Buildroot external tree" check_buildroot_external
 run_check "U-Boot GPT/extlinux contract guard" check_uboot_boot_contract_guard

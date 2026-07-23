@@ -31,19 +31,6 @@ BOOT_ERROR_PATTERNS = (
 
 SERIAL_LOGIN_MARKER = "__RK3588_SERIAL_LOGIN_OK__"
 
-QEMU_INITCALL_BLACKLIST = (
-    "rockchip_drm_init",
-    "rockchip_cpufreq_driver_init",
-    "rga_init",
-    "regulatory_init_db",
-    # QEMU 'virt' has no real ATF/EL3, so Rockchip SiP SMC calls (e.g.
-    # sip_smc_get_dram_map issued by the DMA system heap init) trap as
-    # undefined instructions and BUG the kernel. Blacklist the offending
-    # initcall so the kernel can reach root mount under QEMU. This is a
-    # QEMU-platform limitation only; real RK3588 hardware is unaffected.
-    "system_heap_create",
-)
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Boot and validate a Debian ARM64 image")
@@ -56,6 +43,16 @@ def parse_args():
     parser.add_argument("--password", required=True)
     parser.add_argument("--initrd", default="")
     parser.add_argument("--rootfs-mode", default="rw-ext4")
+    parser.add_argument(
+        "--initcall-blacklist",
+        default="",
+        help="comma-separated initcalls to blacklist under QEMU (from SoC traits)",
+    )
+    parser.add_argument(
+        "--serial-getty-mask",
+        default="",
+        help="comma-separated serial-getty units to mask under QEMU (from SoC traits)",
+    )
     parser.add_argument("--timeout", type=int, required=True)
     parser.add_argument("--memory-mib", type=int, required=True)
     parser.add_argument("--cpus", type=int, required=True)
@@ -258,25 +255,27 @@ def main():
     serial_log_path.parent.mkdir(parents=True, exist_ok=True)
     ssh_log_path.write_text("", encoding="utf-8")
     ssh_port = reserve_tcp_port()
+    initcall_blacklist = [x for x in args.initcall_blacklist.split(",") if x]
+    serial_getty_masks = [x for x in args.serial_getty_mask.split(",") if x]
+    mask_args = " ".join(f"systemd.mask={m}" for m in serial_getty_masks)
+    common_tail = (
+        "console=ttyAMA0,115200 earlycon=pl011,0x09000000 "
+        f"initcall_blacklist={','.join(initcall_blacklist)} "
+        "systemd.default_device_timeout_sec=300s "
+        "systemd.default_timeout_start_sec=300s "
+        f"{mask_args} consoleblank=0"
+    )
     if args.rootfs_mode == "ro-overlay":
         # Read-only SquashFS root + ext4 data partition assembled by the
         # initramfs overlayroot hook (activated by overlayroot=PARTLABEL=data).
         kernel_args = (
             "root=PARTLABEL=rootfs rootwait ro overlayroot=PARTLABEL=data "
-            "console=ttyAMA0,115200 earlycon=pl011,0x09000000 "
-            f"initcall_blacklist={','.join(QEMU_INITCALL_BLACKLIST)} "
-            "systemd.default_device_timeout_sec=300s "
-            "systemd.default_timeout_start_sec=300s "
-            "systemd.mask=serial-getty@ttyFIQ0.service consoleblank=0"
+            f"{common_tail}"
         )
     else:
         kernel_args = (
             "root=PARTLABEL=rootfs rootwait rw "
-            "console=ttyAMA0,115200 earlycon=pl011,0x09000000 "
-            f"initcall_blacklist={','.join(QEMU_INITCALL_BLACKLIST)} "
-            "systemd.default_device_timeout_sec=300s "
-            "systemd.default_timeout_start_sec=300s "
-            "systemd.mask=serial-getty@ttyFIQ0.service consoleblank=0"
+            f"{common_tail}"
         )
     qemu_args = [
         "-machine",

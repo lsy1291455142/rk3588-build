@@ -30,7 +30,7 @@
 |---|---|---|
 | `DEBIAN_RELEASE` | `13` | Debian 版本：11、12 或 13 |
 | `DEBIAN_PACKAGES` | （空） | 指定 APT 包名列表（逗号/空格）；**会整体覆盖**板级 `DEBIAN_PACKAGES_DEFAULT`；`none`=仅 minbase |
-| `DEBIAN_PACKAGES_DEFAULT` | （板级配置） | 板级配置文件 (`configs/boards/*.conf`) 中预设的标准基础软件包列表 |
+| `DEBIAN_PACKAGES_DEFAULT` | （板级配置） | 板级配置文件 (`boards/<BOARD>/board.conf`) 中预设的标准基础软件包列表 |
 | `DEBIAN_EXTRA_PACKAGES` | （空） | **追加**额外 APT 包（在现有包列表末尾追加，**不覆盖**已有包，适合临时调试） |
 | `DEBIAN_OVERLAYS` | （空） | 可选 overlay 插件列表；空=使用板级默认；`none`=关闭所有；`all`=启用全部 |
 | `DEBIAN_OVERLAYS_DEFAULT` | （板级配置） | 板级配置文件中默认启用的 Overlay 插件列表 |
@@ -46,7 +46,7 @@
 | `DATA_SIZE_MIB` | `0` | `ro-overlay` 模式下 ext4 数据分区大小（MiB）；`0`=占满根分区之后的剩余磁盘空间 |
 
 优先级：**命令行/CLI（`make ROOTFS_MODE=...`）> 板级默认值 > 内置默认**。板级 profile
-可在 `configs/boards/<BOARD>.conf` 中用 `ROOTFS_MODE_DEFAULT`（内置默认 `rw-ext4`）与
+可在 `boards/<BOARD>/board.conf` 中用 `ROOTFS_MODE_DEFAULT`（内置默认 `rw-ext4`）与
 `DATA_SIZE_MIB_DEFAULT`（内置默认 `0`）预配置默认值；二者均可被命令行覆盖。直接写
 `ROOTFS_MODE=` / `DATA_SIZE_MIB=` 也能硬编码，但会强制覆盖命令行，一般不推荐。
 
@@ -65,7 +65,7 @@
   mount **不支持 overlay 文件系统**（`mount -t overlay` 会打印 usage 并失败）。busybox 的
   mount 支持 overlay，且 `overlayroot` 钩子会优先调用 `/bin/busybox mount`。
 
-详见 [`configs/boards/TEMPLATE.conf`](../../configs/boards/TEMPLATE.conf)。
+详见 [`boards/TEMPLATE/board.conf`](../../boards/TEMPLATE/board.conf)。
 
 ### 包控制变量对比说明
 
@@ -91,7 +91,7 @@ CokePi：`make build-rootfs` 从 `packages/*.deb` 装入 rootfs；host 可选手
 
 ```bash
 make build-rootfs
-./rootfs/debian/boards/rk3588s-cokepi-model-lp4-v10/stage-aic8800-firmware.sh   # optional
+./boards/rk3588s-cokepi-model-lp4-v10/rootfs/stage-aic8800-firmware.sh   # optional
 ```
 
 

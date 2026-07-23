@@ -5,6 +5,7 @@ COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${PROJECT_DIR:-$(cd "${COMMON_DIR}/../.." && pwd)}"
 SDK_DIR="${SDK_DIR:-/home/builder/sdk}"
 CONFIG_DIR="${CONFIG_DIR:-${PROJECT_DIR}/configs}"
+SOC_DIR="${SOC_DIR:-${CONFIG_DIR}/soc}"
 ROOTFS_CONFIG_DIR="${ROOTFS_CONFIG_DIR:-${PROJECT_DIR}/rootfs}"
 OUTPUT_DIR="${OUTPUT_DIR:-/home/builder/output}"
 BUILD_BASE_DIR="${BUILD_BASE_DIR:-${SDK_DIR}/.sbc-build}"
@@ -69,7 +70,7 @@ is_positive_integer() {
 # shellcheck source=bootloader_layouts.sh
 source "${COMMON_DIR}/bootloader_layouts.sh"
 
-# Board-specific hooks (optional). If configs/boards/<board>.hooks.sh exists,
+# Board-specific hooks (optional). If boards/<board>/board.hooks.sh exists,
 # it is sourced after the board profile is loaded. Hook functions:
 #   pre_build_kernel, post_build_kernel
 #   pre_build_uboot, post_build_uboot
@@ -77,7 +78,7 @@ source "${COMMON_DIR}/bootloader_layouts.sh"
 #   pre_make_image, post_make_image
 #   pre_fetch_sources, post_fetch_sources
 _load_board_hooks() {
-    local hooks_file="${CONFIG_DIR}/boards/${BOARD}.hooks.sh"
+    local hooks_file="${BOARD_DIR}/board.hooks.sh"
     if [ -f "${hooks_file}" ]; then
         log_info "Loading board hooks: ${hooks_file}"
         # shellcheck disable=SC1090
@@ -99,14 +100,33 @@ load_board_profile() {
     BOARD="${BOARD:-}"
     [ -n "${BOARD}" ] || die "BOARD is required. Use 'make list-boards' to see available boards, or set BOARD in .env"
     validate_token "BOARD" "${BOARD}"
+    BOARD_DIR="${PROJECT_DIR}/boards/${BOARD}"
 
-    BOARD_PROFILE="${CONFIG_DIR}/boards/${BOARD}.conf"
-    require_file "${BOARD_PROFILE}" "board profile '${BOARD}'. Available boards: $(ls -1 \"${CONFIG_DIR}/boards/\"*.conf 2>/dev/null | sed 's|.*/||; s|\.conf$||' | grep -v '^TEMPLATE$' | tr '\n' ' ')"
+    BOARD_PROFILE="${BOARD_DIR}/board.conf"
+    require_file "${BOARD_PROFILE}" "board profile '${BOARD}'. Available boards: $(ls -1 \"${PROJECT_DIR}/boards/\"*/board.conf 2>/dev/null | sed 's|.*/boards/||; s|/board.conf$||' | grep -v '^TEMPLATE$' | tr '\n' ' ')"
 
     # shellcheck disable=SC1090
     source "${BOARD_PROFILE}"
     validate_board_profile
+    _load_soc_traits
     _load_board_hooks
+}
+
+# Source SoC trait configuration (configs/soc/<SOC>.conf) when the board
+# profile selects an SoC. SoC traits (e.g. QEMU 'virt' limitations) are
+# platform facts, not board facts, and live outside the board profile.
+_load_soc_traits() {
+    SOC="${SOC:-}"
+    [ -n "${SOC}" ] || return 0
+    validate_token "SOC" "${SOC}"
+    local soc_conf="${SOC_DIR}/${SOC}.conf"
+    if [ -f "${soc_conf}" ]; then
+        log_info "Loading SoC traits: ${soc_conf}"
+        # shellcheck disable=SC1090
+        source "${soc_conf}"
+    else
+        log_warn "SoC trait file not found: ${soc_conf}"
+    fi
 }
 
 validate_board_profile() {
@@ -431,13 +451,24 @@ metadata_value() {
 # Layout:
 #   rootfs/debian/overlays/<name>/plugin.sh   required entry
 #   rootfs/debian/overlays/<name>/overlay/    optional static files
-#   rootfs/debian/boards/<board>/plugin.sh    board plugin (always if present)
-#   rootfs/debian/boards/<board>/overlay/     board static files (always if present)
+#   boards/<board>/rootfs/plugin.sh    board plugin (always if present)
+#   boards/<board>/rootfs/overlay/     board static files (always if present)
 # Selection: DEBIAN_OVERLAYS / DEBIAN_OVERLAYS_DEFAULT (comma/space list).
 # Special: none|off|- = no optional overlays; all = every overlays/*/plugin.sh
 # ---------------------------------------------------------------------------
 debian_rootfs_dir() {
     printf '%s\n' "${PROJECT_DIR}/rootfs/debian"
+}
+
+# Map ROOTFS_MODE to its mode-specific rootfs overlay directory, or empty when
+# the mode has no extra overlay. This is the single mapping point so call sites
+# never hardcode mode directory names.
+rootfs_mode_overlay_dir() {
+    case "${ROOTFS_MODE:-rw-ext4}" in
+        ro-overlay) printf '%s/ro-overlay/overlay' "$(debian_rootfs_dir)" ;;
+        rw-ext4) printf '' ;;
+        *) printf '' ;;
+    esac
 }
 
 debian_overlays_dir() {
@@ -581,11 +612,10 @@ apply_rootfs_overlay_tree() {
 # Core stays pure: no board product policy here, only dispatch.
 apply_debian_board_overlay() {
     local root_dir="$1"
-    local base board_dir board_plugin board_overlay
+    local board_dir board_plugin board_overlay
 
     [ -n "${root_dir}" ] || die "apply_debian_board_overlay: root_dir required"
-    base="$(debian_rootfs_dir)"
-    board_dir="${base}/boards/${BOARD}"
+    board_dir="${BOARD_DIR}/rootfs"
     board_plugin="${board_dir}/plugin.sh"
     board_overlay="${board_dir}/overlay"
 

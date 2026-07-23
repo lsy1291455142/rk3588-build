@@ -63,7 +63,11 @@
 `CONFIG_SQUASHFS=y`、`CONFIG_OVERLAY_FS=y` 等能力。这样**单个内核产物即可同时启动
 `rw-ext4` 与 `ro-overlay` 两种镜像**，`ro-overlay` 不需要单独编内核。
 
-板级专用的内核选项应该放在 BSP defconfig 里，不要堆进共享 fragment。
+板级专用的内核选项可以放在 BSP defconfig 里，也可以通过板型 conf 的
+`KERNEL_EXTRA_FRAGMENTS`（相对 `configs/` 目录、空格分隔的共享 fragment 路径）提供，它们在
+上述两个共享 fragment **之后**合并，因此可覆盖共享配置。此外，每个板子的
+`boards/<BOARD>/kernel.config` 会由 `build_kernel.sh` 在最晚次序**自动合并**（无需在
+board.conf 中声明），同样可覆盖共享配置。两者都不应堆进共享 fragment。
 
 ## 阶段三：build-rootfs
 
