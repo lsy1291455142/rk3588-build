@@ -165,7 +165,6 @@ ensure_chroot_dev() {
     [ -e "${d}/null" ]   || mknod -m 666 "${d}/null"   c 1 3 2>/dev/null || true
     [ -e "${d}/zero" ]   || mknod -m 666 "${d}/zero"   c 1 5 2>/dev/null || true
     [ -e "${d}/full" ]   || mknod -m 666 "${d}/full"   c 1 7 2>/dev/null || true
-    [ -e "${d}/console" ]|| ln -sf /dev/console "${d}/console" 2>/dev/null || true
     [ -e "${d}/stdin" ]  || ln -sf /proc/self/fd/0 "${d}/stdin" 2>/dev/null || true
     [ -e "${d}/stdout" ] || ln -sf /proc/self/fd/1 "${d}/stdout" 2>/dev/null || true
     [ -e "${d}/stderr" ] || ln -sf /proc/self/fd/2 "${d}/stderr" 2>/dev/null || true
