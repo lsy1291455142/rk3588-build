@@ -20,7 +20,13 @@ VARIANT_OUTPUT="$(variant_output_dir)"
 IMAGE_STEM="$(image_stem)"
 KERNEL_IMAGE="${COMMON_OUTPUT}/Image"
 DTB_IMAGE="${COMMON_OUTPUT}/${KERNEL_DTB}"
-ROOTFS_IMAGE="${VARIANT_OUTPUT}/rootfs.ext4"
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    ROOTFS_IMAGE="${VARIANT_OUTPUT}/rootfs.squashfs"
+    INITRD_IMAGE="${VARIANT_OUTPUT}/initrd.img"
+else
+    ROOTFS_IMAGE="${VARIANT_OUTPUT}/rootfs.ext4"
+    INITRD_IMAGE=""
+fi
 KERNEL_RELEASE_FILE="${COMMON_OUTPUT}/kernel-release"
 ZSTD_LEVEL="${ZSTD_LEVEL:-6}"
 
@@ -28,6 +34,10 @@ require_file "${KERNEL_IMAGE}" "kernel Image; run build-kernel first"
 require_file "${DTB_IMAGE}" "board DTB; run build-kernel first"
 require_file "${ROOTFS_IMAGE}" "root filesystem; run build-rootfs first"
 require_file "${KERNEL_RELEASE_FILE}" "kernel release"
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    require_file "${INITRD_IMAGE}" "initramfs; run build-rootfs first"
+    require_cmd mkfs.ext4
+fi
 if ! [[ "${ZSTD_LEVEL}" =~ ^[1-9][0-9]*$ ]] ||
     [ "${ZSTD_LEVEL}" -gt 19 ]; then
     die "ZSTD_LEVEL must be an integer from 1 to 19"
@@ -51,15 +61,39 @@ BOOT_FIRST_SECTOR=$((BOOT_START_MIB * 2048))
 BOOT_SECTORS=$((BOOT_SIZE_MIB * 2048))
 BOOT_LAST_SECTOR=$((BOOT_FIRST_SECTOR + BOOT_SECTORS - 1))
 ROOT_FIRST_SECTOR=$((BOOT_LAST_SECTOR + 1))
-# Leave 33 sectors for secondary GPT (LBA-1 header + 32-sector table).
-ROOT_LAST_SECTOR=$((IMAGE_SECTORS - 34))
-[ "${ROOT_FIRST_SECTOR}" -lt "${ROOT_LAST_SECTOR}" ] ||
-    die "Boot partition geometry invalid (BOOT_START_MIB + BOOT_SIZE_MIB exceeds IMAGE_SIZE_MIB)"
-ROOT_PARTITION_BYTES=$(((ROOT_LAST_SECTOR - ROOT_FIRST_SECTOR + 1) * 512))
 ROOTFS_BYTES="$(stat -c '%s' "${ROOTFS_IMAGE}")"
+# Leave 33 sectors for secondary GPT (LBA-1 header + 32-sector table).
+DISK_LAST_USABLE_SECTOR=$((IMAGE_SECTORS - 34))
 
-[ "${ROOTFS_BYTES}" -le "${ROOT_PARTITION_BYTES}" ] ||
-    die "rootfs.ext4 exceeds root partition (${ROOTFS_BYTES} > ${ROOT_PARTITION_BYTES})"
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    # SquashFS root partition sized to the image plus 1 MiB slack; the rest of
+    # the disk becomes the ext4 data partition (overlay upper + user data).
+    ROOT_MIB=$(((ROOTFS_BYTES + 1048575) / 1048576 + 1))
+    ROOT_SECTORS=$((ROOT_MIB * 2048))
+    ROOT_LAST_SECTOR=$((ROOT_FIRST_SECTOR + ROOT_SECTORS - 1))
+    DATA_FIRST_SECTOR=$((ROOT_LAST_SECTOR + 1))
+    if [ "${DATA_SIZE_MIB}" -gt 0 ]; then
+        DATA_LAST_SECTOR=$((DATA_FIRST_SECTOR + DATA_SIZE_MIB * 2048 - 1))
+    else
+        DATA_LAST_SECTOR="${DISK_LAST_USABLE_SECTOR}"
+    fi
+    [ "${ROOT_LAST_SECTOR}" -lt "${DATA_FIRST_SECTOR}" ] ||
+        die "SquashFS root geometry invalid"
+    [ "${DATA_FIRST_SECTOR}" -lt "${DATA_LAST_SECTOR}" ] ||
+        die "Data partition geometry invalid (increase IMAGE_SIZE_MIB or lower DATA_SIZE_MIB)"
+    [ "${DATA_LAST_SECTOR}" -le "${DISK_LAST_USABLE_SECTOR}" ] ||
+        die "Data partition exceeds the disk image (increase IMAGE_SIZE_MIB)"
+    ROOT_PARTITION_BYTES=$(((ROOT_LAST_SECTOR - ROOT_FIRST_SECTOR + 1) * 512))
+    [ "${ROOTFS_BYTES}" -le "${ROOT_PARTITION_BYTES}" ] ||
+        die "rootfs.squashfs exceeds root partition (${ROOTFS_BYTES} > ${ROOT_PARTITION_BYTES})"
+else
+    ROOT_LAST_SECTOR="${DISK_LAST_USABLE_SECTOR}"
+    [ "${ROOT_FIRST_SECTOR}" -lt "${ROOT_LAST_SECTOR}" ] ||
+        die "Boot partition geometry invalid (BOOT_START_MIB + BOOT_SIZE_MIB exceeds IMAGE_SIZE_MIB)"
+    ROOT_PARTITION_BYTES=$(((ROOT_LAST_SECTOR - ROOT_FIRST_SECTOR + 1) * 512))
+    [ "${ROOTFS_BYTES}" -le "${ROOT_PARTITION_BYTES}" ] ||
+        die "rootfs.ext4 exceeds root partition (${ROOTFS_BYTES} > ${ROOT_PARTITION_BYTES})"
+fi
 bootloader_layout_validate_artifacts "${COMMON_OUTPUT}"
 
 mkdir -p "${EXTLINUX_DIR}"
@@ -76,19 +110,33 @@ mkdir -p "${EXTLINUX_DIR}"
         done
         printf '%s\n' "${dtbo_line}"
     fi
-    printf '    APPEND root=PARTLABEL=rootfs rootwait rw console=%s %s\n' \
-        "${CONSOLE}" "${EXTRA_KERNEL_ARGS:-}"
+    if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+        printf '    INITRD /initrd.img\n'
+        printf '    APPEND root=PARTLABEL=rootfs rootwait ro overlayroot=PARTLABEL=data console=%s %s\n' \
+            "${CONSOLE}" "${EXTRA_KERNEL_ARGS:-}"
+    else
+        printf '    APPEND root=PARTLABEL=rootfs rootwait rw console=%s %s\n' \
+            "${CONSOLE}" "${EXTRA_KERNEL_ARGS:-}"
+    fi
 } >"${EXTLINUX_CONF}"
 
 run_hook pre_make_image
 log_step "Creating GPT image ${IMAGE_STEM}.img"
 truncate -s "${IMAGE_SIZE_MIB}M" "${DISK_IMAGE}"
-sgdisk --clear --set-alignment=1 \
-    --new="1:${BOOT_FIRST_SECTOR}:${BOOT_LAST_SECTOR}" \
-    --typecode=1:0700 --change-name=1:boot \
-    --new="2:${ROOT_FIRST_SECTOR}:${ROOT_LAST_SECTOR}" \
-    --typecode=2:8300 --change-name=2:rootfs \
-    "${DISK_IMAGE}" >/dev/null
+SGDISK_ARGS=(
+    --clear --set-alignment=1
+    --new="1:${BOOT_FIRST_SECTOR}:${BOOT_LAST_SECTOR}"
+    --typecode=1:0700 --change-name=1:boot
+    --new="2:${ROOT_FIRST_SECTOR}:${ROOT_LAST_SECTOR}"
+    --typecode=2:8300 --change-name=2:rootfs
+)
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    SGDISK_ARGS+=(
+        --new="3:${DATA_FIRST_SECTOR}:${DATA_LAST_SECTOR}"
+        --typecode=3:8300 --change-name=3:data
+    )
+fi
+sgdisk "${SGDISK_ARGS[@]}" "${DISK_IMAGE}" >/dev/null
 
 truncate -s "${BOOT_SIZE_MIB}M" "${BOOT_IMAGE}"
 mkfs.vfat -F 32 -n BOOT "${BOOT_IMAGE}" >/dev/null
@@ -96,6 +144,9 @@ mmd -i "${BOOT_IMAGE}" ::/extlinux
 mcopy -i "${BOOT_IMAGE}" "${KERNEL_IMAGE}" ::/Image
 mcopy -i "${BOOT_IMAGE}" "${DTB_IMAGE}" "::/${KERNEL_DTB}"
 mcopy -i "${BOOT_IMAGE}" "${EXTLINUX_CONF}" ::/extlinux/extlinux.conf
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    mcopy -i "${BOOT_IMAGE}" "${INITRD_IMAGE}" ::/initrd.img
+fi
 
 if [ -n "${KERNEL_DTBO:-}" ]; then
     mmd -i "${BOOT_IMAGE}" ::/overlays
@@ -115,6 +166,15 @@ dd if="${BOOT_IMAGE}" of="${DISK_IMAGE}" bs=1M seek="${BOOT_START_MIB}" \
     conv=notrunc status=none
 dd if="${ROOTFS_IMAGE}" of="${DISK_IMAGE}" bs=1M \
     seek="$((BOOT_START_MIB + BOOT_SIZE_MIB))" conv=notrunc,sparse status=none
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    DATA_IMAGE="${WORK_DIR}/data.ext4"
+    DATA_BYTES=$(((DATA_LAST_SECTOR - DATA_FIRST_SECTOR + 1) * 512))
+    truncate -s "${DATA_BYTES}" "${DATA_IMAGE}"
+    mkfs.ext4 -F -L data -E lazy_itable_init=1,lazy_journal_init=1 \
+        "${DATA_IMAGE}" >/dev/null
+    dd if="${DATA_IMAGE}" of="${DISK_IMAGE}" bs=512 seek="${DATA_FIRST_SECTOR}" \
+        conv=notrunc,sparse status=none
+fi
 sync
 
 rm -f "${FINAL_IMAGE}" "${FINAL_ZSTD}" "${FINAL_SHA256}"
@@ -132,8 +192,17 @@ ZSTD_SHA256="$(sha256sum "${FINAL_ZSTD}" | awk '{print $1}')"
     printf '%s  %s\n' "${ZSTD_SHA256}" "$(basename "${FINAL_ZSTD}")"
 ) >"${FINAL_SHA256}"
 
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    ROOT_PART_META="root_partition=2:${ROOT_FIRST_SECTOR}:${ROOT_LAST_SECTOR}:squashfs:rootfs"
+    DATA_PART_META="data_partition=3:${DATA_FIRST_SECTOR}:${DATA_LAST_SECTOR}:ext4:data"
+else
+    ROOT_PART_META="root_partition=2:${ROOT_FIRST_SECTOR}:${ROOT_LAST_SECTOR}:ext4:rootfs"
+    DATA_PART_META=""
+fi
+
 write_common_metadata "${FINAL_METADATA}.tmp" \
     "source_manifest=${SOURCE_MANIFEST:-}" \
+    "rootfs_mode=${ROOTFS_MODE}" \
     "kernel_revision=$(git_revision "${SDK_DIR}/kernel")" \
     "uboot_revision=$(git_revision "${SDK_DIR}/u-boot")" \
     "rkbin_revision=$(git_revision "${SDK_DIR}/rkbin")" \
@@ -146,7 +215,8 @@ write_common_metadata "${FINAL_METADATA}.tmp" \
     "compressed_image=$(basename "${FINAL_ZSTD}")" \
     "compressed_sha256=${ZSTD_SHA256}" \
     "boot_partition=1:${BOOT_FIRST_SECTOR}:${BOOT_LAST_SECTOR}:fat32:BOOT" \
-    "root_partition=2:${ROOT_FIRST_SECTOR}:${ROOT_LAST_SECTOR}:ext4:rootfs" \
+    "${ROOT_PART_META}" \
+    ${DATA_PART_META:+"${DATA_PART_META}"} \
     $(bootloader_layout_write_metadata "${COMMON_OUTPUT}") \
     "kernel_release=$(cat "${KERNEL_RELEASE_FILE}")" \
     "kernel_dtb=${KERNEL_DTB}" \

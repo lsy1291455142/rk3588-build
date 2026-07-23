@@ -49,6 +49,13 @@ ZSTD_LEVEL ?= 6
 QEMU_TIMEOUT ?= 600
 QEMU_MEMORY_MIB ?= 1024
 QEMU_CPUS ?= 2
+# Leave ROOTFS_MODE / DATA_SIZE_MIB empty by default so a board profile's
+# ROOTFS_MODE_DEFAULT / DATA_SIZE_MIB_DEFAULT can take effect. They are only
+# exported to the build container when explicitly set (CLI / .env).
+ROOTFS_MODE ?=
+DATA_SIZE_MIB ?=
+ROOTFS_MODE_ARG := $(if $(ROOTFS_MODE),-e ROOTFS_MODE="$(ROOTFS_MODE)")
+DATA_SIZE_MIB_ARG := $(if $(DATA_SIZE_MIB),-e DATA_SIZE_MIB="$(DATA_SIZE_MIB)")
 
 menu:
 	@board="$$( [ -f .env ] && grep '^BOARD=' .env | cut -d= -f2- || true )"; \
@@ -629,6 +636,7 @@ _debian-rootfs: prepare-output debian-preflight
 		-e DEBIAN_MIRROR="$(DEBIAN_MIRROR)" \
 		-e DEBIAN_SECURITY_MIRROR="$(DEBIAN_SECURITY_MIRROR)" \
 		-e DEBIAN_ALLOW_ARCHIVE_FALLBACK="$(DEBIAN_ALLOW_ARCHIVE_FALLBACK)" \
+		$(ROOTFS_MODE_ARG) $(DATA_SIZE_MIB_ARG) \
 		debian-rootfs bash /home/builder/scripts/build_debian.sh
 
 image: require-rootfs require-board validate-rootfs require-sdk-volume
@@ -646,6 +654,7 @@ _image-one: prepare-output
 		-e SDK_VOLUME=$(SDK_VOLUME) \
 		-e DEBIAN_RELEASE="$(DEBIAN_RELEASE)" \
 		-e ROOTFS_USERNAME="$(ROOTFS_USERNAME)" -e ZSTD_LEVEL="$(ZSTD_LEVEL)" \
+		$(ROOTFS_MODE_ARG) $(DATA_SIZE_MIB_ARG) \
 		rk3588-build bash /home/builder/scripts/make_image.sh
 	$(MAKE) --no-print-directory _verify-one SDK_VOLUME=$(SDK_VOLUME)
 
@@ -659,12 +668,17 @@ verify-image: require-rootfs require-board validate-rootfs require-sdk-volume
 	esac
 
 _verify-one: prepare-output
+	# Run as root: the ro-overlay path extracts the embedded SquashFS root with
+	# unsquashfs, which must preserve root-owned device nodes / ownership. Verify
+	# only reads artifacts and writes no persistent output, so root is safe.
 	SDK_VOLUME=$(SDK_VOLUME) docker compose run --rm --no-deps -T \
+		--entrypoint /bin/bash -u 0 \
 		-e BOARD="$(BOARD)" -e ROOTFS="$(ROOTFS)" \
 		-e SDK_VOLUME=$(SDK_VOLUME) \
 		-e DEBIAN_RELEASE="$(DEBIAN_RELEASE)" \
 		-e ROOTFS_USERNAME="$(ROOTFS_USERNAME)" \
-		rk3588-build bash /home/builder/scripts/verify_image.sh
+		$(ROOTFS_MODE_ARG) $(DATA_SIZE_MIB_ARG) \
+		rk3588-build /home/builder/scripts/verify_image.sh
 
 
 build-all: require-rootfs require-board validate-rootfs require-sdk-volume
@@ -693,6 +707,7 @@ test-debian-qemu: require-board require-sdk-volume
 		-e QEMU_TIMEOUT="$(QEMU_TIMEOUT)" \
 		-e QEMU_MEMORY_MIB="$(QEMU_MEMORY_MIB)" \
 		-e QEMU_CPUS="$(QEMU_CPUS)" \
+		$(ROOTFS_MODE_ARG) $(DATA_SIZE_MIB_ARG) \
 		rk3588-build bash /home/builder/scripts/test_debian_qemu.sh
 
 check:

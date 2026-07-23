@@ -4,14 +4,30 @@ set -eu
 MARKER=/var/lib/sbc-firstboot.done
 [ ! -e "$MARKER" ] || exit 0
 
-rootdev="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
-rootdev="$(readlink -f "$rootdev" 2>/dev/null || true)"
-if [ -z "$rootdev" ] || [ ! -b "$rootdev" ]; then
-    rootdev="$(findfs PARTLABEL=rootfs 2>/dev/null || true)"
-fi
-if [ -z "$rootdev" ] || [ ! -b "$rootdev" ]; then
-    echo "Unable to locate rootfs block device" >&2
-    exit 1
+# In ro-overlay mode the root is an OverlayFS whose writable/persistent layer
+# lives on the ext4 data partition (mounted at /data). Grow that partition
+# instead of the read-only SquashFS root. In rw-ext4 mode grow the root.
+root_fstype="$(findmnt -n -o FSTYPE / 2>/dev/null || true)"
+if [ "$root_fstype" = "overlay" ]; then
+    rootdev="$(findmnt -n -o SOURCE /data 2>/dev/null || true)"
+    rootdev="$(readlink -f "$rootdev" 2>/dev/null || true)"
+    if [ -z "$rootdev" ] || [ ! -b "$rootdev" ]; then
+        rootdev="$(findfs PARTLABEL=data 2>/dev/null || true)"
+    fi
+    if [ -z "$rootdev" ] || [ ! -b "$rootdev" ]; then
+        echo "Unable to locate data block device" >&2
+        exit 1
+    fi
+else
+    rootdev="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
+    rootdev="$(readlink -f "$rootdev" 2>/dev/null || true)"
+    if [ -z "$rootdev" ] || [ ! -b "$rootdev" ]; then
+        rootdev="$(findfs PARTLABEL=rootfs 2>/dev/null || true)"
+    fi
+    if [ -z "$rootdev" ] || [ ! -b "$rootdev" ]; then
+        echo "Unable to locate rootfs block device" >&2
+        exit 1
+    fi
 fi
 
 rootdev_name="${rootdev#/dev/}"

@@ -1,0 +1,98 @@
+#!/bin/sh
+# initramfs-tools local-bottom hook: turn a read-only SquashFS root into a
+# writable OverlayFS root backed by a persistent ext4 data partition.
+#
+# Activated only when the kernel command line carries overlayroot=<spec>,
+# where <spec> is any initramfs resolve_device() reference to the data
+# partition (e.g. overlayroot=PARTLABEL=data or overlayroot=LABEL=data).
+#
+# Resulting mount tree after switch_root:
+#   /            overlay  (lowerdir=squashfs, upperdir=/data/overlay/upper)
+#   /ro          squashfs (read-only lower layer)
+#   /data        ext4     (persistent upper + user data)
+#
+# Factory reset = reformat / wipe the data partition. If the data partition
+# cannot be mounted (e.g. corruption after a hard power cut), the hook falls
+# back to a volatile tmpfs upper so the device still boots read-only-clean.
+
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "${1:-}" in
+    prereqs)
+        prereqs
+        exit 0
+        ;;
+esac
+
+. /scripts/functions
+
+# initramfs-tools ships a klibc `mount` when the busybox package is absent, and
+# that klibc mount does NOT understand the overlay filesystem (it prints usage
+# and aborts). Prefer busybox's mount, which mounts overlayfs correctly.
+if [ -x /bin/busybox ]; then
+    MOUNT="/bin/busybox mount"
+else
+    MOUNT="mount"
+fi
+
+# Parse overlayroot= from the kernel command line.
+OVERLAYROOT=""
+for _arg in $(cat /proc/cmdline); do
+    case "$_arg" in
+        overlayroot=*) OVERLAYROOT="${_arg#overlayroot=}" ;;
+    esac
+done
+
+# No overlayroot= means a plain rw root; leave the default mount untouched.
+[ -n "$OVERLAYROOT" ] || exit 0
+
+log_begin_msg "overlayroot: assembling overlay root (data=${OVERLAYROOT})"
+
+# Resolve and wait for the data block device (udev may still be settling).
+DATA_DEV=""
+_tries=0
+while [ "$_tries" -lt 50 ]; do
+    DATA_DEV="$(resolve_device "$OVERLAYROOT" 2>/dev/null || true)"
+    if [ -n "$DATA_DEV" ] && [ -b "$DATA_DEV" ]; then
+        break
+    fi
+    /bin/sleep 0.2 2>/dev/null || sleep 1
+    _tries=$((_tries + 1))
+done
+
+mkdir -p /overlay
+OVERLAY_PERSISTENT=0
+if [ -n "$DATA_DEV" ] && [ -b "$DATA_DEV" ] && \
+    ${MOUNT} -t ext4 "$DATA_DEV" /overlay 2>/dev/null; then
+    OVERLAY_PERSISTENT=1
+else
+    log_warn "overlayroot: data device ${OVERLAYROOT} unavailable; using volatile tmpfs upper"
+    ${MOUNT} -t tmpfs -o mode=0755 tmpfs /overlay ||
+        panic "overlayroot: unable to mount tmpfs fallback"
+fi
+
+mkdir -p /overlay/overlay/upper /overlay/overlay/work
+
+# The current root mount (${rootmnt}) is the read-only SquashFS. Move it aside
+# so it can become the overlay lower layer.
+mkdir -p /ro
+${MOUNT} -o move "${rootmnt}" /ro ||
+    panic "overlayroot: unable to move squashfs root aside"
+
+if ! ${MOUNT} -t overlay \
+    -o "lowerdir=/ro,upperdir=/overlay/overlay/upper,workdir=/overlay/overlay/work" \
+    overlay "${rootmnt}"; then
+    # Recover the plain squashfs root so the system is not left unbootable.
+    ${MOUNT} -o move /ro "${rootmnt}" 2>/dev/null || true
+    panic "overlayroot: unable to mount overlay filesystem"
+fi
+
+# Expose the lower layer and the data partition inside the new root so the
+# running system can inspect them (and grow the data partition on first boot).
+mkdir -p "${rootmnt}/ro" "${rootmnt}/data"
+${MOUNT} -o move /ro "${rootmnt}/ro" || true
+if [ "$OVERLAY_PERSISTENT" -eq 1 ]; then
+    ${MOUNT} -o move /overlay "${rootmnt}/data" || true
+fi
+
+log_end_msg

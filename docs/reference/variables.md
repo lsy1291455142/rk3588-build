@@ -38,6 +38,35 @@
 | `DEBIAN_SECURITY_MIRROR` | `http://security.debian.org/debian-security` | 安全更新源 |
 | `DEBIAN_ALLOW_ARCHIVE_FALLBACK` | `yes` | Debian 11 过期时回退到 archive.debian.org |
 
+## 根文件系统布局变量
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `ROOTFS_MODE` | `rw-ext4` | 根文件系统布局：`rw-ext4`=单可写 ext4 根（默认）；`ro-overlay`=只读 SquashFS 根 + ext4 数据/overlay 分区（防掉电损坏、可恢复出厂） |
+| `DATA_SIZE_MIB` | `0` | `ro-overlay` 模式下 ext4 数据分区大小（MiB）；`0`=占满根分区之后的剩余磁盘空间 |
+
+优先级：**命令行/CLI（`make ROOTFS_MODE=...`）> 板级默认值 > 内置默认**。板级 profile
+可在 `configs/boards/<BOARD>.conf` 中用 `ROOTFS_MODE_DEFAULT`（内置默认 `rw-ext4`）与
+`DATA_SIZE_MIB_DEFAULT`（内置默认 `0`）预配置默认值；二者均可被命令行覆盖。直接写
+`ROOTFS_MODE=` / `DATA_SIZE_MIB=` 也能硬编码，但会强制覆盖命令行，一般不推荐。
+
+示例：本仓库的 `rk3588s-cokepi-model-lp4-v10` 板型已设置
+`ROOTFS_MODE_DEFAULT="ro-overlay"`，因此对该板执行 `make build-all BOARD=... ROOTFS=debian`
+即默认产出只读 overlay 镜像，无需再传 `ROOTFS_MODE=ro-overlay`。
+
+`ro-overlay` 模式的额外依赖（均由构建自动处理，无需手动安装）：
+
+- **内核支持**：`scripts/build_kernel.sh` 在板级 defconfig 之后**始终合并**
+  `configs/kernel/rootfs-base.config` 与 `configs/kernel/squashfs-overlay.config`
+  （含 `CONFIG_SQUASHFS=y`、`CONFIG_OVERLAY_FS=y` 等），所以同一个内核产物可同时启动
+  `rw-ext4` 与 `ro-overlay` 两种镜像，无需为 overlay 单独编内核。
+- **initramfs 的 mount**：`ro-overlay` 会在 rootfs 阶段自动加入 `initramfs-tools` 与
+  `busybox` 包。initramfs-tools 在缺少 busybox 时会回退到 klibc 的 `mount`，而 klibc
+  mount **不支持 overlay 文件系统**（`mount -t overlay` 会打印 usage 并失败）。busybox 的
+  mount 支持 overlay，且 `overlayroot` 钩子会优先调用 `/bin/busybox mount`。
+
+详见 [`configs/boards/TEMPLATE.conf`](../../configs/boards/TEMPLATE.conf)。
+
 ### 包控制变量对比说明
 
 - **`DEBIAN_PACKAGES_DEFAULT`** (板级定义)：固化在该板型 `.conf` 中的标准基础包。

@@ -16,6 +16,9 @@ fi
 
 require_cmd sgdisk stat dd cmp mdir mcopy grep awk sed sha256sum \
     blkid e2fsck debugfs realpath fdtget
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    require_cmd unsquashfs
+fi
 
 COMMON_OUTPUT="$(board_common_output_dir)"
 VARIANT_OUTPUT="$(variant_output_dir)"
@@ -27,7 +30,13 @@ DTB_IMAGE="${COMMON_OUTPUT}/${KERNEL_DTB}"
 DOWNLOAD_LOADER_IMAGE="${COMMON_OUTPUT}/download-loader.bin"
 IDBLOCK_IMAGE="${COMMON_OUTPUT}/idblock.img"
 UBOOT_IMAGE="${COMMON_OUTPUT}/uboot.img"
-ROOTFS_IMAGE="${VARIANT_OUTPUT}/rootfs.ext4"
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    ROOTFS_IMAGE="${VARIANT_OUTPUT}/rootfs.squashfs"
+    INITRD_IMAGE="${VARIANT_OUTPUT}/initrd.img"
+else
+    ROOTFS_IMAGE="${VARIANT_OUTPUT}/rootfs.ext4"
+    INITRD_IMAGE=""
+fi
 KERNEL_RELEASE_FILE="${COMMON_OUTPUT}/kernel-release"
 KERNEL_CONFIG="${COMMON_OUTPUT}/kernel.config"
 KERNEL_BUILD_INFO="${COMMON_OUTPUT}/kernel-build-info.txt"
@@ -43,7 +52,10 @@ require_file "${DTB_IMAGE}" "board DTB"
 require_file "${DOWNLOAD_LOADER_IMAGE}" "download-loader.bin"
 require_file "${IDBLOCK_IMAGE}" "idblock.img"
 require_file "${UBOOT_IMAGE}" "uboot.img"
-require_file "${ROOTFS_IMAGE}" "rootfs.ext4"
+require_file "${ROOTFS_IMAGE}" "root filesystem image"
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    require_file "${INITRD_IMAGE}" "initramfs"
+fi
 require_file "${KERNEL_RELEASE_FILE}" "kernel release"
 require_file "${KERNEL_CONFIG}" "kernel configuration"
 require_file "${KERNEL_BUILD_INFO}" "kernel build metadata"
@@ -100,7 +112,27 @@ IMAGE_SECTORS=$((IMAGE_SIZE_MIB * 2048))
 BOOT_FIRST_EXPECTED=$((BOOT_START_MIB * 2048))
 BOOT_LAST_EXPECTED=$((BOOT_FIRST_EXPECTED + BOOT_SIZE_MIB * 2048 - 1))
 ROOT_FIRST_EXPECTED=$((BOOT_LAST_EXPECTED + 1))
-ROOT_LAST_EXPECTED=$((IMAGE_SECTORS - 34))
+
+# The embedded rootfs artifact (ext4 for rw-ext4, SquashFS for ro-overlay) drives
+# the on-disk geometry. Mirror the formulas used by make_image.sh.
+ROOTFS_BYTES="$(stat -c '%s' "${ROOTFS_IMAGE}")"
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    # SquashFS root sized to the image plus 1 MiB slack; the data partition
+    # (overlay upper + user data) starts after it and is sized by DATA_SIZE_MIB
+    # or fills the rest of the disk.
+    ROOT_MIB=$(((ROOTFS_BYTES + 1048575) / 1048576 + 1))
+    ROOT_SECTORS=$((ROOT_MIB * 2048))
+    ROOT_LAST_EXPECTED=$((ROOT_FIRST_EXPECTED + ROOT_SECTORS - 1))
+    DATA_FIRST_EXPECTED=$((ROOT_LAST_EXPECTED + 1))
+    if [ "${DATA_SIZE_MIB}" -gt 0 ]; then
+        DATA_LAST_EXPECTED=$((DATA_FIRST_EXPECTED + DATA_SIZE_MIB * 2048 - 1))
+    else
+        DATA_LAST_EXPECTED=$((IMAGE_SECTORS - 34))
+    fi
+else
+    ROOT_LAST_EXPECTED=$((IMAGE_SECTORS - 34))
+fi
+
 IMAGE_BYTES_EXPECTED=$((IMAGE_SIZE_MIB * 1024 * 1024))
 
 [ "$(stat -c '%s' "${IMAGE_PATH}")" -eq "${IMAGE_BYTES_EXPECTED}" ] ||
@@ -152,6 +184,16 @@ partition_name() {
     die "Root partition type is not 8300"
 [ "$(partition_name 2)" = "rootfs" ] ||
     die "Root partition name is not rootfs"
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    [ "$(first_sector 3)" = "${DATA_FIRST_EXPECTED}" ] ||
+        die "Data partition starts at the wrong sector"
+    [ "$(last_sector 3)" = "${DATA_LAST_EXPECTED}" ] ||
+        die "Data partition ends at the wrong sector"
+    [ "$(partition_code 3)" = "8300" ] ||
+        die "Data partition type is not 8300"
+    [ "$(partition_name 3)" = "data" ] ||
+        die "Data partition name is not data"
+fi
 
 extract_bytes() {
     local source="$1"
@@ -193,55 +235,85 @@ cmp --silent "${DTB_IMAGE}" "${WORK_DIR}/${KERNEL_DTB}" ||
 verify_extlinux_dtb "${WORK_DIR}/${KERNEL_DTB}" "FAT DTB"
 grep -Fqx "    FDT /${KERNEL_DTB}" "${WORK_DIR}/extlinux.conf" ||
     die "extlinux.conf does not select ${KERNEL_DTB}"
-grep -Fq "root=PARTLABEL=rootfs rootwait rw" "${WORK_DIR}/extlinux.conf" ||
-    die "extlinux.conf does not boot root=PARTLABEL=rootfs"
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    mcopy -i "${MTOOLS_IMAGE}" ::/initrd.img "${WORK_DIR}/initrd.img"
+    cmp --silent "${INITRD_IMAGE}" "${WORK_DIR}/initrd.img" ||
+        die "FAT initrd.img does not match the initramfs artifact"
+    grep -Fqx "    INITRD /initrd.img" "${WORK_DIR}/extlinux.conf" ||
+        die "extlinux.conf does not load INITRD /initrd.img"
+    grep -Fq "root=PARTLABEL=rootfs rootwait ro" "${WORK_DIR}/extlinux.conf" ||
+        die "extlinux.conf does not boot read-only root=PARTLABEL=rootfs"
+    grep -Fq "overlayroot=PARTLABEL=data" "${WORK_DIR}/extlinux.conf" ||
+        die "extlinux.conf does not enable overlayroot=PARTLABEL=data"
+else
+    grep -Fq "root=PARTLABEL=rootfs rootwait rw" "${WORK_DIR}/extlinux.conf" ||
+        die "extlinux.conf does not boot root=PARTLABEL=rootfs"
+fi
 grep -Fq "console=${CONSOLE}" "${WORK_DIR}/extlinux.conf" ||
     die "extlinux.conf does not configure ${CONSOLE}"
 
-ROOTFS_BYTES="$(stat -c '%s' "${ROOTFS_IMAGE}")"
-extract_bytes "${IMAGE_PATH}" "${WORK_DIR}/rootfs.ext4" \
-    "$((ROOT_FIRST_EXPECTED * 512))" "${ROOTFS_BYTES}"
-cmp --silent "${ROOTFS_IMAGE}" "${WORK_DIR}/rootfs.ext4" ||
-    die "Embedded rootfs does not match rootfs.ext4"
-e2fsck -fn "${WORK_DIR}/rootfs.ext4" >/dev/null
-[ "$(blkid -s LABEL -o value "${WORK_DIR}/rootfs.ext4")" = "rootfs" ] ||
-    die "Embedded root filesystem label is not rootfs"
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    extract_bytes "${IMAGE_PATH}" "${WORK_DIR}/rootfs.squashfs" \
+        "$((ROOT_FIRST_EXPECTED * 512))" "${ROOTFS_BYTES}"
+    cmp --silent "${ROOTFS_IMAGE}" "${WORK_DIR}/rootfs.squashfs" ||
+        die "Embedded rootfs does not match rootfs.squashfs"
+    [ "$(read_image_magic "${WORK_DIR}/rootfs.squashfs")" = "hsqs" ] ||
+        die "Embedded root filesystem is not a SquashFS image"
+else
+    extract_bytes "${IMAGE_PATH}" "${WORK_DIR}/rootfs.ext4" \
+        "$((ROOT_FIRST_EXPECTED * 512))" "${ROOTFS_BYTES}"
+    cmp --silent "${ROOTFS_IMAGE}" "${WORK_DIR}/rootfs.ext4" ||
+        die "Embedded rootfs does not match rootfs.ext4"
+    e2fsck -fn "${WORK_DIR}/rootfs.ext4" >/dev/null
+    [ "$(blkid -s LABEL -o value "${WORK_DIR}/rootfs.ext4")" = "rootfs" ] ||
+        die "Embedded root filesystem label is not rootfs"
+fi
+
+# Content checks read files from the embedded rootfs. rw-ext4 exposes an ext4
+# image (read via debugfs); ro-overlay exposes a SquashFS (extracted once, read
+# via the filesystem path). The rf_* helpers abstract both representations.
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    # Extract the embedded SquashFS root. The verify container runs as root
+    # (see Makefile _verify-one), so device nodes and ownership are preserved.
+    unsquashfs -d "${WORK_DIR}/rootfs" "${WORK_DIR}/rootfs.squashfs" >/dev/null ||
+        die "Unable to extract embedded SquashFS root filesystem"
+    rf_cat()  { cat -- "${WORK_DIR}/rootfs$1" 2>/dev/null; }
+    rf_exists() { [ -e "${WORK_DIR}/rootfs$1" ] || [ -L "${WORK_DIR}/rootfs$1" ]; }
+    rf_is_symlink() { [ -L "${WORK_DIR}/rootfs$1" ]; }
+    rf_owner_root() { [ "$(stat -c '%u:%g' "${WORK_DIR}/rootfs$1")" = "0:0" ]; }
+else
+    rf_cat()  { debugfs -R "cat $1" "${WORK_DIR}/rootfs.ext4" 2>/dev/null; }
+    rf_exists() { debugfs -R "stat $1" "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -q 'Inode:'; }
+    rf_is_symlink() { debugfs -R "stat $1" "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -q 'Type: symlink'; }
+    rf_owner_root() { debugfs -R "stat $1" "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -Eq 'User:[[:space:]]+0[[:space:]]+Group:[[:space:]]+0'; }
+fi
 
 KERNEL_RELEASE="$(cat "${KERNEL_RELEASE_FILE}")"
 if [ "${ROOTFS}" = "buildroot" ]; then
     MODULES_DIR="/lib/modules/${KERNEL_RELEASE}"
 else
-    debugfs -R "cat /etc/debian_version" "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-        grep -Eq "^${DEBIAN_RELEASE}([.]|$)" ||
+    rf_cat /etc/debian_version | grep -Eq "^${DEBIAN_RELEASE}([.]|$)" ||
         die "Debian rootfs is not Debian ${DEBIAN_RELEASE}"
     MODULES_DIR="/usr/lib/modules/${KERNEL_RELEASE}"
 fi
-debugfs -R "stat ${MODULES_DIR}" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-    grep -q 'Inode:' || die "Embedded rootfs lacks modules for ${KERNEL_RELEASE}"
-debugfs -R "stat ${MODULES_DIR}" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-    grep -Eq 'User:[[:space:]]+0[[:space:]]+Group:[[:space:]]+0' ||
+rf_exists "${MODULES_DIR}" ||
+    die "Embedded rootfs lacks modules for ${KERNEL_RELEASE}"
+rf_owner_root "${MODULES_DIR}" ||
     die "Embedded kernel modules are not owned by root"
-debugfs -R "cat /etc/passwd" "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-    grep -q "^${ROOTFS_USERNAME}:" ||
+rf_cat /etc/passwd | grep -q "^${ROOTFS_USERNAME}:" ||
     die "Embedded rootfs lacks user ${ROOTFS_USERNAME}"
-debugfs -R "cat /etc/shadow" "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-    grep -Eq '^root:[^!*:][^:]*:' ||
+rf_cat /etc/shadow | grep -Eq '^root:[^!*:][^:]*:' ||
     die "Embedded root account is not enabled"
 
 if [ "${ROOTFS}" = "buildroot" ]; then
-    debugfs -R "cat /etc/init.d/S02rootfs-resize" \
-        "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-        grep -Fq "resize2fs \"\$rootdev\"" ||
+    rf_cat /etc/init.d/S02rootfs-resize | grep -Fq "resize2fs \"\$rootdev\"" ||
         die "Buildroot rootfs lacks the first-boot resize hook"
 else
-    debugfs -R "stat /lib" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-        grep -q 'Type: symlink' ||
+    rf_is_symlink /lib ||
         die "Debian rootfs lost the /lib usrmerge symlink"
-    debugfs -R "stat /usr/lib/ld-linux-aarch64.so.1" \
-        "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -q 'Inode:' ||
+    rf_exists /usr/lib/ld-linux-aarch64.so.1 ||
         die "Debian rootfs lacks the AArch64 ELF interpreter"
-    debugfs -R "stat /usr/lib/systemd/systemd" \
-        "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -q 'Inode:' ||
+    rf_exists /usr/lib/systemd/systemd ||
         die "Debian rootfs lacks systemd init"
 
     ROOTFS_META="${VARIANT_OUTPUT}/rootfs-build-info.txt"
@@ -270,112 +342,78 @@ else
     }
 
     if overlay_enabled firstboot; then
-        debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
-            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-            grep -Fq "sgdisk -e \"\$rootdisk\"" ||
+        rf_cat /usr/local/sbin/sbc-firstboot | grep -Fq "sgdisk -e \"\$rootdisk\"" ||
             die "Debian rootfs lacks the first-boot GPT repair"
-        debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
-            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-            grep -Fq "partnum=\"\$(cat \"\$sys_block/partition\")\"" ||
+        rf_cat /usr/local/sbin/sbc-firstboot | grep -Fq "partnum=\"\$(cat \"\$sys_block/partition\")\"" ||
             die "Debian rootfs does not derive the root partition from sysfs"
-        debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
-            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-            grep -Fq "growpart \"\$rootdisk\" \"\$partnum\"" ||
+        rf_cat /usr/local/sbin/sbc-firstboot | grep -Fq "growpart \"\$rootdisk\" \"\$partnum\"" ||
             die "Debian rootfs lacks the first-boot partition growth"
-        debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
-            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-            grep -Fq "resize2fs \"\$rootdev\"" ||
+        rf_cat /usr/local/sbin/sbc-firstboot | grep -Fq "resize2fs \"\$rootdev\"" ||
             die "Debian rootfs lacks the first-boot filesystem growth"
-        debugfs -R "cat /etc/systemd/system/sbc-firstboot.service" \
-            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-            grep -Fq 'WantedBy=multi-user.target' ||
+        rf_cat /etc/systemd/system/sbc-firstboot.service | grep -Fq 'WantedBy=multi-user.target' ||
             die "Debian rootfs lacks the first-boot resize service"
-        if debugfs -R "cat /etc/systemd/system/sbc-firstboot.service" \
-            "${WORK_DIR}/rootfs.ext4" 2>/dev/null | grep -Fq 'Before=ssh.service'; then
+        if rf_cat /etc/systemd/system/sbc-firstboot.service | grep -Fq 'Before=ssh.service'; then
             die "Debian first-boot resize must not block SSH startup"
         fi
-        debugfs -R "cat /etc/systemd/system/sbc-firstboot.service" \
-            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-            grep -Fq 'TimeoutStartSec=10min' ||
+        rf_cat /etc/systemd/system/sbc-firstboot.service | grep -Fq 'TimeoutStartSec=10min' ||
             die "Debian first-boot resize service lacks a startup timeout"
-        debugfs -R "cat /etc/systemd/system/sbc-firstboot.service" \
-            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-            grep -Fq 'ExecStart=-/usr/local/sbin/sbc-firstboot' ||
+        rf_cat /etc/systemd/system/sbc-firstboot.service | grep -Fq 'ExecStart=-/usr/local/sbin/sbc-firstboot' ||
             die "Debian first-boot resize failure can degrade system startup"
-        debugfs -R "stat /etc/systemd/system/multi-user.target.wants/sbc-firstboot.service" \
-            "${WORK_DIR}/rootfs.ext4" 2>&1 |
-            grep -q 'Inode:' || die "Debian rootfs does not enable sbc-firstboot.service"
-        debugfs -R "stat /usr/sbin/sgdisk" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-            grep -q 'Inode:' || die "Debian rootfs lacks sgdisk"
-        debugfs -R "stat /usr/bin/growpart" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-            grep -q 'Inode:' || die "Debian rootfs lacks growpart"
+        rf_exists /etc/systemd/system/multi-user.target.wants/sbc-firstboot.service ||
+            die "Debian rootfs does not enable sbc-firstboot.service"
+        rf_exists /usr/sbin/sgdisk || die "Debian rootfs lacks sgdisk"
+        rf_exists /usr/bin/growpart || die "Debian rootfs lacks growpart"
         if overlay_enabled firstboot-info ||
-            debugfs -R "stat /usr/local/sbin/sbc-firstboot-info" \
-                "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -q 'Inode:'; then
-            debugfs -R "cat /usr/local/sbin/sbc-firstboot" \
-                "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-                grep -Fq 'sbc-firstboot-info' ||
+            rf_exists /usr/local/sbin/sbc-firstboot-info; then
+            rf_cat /usr/local/sbin/sbc-firstboot | grep -Fq 'sbc-firstboot-info' ||
                 die "Debian firstboot does not optionally invoke firstboot-info"
         fi
     fi
 
     if overlay_enabled base; then
-        debugfs -R "cat /etc/systemd/system/ssh.service.d/10-hostkeys.conf" \
-            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
-            grep -Fq 'ExecStartPre=/usr/bin/ssh-keygen -A' ||
+        rf_cat /etc/systemd/system/ssh.service.d/10-hostkeys.conf | grep -Fq 'ExecStartPre=/usr/bin/ssh-keygen -A' ||
             die "Debian SSH service does not generate missing host keys"
-        debugfs -R "stat /etc/systemd/system/multi-user.target.wants/ssh.service" \
-            "${WORK_DIR}/rootfs.ext4" 2>&1 |
-            grep -q 'Inode:' || die "Debian rootfs does not enable ssh.service"
+        rf_exists /etc/systemd/system/multi-user.target.wants/ssh.service ||
+            die "Debian rootfs does not enable ssh.service"
         if [ "${DEBIAN_RELEASE}" != "11" ]; then
-            debugfs -R "stat /etc/systemd/system/sysinit.target.wants/systemd-resolved.service" \
-                "${WORK_DIR}/rootfs.ext4" 2>&1 |
-                grep -q 'Inode:' || die "Debian rootfs does not enable systemd-resolved.service"
+            rf_exists /etc/systemd/system/sysinit.target.wants/systemd-resolved.service ||
+                die "Debian rootfs does not enable systemd-resolved.service"
         fi
     fi
 
     if overlay_enabled console; then
         CONSOLE_SPEED="${CONSOLE#*,}"
         CONSOLE_SPEED="${CONSOLE_SPEED%%[!0-9]*}"
-        debugfs -R "cat /etc/systemd/system/serial-getty@${CONSOLE%%,*}.service.d/10-baud.conf" \
-            "${WORK_DIR}/rootfs.ext4" 2>/dev/null |
+        rf_cat /etc/systemd/system/serial-getty@${CONSOLE%%,*}.service.d/10-baud.conf |
             grep -Fq -- "--keep-baud ${CONSOLE_SPEED},115200" ||
             die "Debian serial getty does not preserve the board console speed"
-        debugfs -R "stat /etc/systemd/system/getty.target.wants/serial-getty@${CONSOLE%%,*}.service" \
-            "${WORK_DIR}/rootfs.ext4" 2>&1 |
-            grep -q 'Inode:' ||
+        rf_exists /etc/systemd/system/getty.target.wants/serial-getty@${CONSOLE%%,*}.service ||
             die "Debian rootfs does not enable serial-getty@${CONSOLE%%,*}.service"
     fi
 
     if overlay_enabled network; then
         if [ "${NETWORK_STACK}" = "NetworkManager" ] ||
-            debugfs -R "stat /usr/sbin/NetworkManager" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-                grep -q 'Inode:'; then
+            rf_exists /usr/sbin/NetworkManager; then
             NET_UNIT_PATH=/etc/systemd/system/multi-user.target.wants/NetworkManager.service
-            debugfs -R "stat ${NET_UNIT_PATH}" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-                grep -q 'Inode:' || die "Debian rootfs does not enable NetworkManager"
-            if debugfs -R "stat /etc/systemd/system/multi-user.target.wants/systemd-networkd.service" \
-                "${WORK_DIR}/rootfs.ext4" 2>&1 | grep -q 'Inode:'; then
+            rf_exists "${NET_UNIT_PATH}" || die "Debian rootfs does not enable NetworkManager"
+            if rf_exists /etc/systemd/system/multi-user.target.wants/systemd-networkd.service; then
                 die "Debian NetworkManager rootfs must not enable systemd-networkd"
             fi
         else
             NET_UNIT_PATH=/etc/systemd/system/multi-user.target.wants/systemd-networkd.service
-            debugfs -R "stat ${NET_UNIT_PATH}" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-                grep -q 'Inode:' || die "Debian rootfs does not enable systemd-networkd"
+            rf_exists "${NET_UNIT_PATH}" || die "Debian rootfs does not enable systemd-networkd"
         fi
     fi
 
     # Package presence checks use the recorded apt package list (exact names).
     case ",${DEBIAN_PACKAGES_META}," in
         *,i2c-tools,*)
-            debugfs -R "stat /usr/sbin/i2cdetect" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-                grep -q 'Inode:' || die "Debian rootfs with i2c-tools lacks i2cdetect"
+            rf_exists /usr/sbin/i2cdetect || die "Debian rootfs with i2c-tools lacks i2cdetect"
             ;;
     esac
     case ",${DEBIAN_PACKAGES_META}," in
         *,wpasupplicant,*)
-            debugfs -R "stat /usr/sbin/wpa_supplicant" "${WORK_DIR}/rootfs.ext4" 2>&1 |
-                grep -q 'Inode:' || die "Debian rootfs with wpasupplicant lacks binary"
+            rf_exists /usr/sbin/wpa_supplicant || die "Debian rootfs with wpasupplicant lacks binary"
             ;;
     esac
 

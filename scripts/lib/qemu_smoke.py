@@ -36,6 +36,12 @@ QEMU_INITCALL_BLACKLIST = (
     "rockchip_cpufreq_driver_init",
     "rga_init",
     "regulatory_init_db",
+    # QEMU 'virt' has no real ATF/EL3, so Rockchip SiP SMC calls (e.g.
+    # sip_smc_get_dram_map issued by the DMA system heap init) trap as
+    # undefined instructions and BUG the kernel. Blacklist the offending
+    # initcall so the kernel can reach root mount under QEMU. This is a
+    # QEMU-platform limitation only; real RK3588 hardware is unaffected.
+    "system_heap_create",
 )
 
 
@@ -48,6 +54,8 @@ def parse_args():
     parser.add_argument("--debian-release", required=True)
     parser.add_argument("--username", required=True)
     parser.add_argument("--password", required=True)
+    parser.add_argument("--initrd", default="")
+    parser.add_argument("--rootfs-mode", default="rw-ext4")
     parser.add_argument("--timeout", type=int, required=True)
     parser.add_argument("--memory-mib", type=int, required=True)
     parser.add_argument("--cpus", type=int, required=True)
@@ -95,22 +103,28 @@ def login_serial(child, username, password):
         fail("serial password login failed", child)
 
 
-def run_guest_checks(child, kernel_release, debian_release, password):
+def run_guest_checks(child, kernel_release, debian_release, password, rootfs_mode):
+    if rootfs_mode == "ro-overlay":
+        # The overlay upper lives on the ext4 data partition, not the read-only
+        # SquashFS root; verify the data partition actually came up mounted.
+        resize_check = (
+            "data_mount",
+            "findmnt -n -o TARGET /data >/dev/null 2>&1",
+        )
+    else:
+        resize_check = (
+            "root_resize",
+            "rootsize=$(df -BM --output=size / | tail -1 | tr -dc '0-9'); "
+            "test \"${rootsize:-0}\" -ge 3000",
+        )
     commands = [
         ("debian_release", f"grep -Eq '^{debian_release}([.]|$)' /etc/debian_version"),
         ("architecture", "test \"$(uname -m)\" = aarch64"),
         ("kernel_release", f"test \"$(uname -r)\" = '{kernel_release}'"),
         ("root_rw", "findmnt -n -o OPTIONS / | tr ',' '\\n' | grep -qx rw"),
         ("firstboot", "test -e /var/lib/sbc-firstboot.done"),
-        (
-            "root_resize",
-            "rootsize=$(df -BM --output=size / | tail -1 | tr -dc '0-9'); "
-            "test \"${rootsize:-0}\" -ge 3000",
-        ),
-        (
-            "systemd_running",
-            "test \"$(systemctl is-system-running 2>/dev/null)\" = running",
-        ),
+        resize_check,
+        ("systemd_running", "test \"$(systemctl is-system-running 2>/dev/null)\" = running"),
         ("unit_health", "test -z \"$(systemctl --failed --no-legend --plain)\""),
         ("ssh_service", "systemctl is-active --quiet ssh.service"),
         (
@@ -244,14 +258,26 @@ def main():
     serial_log_path.parent.mkdir(parents=True, exist_ok=True)
     ssh_log_path.write_text("", encoding="utf-8")
     ssh_port = reserve_tcp_port()
-    kernel_args = (
-        "root=PARTLABEL=rootfs rootwait rw "
-        "console=ttyAMA0,115200 earlycon=pl011,0x09000000 "
-        f"initcall_blacklist={','.join(QEMU_INITCALL_BLACKLIST)} "
-        "systemd.default_device_timeout_sec=300s "
-        "systemd.default_timeout_start_sec=300s "
-        "systemd.mask=serial-getty@ttyFIQ0.service consoleblank=0"
-    )
+    if args.rootfs_mode == "ro-overlay":
+        # Read-only SquashFS root + ext4 data partition assembled by the
+        # initramfs overlayroot hook (activated by overlayroot=PARTLABEL=data).
+        kernel_args = (
+            "root=PARTLABEL=rootfs rootwait ro overlayroot=PARTLABEL=data "
+            "console=ttyAMA0,115200 earlycon=pl011,0x09000000 "
+            f"initcall_blacklist={','.join(QEMU_INITCALL_BLACKLIST)} "
+            "systemd.default_device_timeout_sec=300s "
+            "systemd.default_timeout_start_sec=300s "
+            "systemd.mask=serial-getty@ttyFIQ0.service consoleblank=0"
+        )
+    else:
+        kernel_args = (
+            "root=PARTLABEL=rootfs rootwait rw "
+            "console=ttyAMA0,115200 earlycon=pl011,0x09000000 "
+            f"initcall_blacklist={','.join(QEMU_INITCALL_BLACKLIST)} "
+            "systemd.default_device_timeout_sec=300s "
+            "systemd.default_timeout_start_sec=300s "
+            "systemd.mask=serial-getty@ttyFIQ0.service consoleblank=0"
+        )
     qemu_args = [
         "-machine",
         "virt,gic-version=3",
@@ -265,6 +291,10 @@ def main():
         args.kernel,
         "-append",
         kernel_args,
+    ]
+    if args.initrd:
+        qemu_args += ["-initrd", args.initrd]
+    qemu_args += [
         "-drive",
         f"if=none,id=rootdisk,file={args.disk},format=raw,cache=unsafe",
         "-device",
@@ -296,7 +326,8 @@ def main():
             wait_for_login(child, args.timeout)
             login_serial(child, args.username, args.password)
             run_guest_checks(
-                child, args.kernel_release, args.debian_release, args.password
+                child, args.kernel_release, args.debian_release, args.password,
+                args.rootfs_mode,
             )
             test_ssh(
                 ssh_port,

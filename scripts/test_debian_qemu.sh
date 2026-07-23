@@ -42,15 +42,29 @@ require_file "${IMAGE_METADATA}" "image build metadata"
 [ "$(metadata_value "${IMAGE_METADATA}" debian_release)" = "${DEBIAN_RELEASE}" ] ||
     die "Image metadata is not for Debian ${DEBIAN_RELEASE}"
 
+ROOTFS_MODE="$(metadata_value "${IMAGE_METADATA}" rootfs_mode)"
+ROOTFS_MODE="${ROOTFS_MODE:-rw-ext4}"
+INITRD_IMAGE="${VARIANT_OUTPUT}/initrd.img"
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    require_file "${INITRD_IMAGE}" "initramfs; run make build-all first"
+fi
+
 safe_reset_dir "${QEMU_OUTPUT}" "${VARIANT_OUTPUT}"
 trap 'rm -f -- "${QEMU_DISK}"' EXIT
 cp --reflink=auto --sparse=always "${IMAGE_PATH}" "${QEMU_DISK}"
 
-log_step "Booting Debian ${DEBIAN_RELEASE} with the built kernel and full GPT image"
+QEMU_EXTRA_ARGS=()
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    QEMU_EXTRA_ARGS+=(--initrd "${INITRD_IMAGE}")
+fi
+QEMU_EXTRA_ARGS+=(--rootfs-mode "${ROOTFS_MODE}")
+
+log_step "Booting Debian ${DEBIAN_RELEASE} (${ROOTFS_MODE}) with the built kernel and full GPT image"
 python3 "${SCRIPT_DIR}/lib/qemu_smoke.py" \
     --qemu qemu-system-aarch64 \
     --kernel "${KERNEL_IMAGE}" \
     --disk "${QEMU_DISK}" \
+    "${QEMU_EXTRA_ARGS[@]}" \
     --kernel-release "$(cat "${KERNEL_RELEASE_FILE}")" \
     --debian-release "${DEBIAN_RELEASE}" \
     --username "${ROOTFS_USERNAME}" \

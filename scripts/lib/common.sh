@@ -126,6 +126,25 @@ validate_board_profile() {
     BOOT_SIZE_MIB="${BOOT_SIZE_MIB:-256}"
     ROOTFS_SIZE_MIB="${ROOTFS_SIZE_MIB:-1700}"
 
+    # Root filesystem layout mode:
+    #   rw-ext4    (default) single writable ext4 root partition
+    #   ro-overlay read-only SquashFS root + ext4 data partition (overlay upper)
+    # Precedence: ROOTFS_MODE (env/CLI) > ROOTFS_MODE_DEFAULT (board) > rw-ext4
+    if [ -z "${ROOTFS_MODE:-}" ]; then
+        ROOTFS_MODE="${ROOTFS_MODE_DEFAULT:-rw-ext4}"
+    fi
+    case "${ROOTFS_MODE}" in
+        rw-ext4 | ro-overlay) ;;
+        *) die "Unsupported ROOTFS_MODE=${ROOTFS_MODE}; expected rw-ext4 or ro-overlay" ;;
+    esac
+    # Initial size of the ext4 data partition for ro-overlay (MiB). 0 means
+    # "use all remaining space after the SquashFS root partition". A board may
+    # set DATA_SIZE_MIB_DEFAULT; explicit ROOTFS_MODE/DATA_SIZE_MIB from the
+    # environment (CLI / .env) always wins over the board default.
+    DATA_SIZE_MIB="${DATA_SIZE_MIB:-${DATA_SIZE_MIB_DEFAULT:-0}}"
+    [[ "${DATA_SIZE_MIB}" =~ ^[0-9]+$ ]] ||
+        die "DATA_SIZE_MIB must be a non-negative integer in ${BOARD_PROFILE}"
+
     case "${BOOTLOADER_LAYOUT}" in
         rockchip-gpt-idblock-extlinux-v1) ;;
         *) die "Unsupported BOOTLOADER_LAYOUT=${BOOTLOADER_LAYOUT}. Known layouts: rockchip-gpt-idblock-extlinux-v1" ;;

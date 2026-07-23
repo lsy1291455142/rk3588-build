@@ -11,6 +11,9 @@ require_cmd make tar git install realpath ln fdtget fdtput
 
 KERNEL_DIR="${SDK_DIR}/kernel"
 KERNEL_FRAGMENT="${CONFIG_DIR}/kernel/rootfs-base.config"
+# Always merged so one common kernel can boot both rw-ext4 and ro-overlay
+# images (SquashFS lower + OverlayFS upper + initrd).
+KERNEL_OVERLAY_FRAGMENT="${CONFIG_DIR}/kernel/squashfs-overlay.config"
 COMMON_OUTPUT="$(board_common_output_dir)"
 KERNEL_BUILD="$(board_build_dir kernel)"
 KERNEL_SOURCE="$(board_build_dir kernel-source)"
@@ -21,6 +24,7 @@ CROSS_COMPILE="${CROSS_COMPILE-aarch64-linux-gnu-}"
 require_dir "${KERNEL_DIR}" "kernel source"
 require_file "${KERNEL_DIR}/arch/arm64/configs/${KERNEL_DEFCONFIG}" "kernel defconfig"
 require_file "${KERNEL_FRAGMENT}" "kernel rootfs config fragment"
+require_file "${KERNEL_OVERLAY_FRAGMENT}" "kernel squashfs/overlay config fragment"
 require_file "${KERNEL_DIR}/scripts/kconfig/merge_config.sh" "kernel merge_config.sh"
 
 link_source_children() {
@@ -114,7 +118,7 @@ make "${make_args[@]}" "${KERNEL_DEFCONFIG}"
     cd "${KERNEL_SOURCE}"
     ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE}" \
         scripts/kconfig/merge_config.sh -m -O "${KERNEL_BUILD}" \
-        "${KERNEL_BUILD}/.config" "${KERNEL_FRAGMENT}"
+        "${KERNEL_BUILD}/.config" "${KERNEL_FRAGMENT}" "${KERNEL_OVERLAY_FRAGMENT}"
 )
 make "${make_args[@]}" olddefconfig
 
@@ -139,7 +143,9 @@ required_configs=(
     CONFIG_MEMCG=y
     CONFIG_MMC_BLOCK=y
     CONFIG_NAMESPACES=y
+    CONFIG_OVERLAY_FS=y
     CONFIG_RTC_DRV_PL031=y
+    CONFIG_SQUASHFS=y
     CONFIG_SECCOMP=y
     CONFIG_SERIAL_AMBA_PL011=y
     CONFIG_SERIAL_AMBA_PL011_CONSOLE=y

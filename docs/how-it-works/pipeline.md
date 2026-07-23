@@ -59,6 +59,10 @@
 
 `configs/kernel/rootfs-base.config` 在板级 defconfig 之后合并，确保所有板型都有一致的基础能力：ext4、MMC、devtmpfs、namespace、cgroup、virtio（QEMU 测试需要）、PL011 串口（QEMU virt 控制台）、PL031 RTC 等。
 
+`configs/kernel/squashfs-overlay.config` **同样始终合并**（与 `ROOTFS_MODE` 无关），提供
+`CONFIG_SQUASHFS=y`、`CONFIG_OVERLAY_FS=y` 等能力。这样**单个内核产物即可同时启动
+`rw-ext4` 与 `ro-overlay` 两种镜像**，`ro-overlay` 不需要单独编内核。
+
 板级专用的内核选项应该放在 BSP defconfig 里，不要堆进共享 fragment。
 
 ## 阶段三：build-rootfs
@@ -161,4 +165,11 @@
 10. SSH 密码登录成功
 11. 串口日志无 Kernel panic / Oops / BUG / 启动失败等错误模式
 
-测试用 `initcall_blacklist` 屏蔽了 DRM、cpufreq、RGA 等在 QEMU virt 里无意义的 Rockchip 驱动初始化，用 `console=ttyAMA0` 替代 `ttyFIQ0`（QEMU virt 的串口是 PL011）。
+测试用 `initcall_blacklist` 屏蔽了在 QEMU virt 里无意义或会导致崩溃的 Rockchip 驱动初始化：
+`rockchip_drm_init`、`rockchip_cpufreq_driver_init`、`rga_init`、`regulatory_init_db`、
+`system_heap_create`。其中 `system_heap_create` 必须屏蔽：QEMU `virt` 没有真实 ATF/EL3，
+Rockchip SiP SMC 调用（如 DMA system heap 初始化的 `sip_smc_get_dram_map`）会陷入未定义指令。
+
+此外，`ro-overlay` 模式会以 `overlayroot=PARTLABEL=data` 加载 `initrd.img` 并由
+`overlayroot` 钩子组装 OverlayFS 根；用 `console=ttyAMA0` 替代 `ttyFIQ0`（QEMU virt 的
+串口是 PL011）。上述屏蔽与串口替换**仅用于 QEMU 仿真**，真实硬件启动不受影响。

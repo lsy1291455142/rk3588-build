@@ -89,7 +89,8 @@ RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
         wget \
         xz-utils \
         zlib1g-dev \
-        zstd && \
+        zstd \
+        squashfs-tools && \
     rm -rf /var/lib/apt/lists/*
 
 RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
@@ -199,6 +200,7 @@ RUN apt-get update && \
         mmdebstrap \
         mount \
         passwd \
+        squashfs-tools \
         systemd \
         tar \
         util-linux \

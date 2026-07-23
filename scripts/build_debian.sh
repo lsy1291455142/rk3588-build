@@ -48,6 +48,9 @@ resolve_debian_overlays
 
 require_cmd mmdebstrap dpkg chroot systemctl tar truncate mkfs.ext4 \
     tune2fs e2fsck blkid debugfs depmod realpath
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    require_cmd mksquashfs
+fi
 
 [ "$(id -u)" -eq 0 ] || die "Debian rootfs build must run as root"
 [ "$(dpkg --print-architecture)" = "arm64" ] ||
@@ -110,6 +113,10 @@ PACKAGES=(
 )
 if [ "${DEBIAN_RELEASE}" != "11" ]; then
     PACKAGES+=(systemd-resolved)
+fi
+# ro-overlay boots through an initramfs that assembles the SquashFS+overlay root.
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    PACKAGES+=(initramfs-tools busybox)
 fi
 mapfile -t EXTRA_PACKAGES < <(debian_package_list)
 if [ "${#EXTRA_PACKAGES[@]}" -gt 0 ]; then
@@ -293,36 +300,77 @@ rm -rf "${ROOT_DIR}/var/lib/apt/lists/"* \
     "${ROOT_DIR}/var/cache/apt/archives/"*.deb \
     "${ROOT_DIR}/tmp/"* "${ROOT_DIR}/var/tmp/"*
 
-ROOTFS_IMAGE="${VARIANT_OUTPUT}/rootfs.ext4"
+INITRD_IMAGE="${VARIANT_OUTPUT}/initrd.img"
 ROOTFS_TAR="${VARIANT_OUTPUT}/rootfs.tar"
-rm -f "${ROOTFS_IMAGE}" "${ROOTFS_TAR}"
-truncate -s "${ROOTFS_SIZE_MIB}M" "${ROOTFS_IMAGE}"
-mkfs.ext4 -F -L rootfs -d "${ROOT_DIR}" "${ROOTFS_IMAGE}"
-tune2fs -m 0 "${ROOTFS_IMAGE}"
-e2fsck -fn "${ROOTFS_IMAGE}"
-tar --numeric-owner --xattrs --acls -C "${ROOT_DIR}" -cpf "${ROOTFS_TAR}" .
-chmod 0644 "${ROOTFS_IMAGE}" "${ROOTFS_TAR}"
+rm -f "${INITRD_IMAGE}" "${ROOTFS_TAR}"
 
-[ "$(blkid -s LABEL -o value "${ROOTFS_IMAGE}")" = "rootfs" ] ||
-    die "Debian rootfs label is not rootfs"
-debugfs -R "stat /usr/lib/modules/${KERNEL_RELEASE}" "${ROOTFS_IMAGE}" 2>&1 |
-    grep -q 'Inode:' ||
-    die "Debian rootfs does not contain modules for ${KERNEL_RELEASE}"
-debugfs -R "stat /usr/lib/modules/${KERNEL_RELEASE}" "${ROOTFS_IMAGE}" 2>&1 |
-    grep -Eq 'User:[[:space:]]+0[[:space:]]+Group:[[:space:]]+0' ||
-    die "Debian kernel modules are not owned by root"
-debugfs -R "stat /lib" "${ROOTFS_IMAGE}" 2>&1 |
-    grep -q 'Type: symlink' ||
-    die "Debian rootfs lost the /lib usrmerge symlink"
-debugfs -R "stat /usr/lib/ld-linux-aarch64.so.1" "${ROOTFS_IMAGE}" 2>&1 |
-    grep -q 'Inode:' ||
-    die "Debian rootfs lacks the AArch64 ELF interpreter"
-debugfs -R "stat /usr/lib/systemd/systemd" "${ROOTFS_IMAGE}" 2>&1 |
-    grep -q 'Inode:' ||
-    die "Debian rootfs lacks systemd init"
-debugfs -R "cat /etc/shadow" "${ROOTFS_IMAGE}" 2>/dev/null |
-    grep -Eq '^root:[^!*:][^:]*:' ||
-    die "Debian root account is not enabled"
+# ro-overlay boots via an initramfs that assembles the SquashFS + overlay root.
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    log_step "Generating initramfs (initramfs-tools) for ro-overlay root"
+    if [ ! -x "${ROOT_DIR}/usr/sbin/update-initramfs" ] &&
+        [ ! -x "${ROOT_DIR}/usr/bin/update-initramfs" ]; then
+        die "ro-overlay requires the initramfs-tools package in the rootfs"
+    fi
+    apply_rootfs_overlay_tree "${ROOT_DIR}" "$(debian_rootfs_dir)/ro-overlay/overlay"
+    chmod 0755 "${ROOT_DIR}/etc/initramfs-tools/scripts/local-bottom/overlayroot"
+    mkdir -p "${ROOT_DIR}/boot"
+    chroot "${ROOT_DIR}" update-initramfs -c -k "${KERNEL_RELEASE}"
+    require_file "${ROOT_DIR}/boot/initrd.img-${KERNEL_RELEASE}" "generated initramfs"
+    install -m 0644 "${ROOT_DIR}/boot/initrd.img-${KERNEL_RELEASE}" "${INITRD_IMAGE}"
+fi
+
+tar --numeric-owner --xattrs --acls -C "${ROOT_DIR}" -cpf "${ROOTFS_TAR}" .
+chmod 0644 "${ROOTFS_TAR}"
+
+if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
+    ROOTFS_IMAGE="${VARIANT_OUTPUT}/rootfs.squashfs"
+    rm -f "${ROOTFS_IMAGE}"
+    log_step "Packing read-only SquashFS root filesystem"
+    mksquashfs "${ROOT_DIR}" "${ROOTFS_IMAGE}" \
+        -comp zstd -noappend -no-progress
+    chmod 0644 "${ROOTFS_IMAGE}"
+
+    # Content checks against the staged tree (equivalent to the ext4 checks).
+    [ -d "${ROOT_DIR}/usr/lib/modules/${KERNEL_RELEASE}" ] ||
+        die "Debian rootfs does not contain modules for ${KERNEL_RELEASE}"
+    [ -L "${ROOT_DIR}/lib" ] ||
+        die "Debian rootfs lost the /lib usrmerge symlink"
+    [ -e "${ROOT_DIR}/usr/lib/ld-linux-aarch64.so.1" ] ||
+        die "Debian rootfs lacks the AArch64 ELF interpreter"
+    [ -e "${ROOT_DIR}/usr/lib/systemd/systemd" ] ||
+        die "Debian rootfs lacks systemd init"
+    grep -Eq '^root:[^!*:][^:]*:' "${ROOT_DIR}/etc/shadow" ||
+        die "Debian root account is not enabled"
+else
+    ROOTFS_IMAGE="${VARIANT_OUTPUT}/rootfs.ext4"
+    rm -f "${ROOTFS_IMAGE}"
+    truncate -s "${ROOTFS_SIZE_MIB}M" "${ROOTFS_IMAGE}"
+    mkfs.ext4 -F -L rootfs -d "${ROOT_DIR}" "${ROOTFS_IMAGE}"
+    tune2fs -m 0 "${ROOTFS_IMAGE}"
+    e2fsck -fn "${ROOTFS_IMAGE}"
+    chmod 0644 "${ROOTFS_IMAGE}"
+
+    [ "$(blkid -s LABEL -o value "${ROOTFS_IMAGE}")" = "rootfs" ] ||
+        die "Debian rootfs label is not rootfs"
+    debugfs -R "stat /usr/lib/modules/${KERNEL_RELEASE}" "${ROOTFS_IMAGE}" 2>&1 |
+        grep -q 'Inode:' ||
+        die "Debian rootfs does not contain modules for ${KERNEL_RELEASE}"
+    debugfs -R "stat /usr/lib/modules/${KERNEL_RELEASE}" "${ROOTFS_IMAGE}" 2>&1 |
+        grep -Eq 'User:[[:space:]]+0[[:space:]]+Group:[[:space:]]+0' ||
+        die "Debian kernel modules are not owned by root"
+    debugfs -R "stat /lib" "${ROOTFS_IMAGE}" 2>&1 |
+        grep -q 'Type: symlink' ||
+        die "Debian rootfs lost the /lib usrmerge symlink"
+    debugfs -R "stat /usr/lib/ld-linux-aarch64.so.1" "${ROOTFS_IMAGE}" 2>&1 |
+        grep -q 'Inode:' ||
+        die "Debian rootfs lacks the AArch64 ELF interpreter"
+    debugfs -R "stat /usr/lib/systemd/systemd" "${ROOTFS_IMAGE}" 2>&1 |
+        grep -q 'Inode:' ||
+        die "Debian rootfs lacks systemd init"
+    debugfs -R "cat /etc/shadow" "${ROOTFS_IMAGE}" 2>/dev/null |
+        grep -Eq '^root:[^!*:][^:]*:' ||
+        die "Debian root account is not enabled"
+fi
 
 run_hook post_build_rootfs
 
@@ -336,6 +384,7 @@ write_common_metadata "${VARIANT_OUTPUT}/rootfs-build-info.txt" \
     "debian_packages=${DEBIAN_PACKAGES:-}" \
     "debian_features=${DEBIAN_PACKAGES:-}" \
     "debian_overlays=${DEBIAN_OVERLAYS:-}" \
+    "rootfs_mode=${ROOTFS_MODE}" \
     "hostname=${ROOTFS_HOSTNAME}" \
     "network_stack=$(if [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/NetworkManager.service" ]; then printf NetworkManager; elif [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/systemd-networkd.service" ]; then printf systemd-networkd; else printf none; fi)" \
     "kernel_release=${KERNEL_RELEASE}" \

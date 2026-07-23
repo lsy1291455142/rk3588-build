@@ -18,6 +18,10 @@
 output/
 out/
 
+# Python bytecode
+__pycache__/
+*.pyc
+
 # Board-local WiFi/BT firmware blobs (CokePi AIC; large binaries not in git)
 # Staged by board plugin during build-rootfs (or optional stage-aic8800-firmware.sh)
 rootfs/debian/boards/*/packages/**
