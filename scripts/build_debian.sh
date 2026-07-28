@@ -182,8 +182,12 @@ ensure_chroot_dev() {
         if [ -c "/dev/${name}" ]; then
             cp -a "/dev/${name}" "${path}" 2>/dev/null && return 0
         fi
+        # Host lacks the node (e.g. no /dev/console in an unprivileged
+        # container). Creation is best-effort: a missing node only produces
+        # non-fatal warnings downstream, so never return non-zero here — that
+        # would trip `set -e` and abort the whole rootfs build.
         log_warn "cannot create /dev/${name} in staged rootfs (host lacks the node)"
-        return 1
+        return 0
     }
     _ensure_char_dev null    666
     _ensure_char_dev zero    666
