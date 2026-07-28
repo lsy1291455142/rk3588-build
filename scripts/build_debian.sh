@@ -167,39 +167,40 @@ ensure_chroot_dev() {
     # mmdebstrap / prior failed runs can leave empty files or wrong node types;
     # opening those under qemu-user yields
     # "Couldn't open /dev/null: Permission denied".
+    # Try to make a node at $1 that actually *opens* under a later chroot.
+    # Returns 0 in all cases (best-effort; a missing node only yields
+    # non-fatal downstream warnings, and returning non-zero would trip `set
+    # -e` and abort the whole rootfs build).
     _ensure_char_dev() {
         local name="$1" mode="$2"
         local path="${d}/${name}"
-        if [ -c "${path}" ]; then
-            chmod "${mode}" "${path}" 2>/dev/null || true
-            return 0
-        fi
         rm -f "${path}" 2>/dev/null || true
-        # Prefer copying the host's real device node. This needs CAP_MKNOD in
-        # principle, but `cp -a` of an existing node is the most faithful copy
-        # (correct device numbers) and works whenever the host provides it.
+
+        # For the pure-I/O nodes (null/zero/full/random/urandom) a plain
+        # regular file is a *complete* substitute during the build: every
+        # consumer only opens them for redirection (O_WRONLY + discard) or
+        # reads EOF, which a regular file satisfies identically. This is the
+        # ONLY path that works unconditionally in unprivileged containers
+        # (GitHub Codespaces): a real char device needs CAP_MKNOD to create,
+        # and `cp -a` of a device node is itself a mknod that the container
+        # cannot perform. Verified locally: chroot opens a regular-file
+        # /dev/null fine, but rejects a char device with "Permission denied".
+        case "${name}" in
+            null|zero|full|random|urandom)
+                if : >"${path}" 2>/dev/null && chmod "${mode}" "${path}" 2>/dev/null; then
+                    return 0
+                fi
+                # Extremely unlikely; fall through to the generic attempt.
+                ;;
+        esac
+
+        # console/tty/ptmx (and any other name) keep real device semantics
+        # only when the host node can be faithfully copied. In an unprivileged
+        # container this copy will typically fail and that is fine — those
+        # nodes are not required by the build-time chroot commands.
         if [ -c "/dev/${name}" ]; then
             cp -a "/dev/${name}" "${path}" 2>/dev/null && return 0
         fi
-        # Unprivileged fallback: in environments like GitHub Codespaces the
-        # build container cannot create device nodes at all (no CAP_MKNOD, and
-        # `cp -a` of a device node is itself a mknod). For the common nodes
-        # (null/zero/full/urandom/random) an empty regular file is a usable
-        # stand-in for the build-time commands that only redirect I/O (open
-        # O_WRONLY and discard, or read an empty file as EOF). This is enough
-        # to get past "Couldn't open /dev/null: Permission denied" without any
-        # privilege. console/tty/ptmx keep their real semantics only when the
-        # host node is copyable, so they are simply skipped here.
-        case "${name}" in
-            null|zero|full|random|urandom)
-                : >"${path}" 2>/dev/null && chmod "${mode}" "${path}" 2>/dev/null && \
-                    return 0
-                ;;
-        esac
-        # Host lacks the node (e.g. no /dev/console in an unprivileged
-        # container). Creation is best-effort: a missing node only produces
-        # non-fatal warnings downstream, so never return non-zero here — that
-        # would trip `set -e` and abort the whole rootfs build.
         log_warn "cannot create /dev/${name} in staged rootfs (host lacks the node)"
         return 0
     }
@@ -228,11 +229,13 @@ ensure_chroot_dev() {
 # Run a command with host runtime mounts over the staged rootfs.
 # Tools such as systemd-analyze verify, sshd -t and update-initramfs need
 # /proc, /sys and /run inside the chroot. /dev nodes are provided by
-# ensure_chroot_dev (copied from the host via cp -a, no privileges needed),
-# so there is NO mount --bind of /dev — this project targets unprivileged
-# environments (e.g. GitHub Codespaces) by default and never relies on
-# CAP_SYS_ADMIN. proc/sys/run are mounted (when permitted) and unmounted
-# afterwards so the final rootfs tar/squashfs never captures host trees.
+# ensure_chroot_dev as plain regular files for the I/O nodes
+# (null/zero/full/random/urandom) and copied char devices for
+# console/tty/ptmx when the host offers them. There is NO mount --bind of
+# /dev — this project targets unprivileged environments (e.g. GitHub
+# Codespaces) by default and never relies on CAP_MKNOD/CAP_SYS_ADMIN.
+# proc/sys/run are mounted (when permitted) and unmounted afterwards so the
+# final rootfs tar/squashfs never captures host trees.
 with_host_dev() {
     local -a mounted=()
     local mp
