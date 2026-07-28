@@ -1,6 +1,6 @@
 # 已支持板型
 
-本页列出仓库内置的板型 profile（位于 `boards/`，不含 `TEMPLATE`）。每个板型是一个目录，含 `board.conf`（必需）、可选的 `kernel.config`、`rootfs/`、`check.sh`。运行 `make list-boards` 可随时查看。
+本页列出仓库内置的板型 profile（位于 `boards/`，不含 `TEMPLATE`）。每个板型是一个目录，含 `board.conf`（必需）、可选的 `kernel.config`、`rootfs/`。运行 `make list-boards` 可随时查看。
 
 所有板型共用 SoC 族 `rk3588`（加载 `configs/soc/rk3588.conf`），统一 `BOOTLOADER_LAYOUT=rockchip-gpt-idblock-extlinux-v1`，磁盘几何默认 `IMAGE_SIZE_MIB=2048` / `BOOT_START_MIB=16` / `BOOT_SIZE_MIB=256` / `ROOTFS_SIZE_MIB=1700`，串口 `ttyFIQ0,1500000n8`。下表中仅列出有差异或值得注意的字段。
 
@@ -33,7 +33,6 @@
   - `EXPECTED_BUILDROOT_REVISION=c49ae7216786d3cb62a8e8de5556007b4b539233`
 - `UBOOT_PYTHON`: `python3`
 - `ROOTFS_HOSTNAME_DEFAULT`: `rock5c`
-- 提供 `check.sh`（板级自检钩子）
 - 这是文档与测试的主要参考实现
 
 ## CokePi Plus / CokePi Model

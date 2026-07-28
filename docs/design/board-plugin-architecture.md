@@ -5,7 +5,7 @@
 ## 目标结构
 
 - **纯构建核心（board-name-free）**：`scripts/lib/common.sh`、`build_*.sh`、`make_image.sh`、`verify_image.sh` 不硬编码任何板型名、WiFi/BT 芯片或具体 manifest。板型差异只通过数据（profile、overlay、hook）注入。
-- **板子为单元（board-as-unit）**：每个板型一个目录 `boards/<BOARD>/`，含 `board.conf`（配置）、`kernel.config`（自动合并的 fragment）、`rootfs/`（plugin/overlay）、`check.sh`（自检）、`board.hooks.sh`（构建钩子）。
+- **板子为单元（board-as-unit）**：每个板型一个目录 `boards/<BOARD>/`，含 `board.conf`（配置）、`kernel.config`（自动合并的 fragment）、`rootfs/`（plugin/overlay）、`board.hooks.sh`（构建钩子）。
 - **可选能力外置为静态 overlay**：Debian 的可选能力（`base`/`console`/`firstboot`/`firstboot-info`/`network`）是 `rootfs/debian/overlays/<name>/overlay/` 下的纯静态文件树，由 `DEBIAN_OVERLAYS` 选择，核心只负责拷贝分发。启用服务通过 wants 符号链接实现，无需脚本。
 - **平台事实与板型解耦**：SoC 级限制（如 QEMU `virt` 的 initcall 黑名单、FiQ 串口 mask）放在 `configs/soc/<SOC>.conf`，由板级 `SOC=` 选择加载，不进核心脚本。
 - **端到端校验即契约**：`verify_image.sh` 与 `scripts/check.sh` 把「镜像长什么样、脚本必须含哪些标记」写成可执行契约，而非文档约定。

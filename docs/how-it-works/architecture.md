@@ -10,7 +10,7 @@ rk3588-build/
 ├── Dockerfile                # 双阶段：rk3588-build（x86_64/amd64 或 arm64 通用）+ debian-rootfs（arm64）
 ├── docker-compose.yml        # 两个服务 + 三个命名卷的编排
 ├── manifests/                # repo manifest XML（每个 SDK 来源一个）
-├── boards/                   # 板型为单元：每板一个目录（board.conf / kernel.config / rootfs / check.sh）
+├── boards/                   # 板型为单元：每板一个目录（board.conf / kernel.config / rootfs）
 │   └── TEMPLATE/             # 新建板型模板（make new-board 的起点）
 ├── configs/
 │   ├── kernel/               # 共享内核 fragment（rootfs-base.config / squashfs-overlay.config）

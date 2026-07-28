@@ -4,7 +4,7 @@
 
 ## Docker 相关
 
-**`docker compose config` 报告 "refers to undefined volume"**：`SDK_VOLUME` 在 `docker-compose.yml` 中声明为 `external: true`，运行期由 `make fetch`/`make import-local-sdk` 创建。这是预期提示，只要错误列表中不含 `error`/`invalid`/`syntax` 即为正常（`check.sh` 的 `check_compose` 即据此判定）。先 `make fetch` 或 `make import-local-sdk` 再继续。
+**`docker compose config` 报告 "refers to undefined volume"**：`SDK_VOLUME` 在 `docker-compose.yml` 中声明为 `external: true`，运行期由 `make fetch`/`make import-local-sdk` 创建。这是预期提示，只要错误列表中不含 `error`/`invalid`/`syntax` 即为正常（`docker compose config` 自身即可判定，项目不再单独做 compose 校验）。先 `make fetch` 或 `make import-local-sdk` 再继续。
 
 **x86_64 宿主构建 Debian rootfs 报架构错误**：Debian rootfs 必须在 `linux/arm64` 容器中以原生方式构建。`make _debian-rootfs` 会先 `debian-preflight` 探测架构。若未自动注册 binfmt，手动 `make register-arm64-binfmt`（x86_64 宿主）。ARM64 宿主（如 Apple Silicon）原生运行，无需注册。
 

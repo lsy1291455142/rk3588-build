@@ -35,8 +35,10 @@
 
 - `check_bash_syntax` / `check_shellcheck`：所有 `*.sh` 语法与 lint。
 - `check_manifests`：manifest XML 合法且含 `buildroot` remote（板级拥有的 manifest 还需锁 Buildroot tag）。
-- `check_board_profiles` / `run_board_self_checks`：每个板型 `board.conf` 走 `validate_board_profile`，并运行板级 `check.sh` 的 `board_check`。
+- `check_board_profiles`：每个板型 `board.conf` 走 `validate_board_profile`（必填字段、磁盘几何约束）。
 - `check_kernel_contract` / `check_uboot_boot_contract_guard` / `check_qemu_smoke_contract`：核心脚本含预期的契约标记（如 extlinux 校验、binfmt 注册、overlay 插件文件存在）。
 - `check_debian_packages`：包名解析拒绝别名、overlay 选中/禁用/未知、板级 plugin 分发、networkd/NM 互斥等。
-- `check_rootfs_configuration` / `check_compose`：rootfs 配置键与 `docker-compose.yml` 结构。
+- `check_rootfs_configuration`：rootfs 配置键与 `.env` 行为（ROOTFS=debian/buildroot/all 真实生效）。
 - `self_tests`：失败路径（缺板型、非法 rootfs、危险路径重置）必须按预期报错。
+
+> 形式化/脆弱断言（`check_help_contract`、`check_debian_builder_contract`、`check_compose`）已移除；`check_rootfs_configuration` 与 `check_qemu_smoke_contract` 降级为非阻断 advisory。
