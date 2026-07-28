@@ -163,10 +163,6 @@ ensure_chroot_dev() {
     local d="${ROOT_DIR}/dev"
     mkdir -p "${d}"
 
-    # Force-recreate when the path is missing or not a real char device.
-    # mmdebstrap / prior failed runs can leave empty files or wrong node types;
-    # opening those under qemu-user yields
-    # "Couldn't open /dev/null: Permission denied".
     # Try to make a node at $1 that actually *opens* under a later chroot.
     # Returns 0 in all cases (best-effort; a missing node only yields
     # non-fatal downstream warnings, and returning non-zero would trip `set
