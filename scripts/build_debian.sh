@@ -211,36 +211,22 @@ ensure_chroot_dev() {
 # Tools such as systemd-analyze verify, sshd -t and update-initramfs need
 # /proc, /sys and /run inside the chroot. /dev nodes are provided by
 # ensure_chroot_dev (copied from the host via cp -a, no privileges needed),
-# so there is NO mount --bind of /dev here — that requires CAP_SYS_ADMIN and
-# fails in unprivileged environments (e.g. GitHub Codespaces) anyway.
-# proc/sys/run are mounted (when permitted) and unmounted afterwards so the
-# final rootfs tar/squashfs never captures the host runtime trees.
+# so there is NO mount --bind of /dev — this project targets unprivileged
+# environments (e.g. GitHub Codespaces) by default and never relies on
+# CAP_SYS_ADMIN. proc/sys/run are mounted (when permitted) and unmounted
+# afterwards so the final rootfs tar/squashfs never captures host trees.
 with_host_dev() {
     local -a mounted=()
     local mp
 
     _mount_one() {
-        local src="$1" dst="$2" type="${3:-}" opts="${4:-}"
+        local src="$1" dst="$2" type="$3" opts="${4:-}"
         mkdir -p "${dst}"
-        if [ -n "${type}" ]; then
-            if [ -n "${opts}" ]; then
-                if mount -t "${type}" -o "${opts}" "${src}" "${dst}" 2>/dev/null; then
-                    mounted+=("${dst}")
-                    return 0
-                fi
-            else
-                if mount -t "${type}" "${src}" "${dst}" 2>/dev/null; then
-                    mounted+=("${dst}")
-                    return 0
-                fi
-            fi
+        if [ -n "${opts}" ]; then
+            mount -t "${type}" -o "${opts}" "${src}" "${dst}" 2>/dev/null
         else
-            if mount --bind "${src}" "${dst}" 2>/dev/null; then
-                mounted+=("${dst}")
-                return 0
-            fi
-        fi
-        return 1
+            mount -t "${type}" "${src}" "${dst}" 2>/dev/null
+        fi && mounted+=("${dst}")
     }
 
     _mount_one proc  "${ROOT_DIR}/proc" proc  || true
