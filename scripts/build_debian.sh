@@ -326,7 +326,10 @@ apply_debian_board_overlay "${ROOT_DIR}"
 
 rm -f "${ROOT_DIR}"/etc/ssh/ssh_host_* "${ROOT_DIR}/etc/machine-id"
 : >"${ROOT_DIR}/etc/machine-id"
-if debian_overlay_enabled base || [ -f "${ROOT_DIR}/lib/systemd/system/systemd-resolved.service" ] ||
+# Point resolv.conf at systemd-resolved's stub resolver whenever the
+# resolved unit is installed (Debian >=12 ships it in the systemd package).
+# This is a system-package check, not tied to any overlay.
+if [ -f "${ROOT_DIR}/lib/systemd/system/systemd-resolved.service" ] ||
     [ -f "${ROOT_DIR}/usr/lib/systemd/system/systemd-resolved.service" ]; then
     ln -snf /run/systemd/resolve/stub-resolv.conf "${ROOT_DIR}/etc/resolv.conf"
 fi
@@ -345,27 +348,13 @@ depmod -b "${ROOT_DIR}" "${KERNEL_RELEASE}"
 # Optional overlay plugins (network/firstboot/console/...).
 run_debian_overlay_plugins "${ROOT_DIR}"
 
+# Verify every enabled unit: scan all *.target.wants directories and pick
+# symlinks whose unit file exists. The build core stays free of hard-coded
+# service names; whatever overlays enable is verified generically.
 VERIFY_UNITS=(multi-user.target)
-if [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/sbc-firstboot.service" ] ||
-    [ -f "${ROOT_DIR}/etc/systemd/system/sbc-firstboot.service" ]; then
-    if [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/sbc-firstboot.service" ]; then
-        VERIFY_UNITS+=(sbc-firstboot.service)
-    fi
-fi
-if [ -e "${ROOT_DIR}/etc/systemd/system/getty.target.wants/serial-getty@${CONSOLE_DEVICE}.service" ]; then
-    VERIFY_UNITS+=("serial-getty@${CONSOLE_DEVICE}.service")
-fi
-if [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/ssh.service" ]; then
-    VERIFY_UNITS+=(ssh.service)
-fi
-if [ -e "${ROOT_DIR}/etc/systemd/system/sysinit.target.wants/systemd-resolved.service" ]; then
-    VERIFY_UNITS+=(systemd-resolved.service)
-fi
-if [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/NetworkManager.service" ]; then
-    VERIFY_UNITS+=(NetworkManager.service)
-elif [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/systemd-networkd.service" ]; then
-    VERIFY_UNITS+=(systemd-networkd.service)
-fi
+while IFS= read -r u; do
+    VERIFY_UNITS+=("${u}")
+done < <(collect_enabled_units "${ROOT_DIR}")
 set +e
 verify_out="$(
     with_host_dev chroot "${ROOT_DIR}" \
@@ -478,17 +467,6 @@ fi
 
 run_hook post_build_rootfs
 
-# Determine the active network stack for metadata (NetworkManager wins over
-# systemd-networkd; default to none). Computed once into a variable so the
-# write_common_metadata call below stays readable.
-if [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/NetworkManager.service" ]; then
-    NETWORK_STACK=NetworkManager
-elif [ -e "${ROOT_DIR}/etc/systemd/system/multi-user.target.wants/systemd-networkd.service" ]; then
-    NETWORK_STACK=systemd-networkd
-else
-    NETWORK_STACK=none
-fi
-
 write_common_metadata "${VARIANT_OUTPUT}/rootfs-build-info.txt" \
     "source_manifest=${SOURCE_MANIFEST:-}" \
     "kernel_revision=$(git_revision "${SDK_DIR}/kernel")" \
@@ -500,7 +478,6 @@ write_common_metadata "${VARIANT_OUTPUT}/rootfs-build-info.txt" \
     "debian_overlays=${DEBIAN_OVERLAYS:-}" \
     "rootfs_mode=${ROOTFS_MODE}" \
     "hostname=${ROOTFS_HOSTNAME}" \
-    "network_stack=${NETWORK_STACK}" \
     "kernel_release=${KERNEL_RELEASE}" \
     "username=${ROOTFS_USERNAME}" \
     "root_login=enabled" \

@@ -16,7 +16,7 @@
 | `ROOTFS_PASSWORD` | `password` | 上述用户与 root 的密码（Debian）。Buildroot 路径脚本内置回退为 `rk3588`。 |
 | `ROOTFS_HOSTNAME` | 空 | 主机名。为空时回退到板级 `ROOTFS_HOSTNAME_DEFAULT`，再回退到 `BOARD`。 |
 | `DEBIAN_PACKAGES` | 空 | 额外 APT 包，精确包名，逗号或空格分隔；`none`/`minbase`/`off`/`-` 表示仅 minbase。不接受功能别名（如 `nm`、`wifibt`）。 |
-| `DEBIAN_OVERLAYS` | 空 | 可选 overlay 插件，逗号分隔；`none`/`off`/`-` 关闭；`all` 启用全部；空时回退板级 `DEBIAN_OVERLAYS_DEFAULT`。 |
+| `DEBIAN_OVERLAYS` | 空 | 可选 overlay 插件，逗号分隔；`none`/`off`/`-` 关闭；空时回退板级 `DEBIAN_OVERLAYS_DEFAULT`。 |
 | `DEBIAN_MIRROR` | `http://deb.debian.org/debian` | Debian 主仓库地址。 |
 | `DEBIAN_SECURITY_MIRROR` | `http://security.debian.org/debian-security` | Debian 安全仓库地址。 |
 | `DEBIAN_ALLOW_ARCHIVE_FALLBACK` | `yes` | 仅 Debian 11 在常规镜像失败时回退 `archive.debian.org`（`check-valid-until=no`）。 |
@@ -40,7 +40,7 @@
 | 变量 | 来源 | 说明 |
 |---|---|---|
 | `DEBIAN_PACKAGES` | CLI / `.env` / 板级 `DEBIAN_PACKAGES_DEFAULT` | 板级默认仅在 CLI/`.env` 未指定时生效；指定 `none` 强制仅 minbase。 |
-| `DEBIAN_OVERLAYS` | CLI / `.env` / 板级 `DEBIAN_OVERLAYS_DEFAULT` | 同上；内置插件：`base`、`console`、`firstboot`、`firstboot-info`、`network`。 |
+| `DEBIAN_OVERLAYS` | CLI / `.env` / 板级 `DEBIAN_OVERLAYS_DEFAULT` | 同上；内置 overlay：`base`、`console`、`firstboot`、`firstboot-info`、`network-nm`、`network-networkd`（`network-nm` 与 `network-networkd` 互斥，按装的包二选一）。 |
 | `ROOTFS_HOSTNAME` | CLI / `.env` / 板级 `ROOTFS_HOSTNAME_DEFAULT` | 同上。 |
 | `DEBIAN_CODENAME` | 由 `DEBIAN_RELEASE` 推导 | `11→bullseye`、`12→bookworm`、`13→trixie`。 |
 | `DEBIAN_COMPONENTS` | 由 `DEBIAN_RELEASE` 推导 | `11`: `main contrib non-free`；`12/13`: `main contrib non-free non-free-firmware`（mmdebstrap `--components` 用逗号连接）。 |

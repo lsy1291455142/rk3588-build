@@ -315,21 +315,12 @@ check_debian_packages() {
         return 1
     fi
 
-    # Overlay selection: none / all / explicit list / unknown.
+    # Overlay selection: none / explicit list / unknown.
     (
         DEBIAN_OVERLAYS="none"
         resolve_debian_overlays
         [ "${DEBIAN_OVERLAYS}" = "" ] || exit 1
         [ "${#DEBIAN_OVERLAY_LIST[@]}" -eq 0 ] || exit 1
-    ) || return 1
-
-    (
-        DEBIAN_OVERLAYS="all"
-        resolve_debian_overlays
-        mapfile -t known < <(debian_known_overlay_names)
-        [ "${#DEBIAN_OVERLAY_LIST[@]}" -eq "${#known[@]}" ] || exit 1
-        printf '%s\n' "${DEBIAN_OVERLAY_LIST[@]}" | grep -Fxq base || exit 1
-        printf '%s\n' "${DEBIAN_OVERLAY_LIST[@]}" | grep -Fxq network || exit 1
     ) || return 1
 
     (
@@ -339,7 +330,7 @@ check_debian_packages() {
         debian_overlay_enabled base || exit 1
         debian_overlay_enabled console || exit 1
         debian_overlay_enabled firstboot || exit 1
-        debian_overlay_enabled network && exit 1
+        debian_overlay_enabled network-nm && exit 1
         true
     ) || return 1
 
@@ -405,28 +396,26 @@ PLUGIN
         rm -rf "${src}" "${dst}"
     ) || return 1
 
-    # Selected overlay plugins (host unit test, no packages).
+    # Selected overlays (host unit test, no packages installed).
     (
         BOARD="unit-overlay-test"
         BOARD_DESCRIPTION="overlay unit test"
         ROOTFS_HOSTNAME="unittest"
         KERNEL_DTB="unit-overlay-test.dtb"
         DEBIAN_PACKAGES="network-manager,wpasupplicant"
-        DEBIAN_OVERLAYS="base,console,firstboot,firstboot-info,network"
+        DEBIAN_OVERLAYS="base,console,firstboot,firstboot-info,network-nm"
         CONSOLE_DEVICE="ttyFIQ0"
         CONSOLE_SPEED="1500000"
         resolve_debian_packages
         resolve_debian_overlays
         tmp="$(mktemp -d)"
         apply_debian_board_overlay "${tmp}"
-        # Simulate installed NetworkManager binary for the network plugin path.
-        install -d "${tmp}/usr/sbin"
-        : >"${tmp}/usr/sbin/NetworkManager"
-        enable_unit() { :; }
         run_debian_overlay_plugins "${tmp}"
         [ -x "${tmp}/usr/local/sbin/sbc-firstboot" ] || exit 1
         [ -x "${tmp}/usr/local/sbin/sbc-firstboot-info" ] || exit 1
+        # network-nm ships only NetworkManager config + its wants symlink.
         [ -f "${tmp}/etc/NetworkManager/conf.d/10-sbc.conf" ] || exit 1
+        [ ! -e "${tmp}/etc/systemd/network/20-wired.network" ] || exit 1
         [ -f "${tmp}/etc/udev/rules.d/99-sbc-permissions.rules" ] || exit 1
         [ -f "${tmp}/etc/systemd/system/serial-getty@ttyFIQ0.service.d/10-baud.conf" ] || exit 1
         grep -Fq 'board=unit-overlay-test' "${tmp}/usr/local/sbin/sbc-firstboot-info" || exit 1
@@ -434,38 +423,91 @@ PLUGIN
             "${tmp}/etc/NetworkManager/conf.d/10-sbc.conf" || exit 1
         grep -Fq '1500000' \
             "${tmp}/etc/systemd/system/serial-getty@ttyFIQ0.service.d/10-baud.conf" || exit 1
-        # networkd path when NetworkManager binary is absent
-        tmp2="$(mktemp -d)"
-        DEBIAN_OVERLAYS="network"
-        resolve_debian_overlays
-        enable_unit() { :; }
-        run_debian_overlay_plugins "${tmp2}"
-        [ -f "${tmp2}/etc/systemd/network/20-wired.network" ] || exit 1
-        [ ! -e "${tmp2}/etc/NetworkManager/conf.d/10-sbc.conf" ] || exit 1
+        # Wants symlinks for service enabling.
+        [ -L "${tmp}/etc/systemd/system/multi-user.target.wants/ssh.service" ] || exit 1
+        [ -L "${tmp}/etc/systemd/system/multi-user.target.wants/sbc-firstboot.service" ] || exit 1
+        [ -L "${tmp}/etc/systemd/system/multi-user.target.wants/NetworkManager.service" ] || exit 1
+        [ ! -e "${tmp}/etc/systemd/system/multi-user.target.wants/systemd-networkd.service" ] || exit 1
+        [ -L "${tmp}/etc/systemd/system/getty.target.wants/serial-getty@ttyFIQ0.service" ] || exit 1
+        [ -L "${tmp}/etc/systemd/system/sysinit.target.wants/systemd-resolved.service" ] || exit 1
         # none must leave attachment files out
         tmp3="$(mktemp -d)"
         DEBIAN_OVERLAYS="none"
         resolve_debian_overlays
-        enable_unit() { :; }
         run_debian_overlay_plugins "${tmp3}"
         [ ! -e "${tmp3}/usr/local/sbin/sbc-firstboot" ] || exit 1
         [ ! -e "${tmp3}/etc/udev/rules.d/99-sbc-permissions.rules" ] || exit 1
-        rm -rf "${tmp}" "${tmp2}" "${tmp3}"
+        rm -rf "${tmp}" "${tmp3}"
+    ) || return 1
+
+    # network-networkd overlay (the systemd-networkd counterpart, mutually
+    # exclusive with network-nm by selection, not by runtime condition).
+    (
+        BOARD="unit-overlay-test"
+        BOARD_DESCRIPTION="overlay unit test"
+        ROOTFS_HOSTNAME="unittest"
+        KERNEL_DTB="unit-overlay-test.dtb"
+        DEBIAN_PACKAGES=""
+        DEBIAN_OVERLAYS="network-networkd"
+        CONSOLE_DEVICE="ttyFIQ0"
+        CONSOLE_SPEED="1500000"
+        resolve_debian_packages
+        resolve_debian_overlays
+        tmp="$(mktemp -d)"
+        run_debian_overlay_plugins "${tmp}"
+        [ -f "${tmp}/etc/systemd/network/20-wired.network" ] || exit 1
+        [ ! -e "${tmp}/etc/NetworkManager/conf.d/10-sbc.conf" ] || exit 1
+        [ -L "${tmp}/etc/systemd/system/multi-user.target.wants/systemd-networkd.service" ] || exit 1
+        [ ! -e "${tmp}/etc/systemd/system/multi-user.target.wants/NetworkManager.service" ] || exit 1
+        rm -rf "${tmp}"
+    ) || return 1
+
+    # Mutually exclusive overlays (network-nm + network-networkd) must be rejected.
+    if ( DEBIAN_OVERLAYS="network-nm,network-networkd" resolve_debian_overlays ) 2>/dev/null; then
+        return 1
+    fi
+
+    # %VAR% path interpolation: empty variable skips the file.
+    (
+        src="$(mktemp -d)"
+        dst="$(mktemp -d)"
+        install -d "${src}/etc/systemd/system/serial-getty@%CONSOLE_DEVICE%.service.d"
+        printf 'test\n' >"${src}/etc/systemd/system/serial-getty@%CONSOLE_DEVICE%.service.d/10-baud.conf"
+        CONSOLE_DEVICE=""
+        apply_rootfs_overlay_tree "${dst}" "${src}"
+        [ ! -e "${dst}/etc/systemd/system/serial-getty@.service.d" ] || exit 1
+        CONSOLE_DEVICE="ttyFIQ0"
+        apply_rootfs_overlay_tree "${dst}" "${src}"
+        [ -f "${dst}/etc/systemd/system/serial-getty@ttyFIQ0.service.d/10-baud.conf" ] || exit 1
+        rm -rf "${src}" "${dst}"
     ) || return 1
 
     grep -Fq 'resolve_debian_packages' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
     grep -Fq 'resolve_debian_overlays' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
     grep -Fq 'run_debian_overlay_plugins' "${PROJECT_DIR}/scripts/build_debian.sh" || return 1
-    grep -Fq 'NetworkManager.service' "${PROJECT_DIR}/rootfs/debian/overlays/network/plugin.sh" || return 1
     [ -f "${PROJECT_DIR}/rootfs/debian/overlays/firstboot/overlay/usr/local/sbin/sbc-firstboot" ] || return 1
     [ -f "${PROJECT_DIR}/rootfs/debian/overlays/firstboot/overlay/etc/systemd/system/sbc-firstboot.service" ] || return 1
-    [ -f "${PROJECT_DIR}/rootfs/debian/overlays/network/overlay-nm/etc/NetworkManager/conf.d/10-sbc.conf" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/overlays/network-nm/overlay/etc/NetworkManager/conf.d/10-sbc.conf" ] || return 1
+    [ -f "${PROJECT_DIR}/rootfs/debian/overlays/network-networkd/overlay/etc/systemd/network/20-wired.network" ] || return 1
     [ -f "${PROJECT_DIR}/rootfs/debian/overlays/firstboot-info/overlay/usr/local/sbin/sbc-firstboot-info.in" ] || return 1
-    [ -f "${PROJECT_DIR}/rootfs/debian/overlays/base/plugin.sh" ] || return 1
-    [ -f "${PROJECT_DIR}/rootfs/debian/overlays/console/plugin.sh" ] || return 1
+    [ -d "${PROJECT_DIR}/rootfs/debian/overlays/base/overlay" ] || return 1
+    [ -d "${PROJECT_DIR}/rootfs/debian/overlays/console/overlay" ] || return 1
     [ ! -e "${PROJECT_DIR}/rootfs/debian/overlays/wifibt" ] || return 1
     grep -Fq 'wifi.scan-rand-mac-address=no' \
-        "${PROJECT_DIR}/rootfs/debian/overlays/network/overlay-nm/etc/NetworkManager/conf.d/10-sbc.conf" || return 1
+        "${PROJECT_DIR}/rootfs/debian/overlays/network-nm/overlay/etc/NetworkManager/conf.d/10-sbc.conf" || return 1
+    # Overlays enable services via wants symlinks (no plugin.sh scripts).
+    [ -L "${PROJECT_DIR}/rootfs/debian/overlays/base/overlay/etc/systemd/system/multi-user.target.wants/ssh.service" ] || return 1
+    [ -L "${PROJECT_DIR}/rootfs/debian/overlays/firstboot/overlay/etc/systemd/system/multi-user.target.wants/sbc-firstboot.service" ] || return 1
+    [ -L "${PROJECT_DIR}/rootfs/debian/overlays/network-nm/overlay/etc/systemd/system/multi-user.target.wants/NetworkManager.service" ] || return 1
+    [ -L "${PROJECT_DIR}/rootfs/debian/overlays/network-networkd/overlay/etc/systemd/system/multi-user.target.wants/systemd-networkd.service" ] || return 1
+    [ -L "${PROJECT_DIR}/rootfs/debian/overlays/console/overlay/etc/systemd/system/getty.target.wants/serial-getty@%CONSOLE_DEVICE%.service" ] || return 1
+    [ ! -e "${PROJECT_DIR}/rootfs/debian/overlays/base/plugin.sh" ] || return 1
+    [ ! -e "${PROJECT_DIR}/rootfs/debian/overlays/console/plugin.sh" ] || return 1
+    [ ! -e "${PROJECT_DIR}/rootfs/debian/overlays/firstboot/plugin.sh" ] || return 1
+    [ ! -e "${PROJECT_DIR}/rootfs/debian/overlays/firstboot-info/plugin.sh" ] || return 1
+    [ ! -e "${PROJECT_DIR}/rootfs/debian/overlays/network-nm/plugin.sh" ] || return 1
+    [ ! -e "${PROJECT_DIR}/rootfs/debian/overlays/network-networkd/plugin.sh" ] || return 1
+    [ ! -e "${PROJECT_DIR}/rootfs/debian/overlays/network" ] || return 1
     grep -Fq 'run_debian_overlay_plugins' "${PROJECT_DIR}/scripts/lib/common.sh" || return 1
     if [ -f "${PROJECT_DIR}/Makefile" ] && [ -d "${PROJECT_DIR}/.git" ]; then
         # Core Makefile must not own WiFi/BT sync or WIFIBT_* knobs.

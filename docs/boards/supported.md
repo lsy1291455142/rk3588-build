@@ -21,7 +21,7 @@
 - `UBOOT_PYTHON`: `python3`
 - `ROOTFS_HOSTNAME_DEFAULT`: `rk3588-evb1`
 - `DEBIAN_PACKAGES_DEFAULT`: `network-manager,wpasupplicant,i2c-tools,usbutils,pciutils,mmc-utils`
-- 其余用通用默认（`DEBIAN_OVERLAYS_DEFAULT=base,console,firstboot,firstboot-info,network`，几何默认）
+- 其余用通用默认（`DEBIAN_OVERLAYS_DEFAULT=base,console,firstboot,firstboot-info,network-nm`，几何默认）
 
 ## Radxa ROCK 5C
 

@@ -1,3 +1,4 @@
+#!/bin/sh
 # Show board summary once per interactive login until dismissed.
 if [ -n "${PS1:-}" ] && [ -r /var/lib/sbc-board-info ] &&
     [ ! -e "$HOME/.sbc-board-info.seen" ]; then

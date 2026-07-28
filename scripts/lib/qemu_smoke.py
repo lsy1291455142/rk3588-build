@@ -59,6 +59,13 @@ def parse_args():
     parser.add_argument("--serial-log", required=True)
     parser.add_argument("--ssh-log", required=True)
     parser.add_argument("--result", required=True)
+    parser.add_argument(
+        "--overlays",
+        default="",
+        help="comma-separated overlay names recorded in the image metadata; "
+        "used to gate overlay-specific guest checks (e.g. firstboot) instead "
+        "of assuming any overlay is always present",
+    )
     return parser.parse_args()
 
 
@@ -104,7 +111,7 @@ def login_serial(child, username, password):
         fail("serial password login failed", child)
 
 
-def run_guest_checks(child, kernel_release, debian_release, password, rootfs_mode):
+def run_guest_checks(child, kernel_release, debian_release, password, rootfs_mode, overlays):
     if rootfs_mode == "ro-overlay":
         # The overlay upper lives on the ext4 data partition, not the read-only
         # SquashFS root; verify the data partition actually came up mounted.
@@ -123,8 +130,14 @@ def run_guest_checks(child, kernel_release, debian_release, password, rootfs_mod
         ("architecture", "test \"$(uname -m)\" = aarch64"),
         ("kernel_release", f"test \"$(uname -r)\" = '{kernel_release}'"),
         ("root_rw", "findmnt -n -o OPTIONS / | tr ',' '\\n' | grep -qx rw"),
-        ("firstboot", "test -e /var/lib/sbc-firstboot.done"),
-        resize_check,
+    ]
+    # The firstboot overlay writes a one-shot completion marker; only assert it
+    # when that overlay is part of the built image. The set comes from the
+    # image metadata, so the trunk never hardcodes a specific overlay here.
+    if "firstboot" in overlays:
+        commands.append(("firstboot", "test -e /var/lib/sbc-firstboot.done"))
+    commands.append(resize_check)
+    commands += [
         ("systemd_running", "test \"$(systemctl is-system-running 2>/dev/null)\" = running"),
         ("unit_health", "test -z \"$(systemctl --failed --no-legend --plain)\""),
         ("ssh_service", "systemctl is-active --quiet ssh.service"),
@@ -147,16 +160,26 @@ def run_guest_checks(child, kernel_release, debian_release, password, rootfs_mod
     child.sendline(password)
     child.expect(r"# ", timeout=30)
 
+    if "firstboot" in overlays:
+        # The firstboot overlay runs a one-shot GPT/partition resize on first
+        # boot; wait for its completion marker before running guest checks.
+        boot_ready_expr = (
+            "test -e /var/lib/sbc-firstboot.done && "
+            "test \"$(systemctl is-system-running 2>/dev/null)\" = running"
+        )
+        boot_ready_msg = "finish first boot with systemd running"
+    else:
+        boot_ready_expr = "test \"$(systemctl is-system-running 2>/dev/null)\" = running"
+        boot_ready_msg = "reach running systemd state"
     child.sendline(
         "ready=0; for i in $(seq 1 180); do "
-        "if test -e /var/lib/sbc-firstboot.done && "
-        "test \"$(systemctl is-system-running 2>/dev/null)\" = running; "
+        "if " + boot_ready_expr + "; "
         "then ready=1; break; fi; sleep 1; done; "
         "printf '__RK3588_BOOT_READY__=%s\\n' \"$ready\""
     )
     child.expect(r"__RK3588_BOOT_READY__=([0-9]+)", timeout=210)
     if child.match.group(1) != "1":
-        fail("Debian did not finish first boot with systemd running", child)
+        fail("Debian did not " + boot_ready_msg, child)
 
     failed_checks = []
     for name, command in commands:
@@ -269,6 +292,7 @@ def main():
     ssh_port, reserved_sock = reserve_tcp_port()
     initcall_blacklist = [x for x in args.initcall_blacklist.split(",") if x]
     serial_getty_masks = [x for x in args.serial_getty_mask.split(",") if x]
+    enabled_overlays = {x for x in args.overlays.split(",") if x}
     mask_args = " ".join(f"systemd.mask={m}" for m in serial_getty_masks)
     common_tail = (
         "console=ttyAMA0,115200 earlycon=pl011,0x09000000 "
@@ -341,7 +365,7 @@ def main():
             login_serial(child, args.username, args.password)
             run_guest_checks(
                 child, args.kernel_release, args.debian_release, args.password,
-                args.rootfs_mode,
+                args.rootfs_mode, enabled_overlays,
             )
             test_ssh(
                 ssh_port,

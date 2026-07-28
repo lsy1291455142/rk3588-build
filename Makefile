@@ -200,7 +200,7 @@ help:
 		'  make test-debian-all BOARD=... SDK_VOLUME=...' \
 		'  make test-debian-qemu BOARD=... SDK_VOLUME=... DEBIAN_RELEASE=13' \
 		'  DEBIAN_PACKAGES=exact apt names (comma/space); empty=board default/minbase; none=force minbase' \
-		'  DEBIAN_OVERLAYS=optional overlays (base,console,firstboot,firstboot-info,network); none|all' \
+		'  DEBIAN_OVERLAYS=optional overlays (base,console,firstboot,firstboot-info,network-nm|network-networkd); none' \
 		'' \
 		'Validation:' \
 		'  make check'

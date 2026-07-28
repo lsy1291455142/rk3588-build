@@ -302,93 +302,43 @@ else
         die "Debian rootfs lacks systemd init"
 
     ROOTFS_META="${VARIANT_OUTPUT}/rootfs-build-info.txt"
-    NETWORK_STACK=""
     DEBIAN_PACKAGES_META=""
     DEBIAN_OVERLAYS_META=""
     if [ -f "${ROOTFS_META}" ]; then
-        NETWORK_STACK="$(metadata_value "${ROOTFS_META}" network_stack || true)"
         DEBIAN_PACKAGES_META="$(metadata_value "${ROOTFS_META}" debian_packages || true)"
         DEBIAN_OVERLAYS_META="$(metadata_value "${ROOTFS_META}" debian_overlays || true)"
     fi
-    # Back-compat: older images without debian_overlays metadata keep previous
-    # full-attachment expectations.
-    if [ -z "${DEBIAN_OVERLAYS_META}" ] && [ -f "${ROOTFS_META}" ]; then
-        DEBIAN_OVERLAYS_META="base,console,firstboot,firstboot-info,network"
+
+    # Build the enabled-overlay list from the recorded build metadata. The trunk
+    # itself never names a specific overlay; each overlay ships its own verify.sh
+    # (rootfs/debian/overlays/<name>/verify.sh) which asserts its own artifacts,
+    # so verification stays fully decoupled from plugin content.
+    DEBIAN_OVERLAY_LIST=()
+    if [ -n "${DEBIAN_OVERLAYS_META}" ]; then
+        IFS=',' read -r -a DEBIAN_OVERLAY_LIST <<<"${DEBIAN_OVERLAYS_META}"
+    else
+        log_warn "rootfs metadata does not record debian_overlays; skipping overlay verification"
     fi
-    # NOTE: this mirrors debian_overlay_enabled() in common.sh but reads the
-    # recorded build metadata (DEBIAN_OVERLAYS_META) rather than the runtime
-    # DEBIAN_OVERLAY_LIST, so the two intentionally cannot be merged.
     overlay_enabled() {
-        local want="$1"
-        case ",${DEBIAN_OVERLAYS_META}," in
-            *,"${want}",*) return 0 ;;
-            *) return 1 ;;
-        esac
+        local want="$1" name
+        for name in "${DEBIAN_OVERLAY_LIST[@]+"${DEBIAN_OVERLAY_LIST[@]}"}"; do
+            [ "${name}" = "${want}" ] && return 0
+        done
+        return 1
     }
 
-    if overlay_enabled firstboot; then
-        rf_cat /usr/local/sbin/sbc-firstboot | grep -Fq "sgdisk -e \"\$rootdisk\"" ||
-            die "Debian rootfs lacks the first-boot GPT repair"
-        rf_cat /usr/local/sbin/sbc-firstboot | grep -Fq "partnum=\"\$(cat \"\$sys_block/partition\")\"" ||
-            die "Debian rootfs does not derive the root partition from sysfs"
-        rf_cat /usr/local/sbin/sbc-firstboot | grep -Fq "growpart \"\$rootdisk\" \"\$partnum\"" ||
-            die "Debian rootfs lacks the first-boot partition growth"
-        rf_cat /usr/local/sbin/sbc-firstboot | grep -Fq "resize2fs \"\$rootdev\"" ||
-            die "Debian rootfs lacks the first-boot filesystem growth"
-        rf_cat /etc/systemd/system/sbc-firstboot.service | grep -Fq 'WantedBy=multi-user.target' ||
-            die "Debian rootfs lacks the first-boot resize service"
-        if rf_cat /etc/systemd/system/sbc-firstboot.service | grep -Fq 'Before=ssh.service'; then
-            die "Debian first-boot resize must not block SSH startup"
+    overlays_root="$(debian_overlays_dir)"
+    for name in "${DEBIAN_OVERLAY_LIST[@]+"${DEBIAN_OVERLAY_LIST[@]}"}"; do
+        ov_verify="${overlays_root}/${name}/verify.sh"
+        [ -f "${ov_verify}" ] || continue
+        log_info "Verifying overlay: ${name}"
+        # shellcheck disable=SC1090
+        source "${ov_verify}"
+        if declare -F overlay_verify >/dev/null 2>&1; then
+            overlay_verify
+            unset -f overlay_verify
         fi
-        rf_cat /etc/systemd/system/sbc-firstboot.service | grep -Fq 'TimeoutStartSec=10min' ||
-            die "Debian first-boot resize service lacks a startup timeout"
-        rf_cat /etc/systemd/system/sbc-firstboot.service | grep -Fq 'ExecStart=-/usr/local/sbin/sbc-firstboot' ||
-            die "Debian first-boot resize failure can degrade system startup"
-        rf_exists /etc/systemd/system/multi-user.target.wants/sbc-firstboot.service ||
-            die "Debian rootfs does not enable sbc-firstboot.service"
-        rf_exists /usr/sbin/sgdisk || die "Debian rootfs lacks sgdisk"
-        rf_exists /usr/bin/growpart || die "Debian rootfs lacks growpart"
-        if overlay_enabled firstboot-info ||
-            rf_exists /usr/local/sbin/sbc-firstboot-info; then
-            rf_cat /usr/local/sbin/sbc-firstboot | grep -Fq 'sbc-firstboot-info' ||
-                die "Debian firstboot does not optionally invoke firstboot-info"
-        fi
-    fi
-
-    if overlay_enabled base; then
-        rf_cat /etc/systemd/system/ssh.service.d/10-hostkeys.conf | grep -Fq 'ExecStartPre=/usr/bin/ssh-keygen -A' ||
-            die "Debian SSH service does not generate missing host keys"
-        rf_exists /etc/systemd/system/multi-user.target.wants/ssh.service ||
-            die "Debian rootfs does not enable ssh.service"
-        if [ "${DEBIAN_RELEASE}" != "11" ]; then
-            rf_exists /etc/systemd/system/sysinit.target.wants/systemd-resolved.service ||
-                die "Debian rootfs does not enable systemd-resolved.service"
-        fi
-    fi
-
-    if overlay_enabled console; then
-        CONSOLE_SPEED="${CONSOLE#*,}"
-        CONSOLE_SPEED="${CONSOLE_SPEED%%[!0-9]*}"
-        rf_cat /etc/systemd/system/serial-getty@${CONSOLE%%,*}.service.d/10-baud.conf |
-            grep -Fq -- "--keep-baud ${CONSOLE_SPEED},115200" ||
-            die "Debian serial getty does not preserve the board console speed"
-        rf_exists /etc/systemd/system/getty.target.wants/serial-getty@${CONSOLE%%,*}.service ||
-            die "Debian rootfs does not enable serial-getty@${CONSOLE%%,*}.service"
-    fi
-
-    if overlay_enabled network; then
-        if [ "${NETWORK_STACK}" = "NetworkManager" ] ||
-            rf_exists /usr/sbin/NetworkManager; then
-            NET_UNIT_PATH=/etc/systemd/system/multi-user.target.wants/NetworkManager.service
-            rf_exists "${NET_UNIT_PATH}" || die "Debian rootfs does not enable NetworkManager"
-            if rf_exists /etc/systemd/system/multi-user.target.wants/systemd-networkd.service; then
-                die "Debian NetworkManager rootfs must not enable systemd-networkd"
-            fi
-        else
-            NET_UNIT_PATH=/etc/systemd/system/multi-user.target.wants/systemd-networkd.service
-            rf_exists "${NET_UNIT_PATH}" || die "Debian rootfs does not enable systemd-networkd"
-        fi
-    fi
+    done
 
     # Package presence checks use the recorded apt package list (exact names).
     case ",${DEBIAN_PACKAGES_META}," in

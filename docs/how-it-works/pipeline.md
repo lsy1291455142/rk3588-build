@@ -51,7 +51,7 @@
 4. 按 `DEBIAN_OVERLAYS` 顺序运行可选插件（`run_debian_overlay_plugins`）：`base`（SSH/udev/resolved）、`console`（串口 getty 波特率）、`firstboot`（首启扩容）、`firstboot-info`（banner/MOTD）、`network`（NM/networkd 自适应）。
 5. `systemd-analyze verify` 校验关键 unit，生成 SSH host key。
 6. `ro-overlay`：生成 initramfs（`update-initramfs`，含 `overlayroot` hook）；否则打包 ext4（标签 `rootfs`，大小 `ROOTFS_SIZE_MIB`）。`ro-overlay` 产出 `rootfs.squashfs`。
-7. 产出 `debian-<rel>/rootfs.ext4`（或 `rootfs.squashfs`）、`rootfs.tar`、`rootfs-build-info.txt`（含 `network_stack`、`debian_packages`、`debian_overlays`、`rootfs_mode`）。
+7. 产出 `debian-<rel>/rootfs.ext4`（或 `rootfs.squashfs`）、`rootfs.tar`、`rootfs-build-info.txt`（含 `debian_packages`、`debian_overlays`、`rootfs_mode`）。
 
 ## 阶段四：image + verify-image（`make_image.sh` / `verify_image.sh`）
 

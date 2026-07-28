@@ -40,6 +40,6 @@ compute_partition_layout() {
     else
         ROOT_LAST_SECTOR="${DISK_LAST_USABLE_SECTOR}"
         DATA_FIRST_SECTOR=""
-        DATA_LAST_SECTOR=""
+        export DATA_LAST_SECTOR=""
     fi
 }

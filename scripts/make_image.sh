@@ -201,7 +201,7 @@ write_common_metadata "${FINAL_METADATA}.tmp" \
     "boot_partition=1:${BOOT_FIRST_SECTOR}:${BOOT_LAST_SECTOR}:fat32:BOOT" \
     "${ROOT_PART_META}" \
     ${DATA_PART_META:+"${DATA_PART_META}"} \
-    $(bootloader_layout_write_metadata "${COMMON_OUTPUT}") \
+    "$(bootloader_layout_write_metadata "${COMMON_OUTPUT}")" \
     "kernel_release=$(cat "${KERNEL_RELEASE_FILE}")" \
     "kernel_dtb=${KERNEL_DTB}" \
     "rootfs_source_sha256=$(sha256sum "${ROOTFS_IMAGE}" | awk '{print $1}')"

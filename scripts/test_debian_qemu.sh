@@ -47,6 +47,11 @@ require_file "${IMAGE_METADATA}" "image build metadata"
 
 ROOTFS_MODE="$(metadata_value "${IMAGE_METADATA}" rootfs_mode)"
 ROOTFS_MODE="${ROOTFS_MODE:-rw-ext4}"
+# The enabled overlays are recorded by build_debian.sh in rootfs-build-info.txt
+# (make_image.sh runs in a separate step and does not resolve them). Read it
+# from there so the smoke test can gate overlay-specific checks generically.
+ROOTFS_BUILD_INFO="${VARIANT_OUTPUT}/rootfs-build-info.txt"
+DEBIAN_OVERLAYS_META="$(metadata_value "${ROOTFS_BUILD_INFO}" debian_overlays || true)"
 INITRD_IMAGE="${VARIANT_OUTPUT}/initrd.img"
 if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
     require_file "${INITRD_IMAGE}" "initramfs; run make build-all first"
@@ -79,6 +84,7 @@ python3 "${SCRIPT_DIR}/lib/qemu_smoke.py" \
     --timeout "${QEMU_TIMEOUT}" \
     --memory-mib "${QEMU_MEMORY_MIB}" \
     --cpus "${QEMU_CPUS}" \
+    --overlays "${DEBIAN_OVERLAYS_META}" \
     --serial-log "${QEMU_OUTPUT}/serial.log" \
     --ssh-log "${QEMU_OUTPUT}/ssh.log" \
     --result "${QEMU_OUTPUT}/result.txt"

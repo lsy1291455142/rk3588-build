@@ -5,10 +5,10 @@ Debian rootfs 由 `build_debian.sh`（mmdebstrap，arm64 原生）生成。基�
 ## 配置文件怎么放
 
 - **包名**：经 `DEBIAN_PACKAGES`（CLI / `.env`）或板级 `DEBIAN_PACKAGES_DEFAULT`。
-- **overlay 插件**：经 `DEBIAN_OVERLAYS`（CLI / `.env`）或板级 `DEBIAN_OVERLAYS_DEFAULT`（默认 `base,console,firstboot,firstboot-info,network`）。
+- **overlay 插件**：经 `DEBIAN_OVERLAYS`（CLI / `.env`）或板级 `DEBIAN_OVERLAYS_DEFAULT`（默认 `base,console,firstboot,firstboot-info,network-nm`）。
 - **板级静态/插件文件**：放 `boards/<BOARD>/rootfs/`，始终应用（不论 `DEBIAN_OVERLAYS`）。
 
-`DEBIAN_PACKAGES` 为空 → 用板级默认；显式 `none`/`minbase`/`off`/`-` → 仅 minbase。`DEBIAN_OVERLAYS` 为空 → 用板级默认；`none`/`off`/`-` → 无可选插件；`all` → 全部内置插件。
+`DEBIAN_PACKAGES` 为空 → 用板级默认；显式 `none`/`minbase`/`off`/`-` → 仅 minbase。`DEBIAN_OVERLAYS` 为空 → 用板级默认；`none`/`off`/`-` → 无可选插件。
 
 ## 软件包列表
 
@@ -25,17 +25,18 @@ make build-all BOARD=rk3588s-rock-5c ROOTFS=debian \
 
 ## 可选 Overlay 插件
 
-插件位于 `rootfs/debian/overlays/<name>/`，每个含 `plugin.sh`（必需入口）与可选 `overlay/`（静态文件树）。`plugin.sh` 定义 `plugin_apply(root_dir)`，可调用 `common.sh` 的 `apply_rootfs_overlay_tree`、`expand_overlay_template_text`、`enable_unit`、`log_info` 等。内置插件：
+overlay 位于 `rootfs/debian/overlays/<name>/`，每个仅需一个 `overlay/` 静态文件树——文件直接拷贝到 rootfs 对应路径。启用 systemd 服务通过在 `overlay/` 内放 wants 符号链接实现。`*.in` 模板文件按 `@PLACEHOLDER@` 展开内容，`%VAR%` 在文件路径中做变量插值。内置 overlay：
 
-| 插件 | 作用 |
+| overlay | 作用 |
 |---|---|
-| `base` | SSH（`ssh.service` enable、缺失 host key 自动生成）、udev、systemd-resolved（非 11）、基础权限 |
-| `console` | 为板级串口（`CONSOLE` 第一段设备）写 `serial-getty@<dev>.service.d/10-baud.conf`，保持板级波特率（`--keep-baud <speed>,115200`）并 enable getty |
-| `firstboot` | 安装 `sbc-firstboot` 与 `sbc-firstboot.service`，首启 `growpart` + `resize2fs` 扩容根分区 |
-| `firstboot-info` | 安装 `sbc-firstboot-info`（由 `sbc-firstboot` 在首启调用），打印 banner/MOTD |
-| `network` | 按是否安装 `NetworkManager` 二进制自适应：有则启用 `NetworkManager.service` 并写 `10-sbc.conf`（含 `wifi.scan-rand-mac-address=no`），否则启用 `systemd-networkd.service`（写 `20-wired.network`）；二者互斥 |
+| `base` | SSH 配置（`ssh.service` 通过 wants 软链启用）、udev 权限、systemd-resolved（wants 软链，包未安装时 dangling 无害）、基础权限 |
+| `console` | 串口 getty 波特率配置（`serial-getty@%CONSOLE_DEVICE%.service` 通过 wants 软链启用，`@CONSOLE_SPEED@` 模板展开） |
+| `firstboot` | `sbc-firstboot` 脚本与 `sbc-firstboot.service`（wants 软链启用），首启 `growpart` + `resize2fs` 扩容根分区 |
+| `firstboot-info` | `sbc-firstboot-info`（由 `sbc-firstboot` 在首启调用），打印 banner/MOTD |
+| `network-nm` | NetworkManager 配置（`10-sbc.conf`）+ `NetworkManager.service` wants 软链；与 `network-networkd` 互斥 |
+| `network-networkd` | systemd-networkd 配置（`20-wired.network`）+ `systemd-networkd.service` wants 软链；与 `network-nm` 互斥 |
 
-`resolve_debian_overlays` 校验名字是否对应存在的 `plugin.sh`；`all` 展开为全部内置插件；未知名字直接报错。
+`resolve_debian_overlays` 校验名字是否对应存在的 `overlay/` 目录；未知名字直接报错。
 
 ## 只读根文件系统（ro-overlay 模式）
 
@@ -61,9 +62,9 @@ make build-all BOARD=rk3588s-rock-5c ROOTFS=debian \
 
 `test_debian_qemu.sh` 从 `image-build-info.txt` 读 `rootfs_mode`，ro-overlay 时给 QEMU 加 `--initrd` 并校验 `/data` 挂载（见 `qemu_smoke.py` 的 `data_mount` 检查）。其余健康检查（systemd、SSH、网络）与 rw-ext4 一致。
 
-## 板级 plugin（与 overlays 同规范）
+## 板级 plugin（与 overlays 不同）
 
-`boards/<BOARD>/rootfs/` 下的 `plugin.sh`（定义 `board_plugin_apply`）或 `overlay/` 静态树，在构建时**先于**可选 overlay 应用，且始终生效（不受 `DEBIAN_OVERLAYS` 选择影响）。规则：
+`boards/<BOARD>/rootfs/` 下的 `plugin.sh`（定义 `board_plugin_apply`）或 `overlay/` 静态树，在构建时**先于**可选 overlay 应用，且始终生效（不受 `DEBIAN_OVERLAYS` 选择影响）。板级插件保留 `plugin.sh` 脚本机制，用于固件安装等需要逻辑的场景。规则：
 
 - 有 `plugin.sh` 则必须定义 `board_plugin_apply()`；否则直接拷贝 `overlay/` 静态树。
 - 不得在 plugin 内安装 APT 包（包只经 `DEBIAN_PACKAGES`）。

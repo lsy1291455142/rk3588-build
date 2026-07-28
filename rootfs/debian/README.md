@@ -26,15 +26,17 @@ rootfs/debian/
 
 ## Overlay plugins
 
-每个插件目录含 `plugin.sh`（`plugin_apply(root_dir)` 入口）+ 可选 `overlay/` 静态树 + 可选 `overlay-nm/`（NetworkManager 专属文件）。插件可调用 `common.sh` 的 `apply_rootfs_overlay_tree`、`expand_overlay_template_text`、`enable_unit`。内置插件见 `rootfs/debian/overlays/README.md`。
+每个 overlay 目录仅需一个 `overlay/` 静态文件树——文件直接拷贝到 rootfs 对应路径。启用 systemd 服务通过在 `overlay/` 内放 wants 符号链接实现。`*.in` 模板文件按 `@PLACEHOLDER@` 展开，`%VAR%` 在路径中做变量插值。内置 overlay 见 `rootfs/debian/overlays/README.md`。
 
 ### Board plugins
 
-`boards/<BOARD>/rootfs/` 的 `plugin.sh`（`board_plugin_apply`）或静态 `overlay/` 始终应用，且顺序在可选 overlay 之前。规则见 `boards/README.md`。
+`boards/<BOARD>/rootfs/` 的 `plugin.sh`（`board_plugin_apply`，用于固件安装等需要逻辑的场景）或静态 `overlay/` 始终应用，且顺序在可选 overlay 之前。规则见 `boards/README.md`。
 
 ## Templates
 
 overlay 内的 `*.in` 文件在 `apply_rootfs_overlay_tree` 拷贝时展开 `@PLACEHOLDER@` 标记（`expand_overlay_template_text`），可用占位符：`@BOARD@`、`@BOARD_DESCRIPTION@`、`@ROOTFS_HOSTNAME@`、`@KERNEL_DTB@`、`@DEBIAN_PACKAGES@`、`@DEBIAN_OVERLAYS@`、`@CONSOLE_DEVICE@`、`@CONSOLE_SPEED@`、`@ROOTFS_USERNAME@`。展开后的文件去掉 `.in` 后缀，权限沿用源文件。
+
+文件路径中的 `%VAR%` 会被替换为同名 shell 变量值（`interpolate_vars`），用于运行时变量出现在路径中的场景（如 `serial-getty@%CONSOLE_DEVICE%.service.d/`）。变量为空时该文件被跳过。
 
 ## What stays in the build script
 

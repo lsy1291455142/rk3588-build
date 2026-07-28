@@ -88,7 +88,7 @@ make info                   # 查看当前配置
 ## 高级定制
 
 - **额外 APT 包（Debian）**：`DEBIAN_PACKAGES="network-manager,wpasupplicant,i2c-tools"`（精确包名；`none` 仅 minbase；功能别名如 `nm`/`wifibt` 已被拒绝），或板级 `DEBIAN_PACKAGES_DEFAULT`。
-- **可选 overlay 插件**：`DEBIAN_OVERLAYS=base,console,network`（`all` / `none` / 显式列表）。
+- **可选 overlay 插件**：`DEBIAN_OVERLAYS=base,console,network-nm`（`none` 或显式列表）。
 - **静态硬件固件**：放入板级或插件的 `overlay/lib/firmware/`；动态固件（如 `.deb` 提取）由板级 `plugin.sh` 在构建期生成。
 - **只读根（ro-overlay）**：`ROOTFS_MODE=ro-overlay`，生成 SquashFS 根 + ext4 数据分区，防掉电损坏。
 

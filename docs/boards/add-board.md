@@ -97,7 +97,7 @@ make build-all BOARD=my-board ROOTFS=debian DEBIAN_RELEASE=13
 
 - `ROOTFS_HOSTNAME_DEFAULT` — 见上。
 - `DEBIAN_PACKAGES_DEFAULT` — 真实 apt 包名，逗号/空格分隔（无功能别名）。
-- `DEBIAN_OVERLAYS_DEFAULT` — 默认 `base,console,firstboot,firstboot-info,network`；`none` 关闭、`all` 全开。
+- `DEBIAN_OVERLAYS_DEFAULT` — 默认 `base,console,firstboot,firstboot-info,network-nm`；`none` 关闭；`network-nm` 与 `network-networkd` 互斥，按装的包二选一。
 
 ## 几何约束（validate_board_profile 强制）
 

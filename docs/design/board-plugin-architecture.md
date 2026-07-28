@@ -6,7 +6,7 @@
 
 - **纯构建核心（board-name-free）**：`scripts/lib/common.sh`、`build_*.sh`、`make_image.sh`、`verify_image.sh` 不硬编码任何板型名、WiFi/BT 芯片或具体 manifest。板型差异只通过数据（profile、overlay、hook）注入。
 - **板子为单元（board-as-unit）**：每个板型一个目录 `boards/<BOARD>/`，含 `board.conf`（配置）、`kernel.config`（自动合并的 fragment）、`rootfs/`（plugin/overlay）、`check.sh`（自检）、`board.hooks.sh`（构建钩子）。
-- **可选能力外置为插件**：Debian 的可选能力（`base`/`console`/`firstboot`/`firstboot-info`/`network`）是 `rootfs/debian/overlays/<name>/` 下的目录化插件，由 `DEBIAN_OVERLAYS` 选择，核心只负责分发。
+- **可选能力外置为静态 overlay**：Debian 的可选能力（`base`/`console`/`firstboot`/`firstboot-info`/`network`）是 `rootfs/debian/overlays/<name>/overlay/` 下的纯静态文件树，由 `DEBIAN_OVERLAYS` 选择，核心只负责拷贝分发。启用服务通过 wants 符号链接实现，无需脚本。
 - **平台事实与板型解耦**：SoC 级限制（如 QEMU `virt` 的 initcall 黑名单、FiQ 串口 mask）放在 `configs/soc/<SOC>.conf`，由板级 `SOC=` 选择加载，不进核心脚本。
 - **端到端校验即契约**：`verify_image.sh` 与 `scripts/check.sh` 把「镜像长什么样、脚本必须含哪些标记」写成可执行契约，而非文档约定。
 
@@ -15,7 +15,7 @@
 - 板型零脚本改动：新增板子只改 `boards/`（`make new-board` 从 `TEMPLATE` 复制）。
 - 内核 fragment 分层：`rootfs-base.config` + `squashfs-overlay.config`（始终合并）+ 板级 `kernel.config`（自动合并、可覆盖）。
 - Debian 包名精确化：移除 `nm`/`wifibt`/`hwdebug` 等别名，`resolve_debian_packages` 仅接受真实 apt 包名。
-- overlay 插件化：`DEBIAN_OVERLAYS` 选择 + `run_debian_overlay_plugins` 顺序应用；板级 `boards/<BOARD>/rootfs/` 始终应用且先于可选 overlay。
+- overlay 纯静态化：`DEBIAN_OVERLAYS` 选择 + `run_debian_overlay_plugins` 顺序拷贝 `overlay/` 目录；服务启用通过 wants 符号链接；板级 `boards/<BOARD>/rootfs/` 保留 `plugin.sh` 用于固件安装等需要逻辑的场景，始终应用且先于可选 overlay。
 - ro-overlay 模式：`ROOTFS_MODE=ro-overlay` 走 SquashFS 根 + ext4 data 分区 + initramfs `overlayroot` hook；内核始终含 OverlayFS/SquashFS 支持。
 - QEMU 契约外置：`configs/soc/rk3588.conf` 提供 `QEMU_INITCALL_BLACKLIST` 与 `QEMU_SERIAL_GETTY_MASK`，由 `qemu_smoke.py` 消费。
 - 构建器双阶段：`Dockerfile` 的 `rk3588-build`（ubuntu:22.04，通用）与 `debian-rootfs`（debian:trixie，arm64 原生 Debian 构建）。

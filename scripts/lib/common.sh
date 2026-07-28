@@ -116,6 +116,7 @@ load_board_profile() {
 
     BOARD_PROFILE="${BOARD_DIR}/board.conf"
     if [ ! -f "${BOARD_PROFILE}" ]; then
+        # shellcheck disable=SC2012,SC2086
         die "Missing board profile '${BOARD}'. Available boards: $(ls -1 \"${PROJECT_DIR}/boards/\"*/board.conf 2>/dev/null | sed 's|.*/boards/||; s|/board.conf$||' | grep -v '^TEMPLATE$' | tr '\n' ' ')"
     fi
 
@@ -199,6 +200,7 @@ validate_board_profile() {
         [ -n "${value}" ] || die "Board profile ${BOARD_PROFILE} is missing ${field}"
     done
 
+    # shellcheck disable=SC2153
     [[ "${KERNEL_DTB}" = *.dtb ]] || die "KERNEL_DTB must name one .dtb file"
 
     # CONSOLE must be "<device>,<baud>[<parity><bits>]"; require a comma with a
@@ -240,12 +242,20 @@ validate_board_profile() {
     if [ -n "${SOURCE_MANIFEST:-}" ]; then
         require_file "${PROJECT_DIR}/manifests/${SOURCE_MANIFEST}" \
             "source manifest for ${BOARD}"
-        for field in EXPECTED_KERNEL_REVISION EXPECTED_UBOOT_REVISION \
-            EXPECTED_RKBIN_REVISION EXPECTED_BUILDROOT_REVISION; do
-            value="${!field:-}"
-            [[ "${value}" =~ ^[0-9a-f]{40}$ ]] ||
-                die "${field} must be a full Git commit SHA in ${BOARD_PROFILE}"
-        done
+        # A manifest that pins exact commit SHAs (e.g. rk3588-rock5c.xml) must
+        # record those SHAs in the board profile so the build can verify them.
+        # Manifests that pin moving branch heads (e.g. develop-5.10/next-dev,
+        # used by the EVB1 and MUSE boards) intentionally have no fixed SHA,
+        # so the revision check is skipped for them instead of failing the
+        # profile load. Discovery keeps the trunk free of per-board policy.
+        if [[ -n "${EXPECTED_KERNEL_REVISION:-}" ]]; then
+            for field in EXPECTED_KERNEL_REVISION EXPECTED_UBOOT_REVISION \
+                EXPECTED_RKBIN_REVISION EXPECTED_BUILDROOT_REVISION; do
+                value="${!field:-}"
+                [[ "${value}" =~ ^[0-9a-f]{40}$ ]] ||
+                    die "${field} must be a full Git commit SHA in ${BOARD_PROFILE}"
+            done
+        fi
     fi
 
     # Set defaults for optional configuration variables
@@ -461,14 +471,15 @@ metadata_value() {
 
 
 # ---------------------------------------------------------------------------
-# Debian optional overlays (pure build core + selectable attachment plugins)
+# Debian optional overlays (pure static file trees)
 # Layout:
-#   rootfs/debian/overlays/<name>/plugin.sh   required entry
-#   rootfs/debian/overlays/<name>/overlay/    optional static files
+#   rootfs/debian/overlays/<name>/overlay/   required static file tree
 #   boards/<board>/rootfs/plugin.sh    board plugin (always if present)
 #   boards/<board>/rootfs/overlay/     board static files (always if present)
 # Selection: DEBIAN_OVERLAYS / DEBIAN_OVERLAYS_DEFAULT (comma/space list).
-# Special: none|off|- = no optional overlays; all = every overlays/*/plugin.sh
+# Special: none|off|- = no optional overlays
+# Enable services: ship wants symlinks inside overlay/ (apply_rootfs_overlay_tree
+#   preserves them). Use %VAR% in paths for runtime variable interpolation.
 # ---------------------------------------------------------------------------
 debian_rootfs_dir() {
     printf '%s\n' "${PROJECT_DIR}/rootfs/debian"
@@ -494,8 +505,8 @@ debian_known_overlay_names() {
     local d name
     d="$(debian_overlays_dir)"
     [ -d "${d}" ] || return 0
-    for name in "${d}"/*/plugin.sh; do
-        [ -f "${name}" ] || continue
+    for name in "${d}"/*/overlay; do
+        [ -d "${name}" ] || continue
         basename "$(dirname "${name}")"
     done | sort
 }
@@ -514,13 +525,6 @@ resolve_debian_overlays() {
         none|off|-)
             raw=""
             ;;
-        all)
-            raw=""
-            while IFS= read -r name; do
-                [ -n "${name}" ] || continue
-                raw="${raw:+${raw},}${name}"
-            done < <(debian_known_overlay_names)
-            ;;
     esac
 
     DEBIAN_OVERLAY_LIST=()
@@ -535,11 +539,27 @@ resolve_debian_overlays() {
         token="${token//[[:space:]]/}"
         [ -n "${token}" ] || continue
         [ -z "${seen[${token}]+x}" ] || continue
-        if [ ! -f "${d}/${token}/plugin.sh" ]; then
-            die "Unknown Debian overlay '${token}' (expected ${d}/${token}/plugin.sh). Available: $(debian_known_overlay_names | tr '\n' ' ')"
+        if [ ! -d "${d}/${token}/overlay" ]; then
+            die "Unknown Debian overlay '${token}' (expected ${d}/${token}/overlay/). Available: $(debian_known_overlay_names | tr '\n' ' ')"
         fi
         seen["${token}"]=1
         resolved+=("${token}")
+    done
+    # Honor overlay-level mutex groups: each overlay may ship a top-level
+    # `MUTEX` file whose content names a group; at most one overlay per group
+    # is allowed (e.g. network-nm vs network-networkd). This keeps the core
+    # free of hard-coded overlay names.
+    local -A mutex_seen=()
+    local mfile mgroup
+    for token in "${resolved[@]}"; do
+        mfile="${d}/${token}/MUTEX"
+        [ -f "${mfile}" ] || continue
+        mgroup="$(head -n1 "${mfile}" | tr -d '[:space:]')"
+        [ -n "${mgroup}" ] || continue
+        if [ -n "${mutex_seen[${mgroup}]+x}" ]; then
+            die "Overlays '${mutex_seen[${mgroup}]}' and '${token}' are mutually exclusive (group: ${mgroup})"
+        fi
+        mutex_seen["${mgroup}"]="${token}"
     done
     DEBIAN_OVERLAY_LIST=("${resolved[@]}")
     DEBIAN_OVERLAYS="$(IFS=,; printf '%s' "${DEBIAN_OVERLAY_LIST[*]}")"
@@ -577,9 +597,26 @@ expand_overlay_template_text() {
     printf '%s' "${content}"
 }
 
+# Replace %UPPER_CASE_NAME% patterns with the corresponding shell variable
+# value. If a variable is empty, the placeholder is left in place (the caller
+# can detect this and skip the file/line). Only [A-Z_][A-Z0-9_]* names are
+# matched, so ordinary percent signs in content are unaffected.
+interpolate_vars() {
+    local text="$1" varname value
+    while [[ "${text}" =~ %([A-Z_][A-Z0-9_]*)% ]]; do
+        varname="${BASH_REMATCH[1]}"
+        value="${!varname:-}"
+        [ -n "${value}" ] || break
+        text="${text//%${varname}%/${value}}"
+    done
+    printf '%s' "${text}"
+}
+
 # Copy one overlay tree into rootfs. Relative paths under src map to root_dir.
 # - *.in templates are expanded and installed without the .in suffix
 # - executable bit on source is preserved
+# - symlinks are preserved (readlink + ln -sfn)
+# - %VAR% in file paths is interpolated via interpolate_vars (empty → skip)
 apply_rootfs_overlay_tree() {
     local root_dir="$1"
     local overlay_src="$2"
@@ -593,6 +630,12 @@ apply_rootfs_overlay_tree() {
     while IFS= read -r -d '' src; do
         rel="${src#"${overlay_src}"/}"
         [ -n "${rel}" ] || continue
+        # %VAR% path interpolation (e.g. serial-getty@%CONSOLE_DEVICE%.service.d/).
+        # If any variable is empty the placeholder survives; skip that file.
+        if [[ "${rel}" == *%[A-Z_]*%* ]]; then
+            rel="$(interpolate_vars "${rel}")"
+            [[ "${rel}" == *%[A-Z_]*%* ]] && continue
+        fi
         if [ -L "${src}" ]; then
             dest="${root_dir}/${rel}"
             mkdir -p "$(dirname "${dest}")"
@@ -651,10 +694,12 @@ apply_debian_board_overlay() {
     fi
 }
 
-# Run selected optional overlay plugins (order = DEBIAN_OVERLAY_LIST).
+# Run selected optional overlays (order = DEBIAN_OVERLAY_LIST).
+# Each overlay is a pure static file tree copied via apply_rootfs_overlay_tree.
+# Services are enabled by shipping wants symlinks inside overlay/.
 run_debian_overlay_plugins() {
     local root_dir="$1"
-    local name plugin
+    local name overlay_dir
     local d
     d="$(debian_overlays_dir)"
 
@@ -667,17 +712,49 @@ run_debian_overlay_plugins() {
 
     log_info "Debian overlays: ${DEBIAN_OVERLAYS}"
     for name in "${DEBIAN_OVERLAY_LIST[@]}"; do
-        plugin="${d}/${name}/plugin.sh"
-        [ -f "${plugin}" ] || die "Missing overlay plugin: ${plugin}"
-        log_info "Running overlay plugin: ${name}"
-        # shellcheck disable=SC1090
-        source "${plugin}"
-        if declare -F plugin_apply >/dev/null 2>&1; then
-            plugin_apply "${root_dir}"
-            unset -f plugin_apply
-        else
-            die "Overlay ${name} does not define plugin_apply()"
-        fi
+        overlay_dir="${d}/${name}/overlay"
+        [ -d "${overlay_dir}" ] || die "Missing overlay directory: ${overlay_dir}"
+        log_info "Applying overlay: ${name}"
+        apply_rootfs_overlay_tree "${root_dir}" "${overlay_dir}"
+    done
+}
+
+# Check whether a systemd unit file exists in the staged rootfs, searching
+# /etc/systemd/system, /usr/lib/systemd/system, /lib/systemd/system. Template
+# instances (serial-getty@ttyFIQ0.service) resolve to their template
+# (serial-getty@.service). Used to filter dangling wants symlinks.
+unit_file_exists_in_root() {
+    local root="$1" unit="$2" template dir
+    local -a dirs=(
+        "${root}/etc/systemd/system"
+        "${root}/usr/lib/systemd/system"
+        "${root}/lib/systemd/system"
+    )
+    for dir in "${dirs[@]}"; do
+        [ -f "${dir}/${unit}" ] && return 0
+    done
+    if [[ "${unit}" == *@*.service ]]; then
+        template="${unit%@*}@.service"
+        for dir in "${dirs[@]}"; do
+            [ -f "${dir}/${template}" ] && return 0
+        done
+    fi
+    return 1
+}
+
+# Collect every enabled unit in the staged rootfs by scanning all
+# *.target.wants directories. A wants symlink counts as enabled only when its
+# target unit file exists (dangling symlinks from uninstalled packages are
+# skipped). This keeps the build core free of hard-coded service names.
+collect_enabled_units() {
+    local root="$1" wants_dir link unit
+    for wants_dir in "${root}/etc/systemd/system/"*.target.wants; do
+        [ -d "${wants_dir}" ] || continue
+        for link in "${wants_dir}"/*; do
+            [ -L "${link}" ] || continue
+            unit="$(basename "${link}")"
+            unit_file_exists_in_root "${root}" "${unit}" && printf '%s\n' "${unit}"
+        done
     done
 }
 
