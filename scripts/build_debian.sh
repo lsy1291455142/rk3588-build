@@ -175,14 +175,27 @@ ensure_chroot_dev() {
             return 0
         fi
         rm -f "${path}" 2>/dev/null || true
-        # Copy the host's device node: `cp -a` does NOT require CAP_MKNOD, so
-        # this works in unprivileged environments (e.g. GitHub Codespaces)
-        # where mknod/mount --bind are blocked. There is no mknod fallback by
-        # design — every Docker container has a working /dev/null etc., so the
-        # only failure mode is a broken build host, which should surface loudly.
+        # Prefer copying the host's real device node. This needs CAP_MKNOD in
+        # principle, but `cp -a` of an existing node is the most faithful copy
+        # (correct device numbers) and works whenever the host provides it.
         if [ -c "/dev/${name}" ]; then
             cp -a "/dev/${name}" "${path}" 2>/dev/null && return 0
         fi
+        # Unprivileged fallback: in environments like GitHub Codespaces the
+        # build container cannot create device nodes at all (no CAP_MKNOD, and
+        # `cp -a` of a device node is itself a mknod). For the common nodes
+        # (null/zero/full/urandom/random) an empty regular file is a usable
+        # stand-in for the build-time commands that only redirect I/O (open
+        # O_WRONLY and discard, or read an empty file as EOF). This is enough
+        # to get past "Couldn't open /dev/null: Permission denied" without any
+        # privilege. console/tty/ptmx keep their real semantics only when the
+        # host node is copyable, so they are simply skipped here.
+        case "${name}" in
+            null|zero|full|random|urandom)
+                : >"${path}" 2>/dev/null && chmod "${mode}" "${path}" 2>/dev/null && \
+                    return 0
+                ;;
+        esac
         # Host lacks the node (e.g. no /dev/console in an unprivileged
         # container). Creation is best-effort: a missing node only produces
         # non-fatal warnings downstream, so never return non-zero here — that
