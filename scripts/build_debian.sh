@@ -174,6 +174,13 @@ ensure_chroot_dev() {
             return 0
         fi
         rm -f "${path}" 2>/dev/null || true
+        # Prefer copying the host's device node: `cp -a` does NOT require
+        # CAP_MKNOD, so this works in unprivileged environments (e.g. GitHub
+        # Codespaces) where mknod/mount --bind are blocked. Fall back to mknod
+        # only when the host node is unavailable.
+        if [ -c "/dev/${name}" ]; then
+            cp -a "/dev/${name}" "${path}" 2>/dev/null && return 0
+        fi
         mknod -m "${mode}" "${path}" c "${major}" "${minor}" 2>/dev/null || true
     }
     _ensure_char_dev null    1 3 666
@@ -256,7 +263,11 @@ with_host_dev() {
     install -d -m 0755 "${ROOT_DIR}/tmp" 2>/dev/null || true
 
     if [ ! -c "${ROOT_DIR}/dev/console" ]; then
-        mknod -m 600 "${ROOT_DIR}/dev/console" c 5 1 2>/dev/null || true
+        if [ -c /dev/console ]; then
+            cp -a /dev/console "${ROOT_DIR}/dev/console" 2>/dev/null || true
+        fi
+        [ -c "${ROOT_DIR}/dev/console" ] || \
+            mknod -m 600 "${ROOT_DIR}/dev/console" c 5 1 2>/dev/null || true
     fi
 
     set +e
