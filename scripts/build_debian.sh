@@ -353,7 +353,7 @@ if [ "${verify_rc}" -ne 0 ]; then
     # private /dev for sandboxed units even with host mounts. Unit files are
     # still installed; treat known /dev/null failures as non-fatal so the
     # image build can proceed, but keep real unit syntax errors hard.
-    if printf '%s\n' "${verify_out}" | grep -Eq "Couldn't open /dev/null|Permission denied"; then
+    if printf '%s\n' "${verify_out}" | grep -Eq "Couldn't open /dev/null|Permission denied|/dev/console|Operation not permitted|Failed to (create|open).*dev"; then
         log_warn "systemd-analyze verify failed under build env (non-fatal):"
         printf '%s\n' "${verify_out}" | sed 's/^/[WARN] /' >&2
     else
