@@ -102,7 +102,7 @@ DEBIAN_RELEASE=13
 ROOTFS_USERNAME=user
 ROOTFS_PASSWORD=password
 DEBIAN_PACKAGES=network-manager,wpasupplicant,i2c-tools
-DEBIAN_OVERLAYS=base,console,firstboot,firstboot-info,network
+DEBIAN_OVERLAYS=base,console,firstboot,firstboot-info,network-nm
 ```
 
 所有 `make` 目标在运行前通过 `require-board` / `require-rootfs` / `require-sdk-volume` 校验必要变量；缺失时给出 `make use-*` 或命令行示例提示。
