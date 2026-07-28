@@ -95,6 +95,7 @@ PACKAGES=(
     procps
     psmisc
     sudo
+    systemd
     systemd-sysv
     udev
     util-linux
@@ -420,6 +421,7 @@ if [ "${ROOTFS_MODE}" = "ro-overlay" ]; then
     [ -e "${ROOT_DIR}/usr/lib/ld-linux-aarch64.so.1" ] ||
         die "Debian rootfs lacks the AArch64 ELF interpreter"
     [ -e "${ROOT_DIR}/usr/lib/systemd/systemd" ] ||
+        [ -e "${ROOT_DIR}/lib/systemd/systemd" ] ||
         die "Debian rootfs lacks systemd init"
     grep -Eq '^root:[^!*:][^:]*:' "${ROOT_DIR}/etc/shadow" ||
         die "Debian root account is not enabled"
@@ -447,6 +449,8 @@ else
         grep -q 'Inode:' ||
         die "Debian rootfs lacks the AArch64 ELF interpreter"
     debugfs -R "stat /usr/lib/systemd/systemd" "${ROOTFS_IMAGE}" 2>&1 |
+        grep -q 'Inode:' ||
+        debugfs -R "stat /lib/systemd/systemd" "${ROOTFS_IMAGE}" 2>&1 |
         grep -q 'Inode:' ||
         die "Debian rootfs lacks systemd init"
     debugfs -R "cat /etc/shadow" "${ROOTFS_IMAGE}" 2>/dev/null |
