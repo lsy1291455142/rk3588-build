@@ -167,55 +167,54 @@ ensure_chroot_dev() {
     # opening those under qemu-user yields
     # "Couldn't open /dev/null: Permission denied".
     _ensure_char_dev() {
-        local name="$1" major="$2" minor="$3" mode="$4"
+        local name="$1" mode="$2"
         local path="${d}/${name}"
         if [ -c "${path}" ]; then
             chmod "${mode}" "${path}" 2>/dev/null || true
             return 0
         fi
         rm -f "${path}" 2>/dev/null || true
-        # Prefer copying the host's device node: `cp -a` does NOT require
-        # CAP_MKNOD, so this works in unprivileged environments (e.g. GitHub
-        # Codespaces) where mknod/mount --bind are blocked. Fall back to mknod
-        # only when the host node is unavailable.
+        # Copy the host's device node: `cp -a` does NOT require CAP_MKNOD, so
+        # this works in unprivileged environments (e.g. GitHub Codespaces)
+        # where mknod/mount --bind are blocked. There is no mknod fallback by
+        # design — every Docker container has a working /dev/null etc., so the
+        # only failure mode is a broken build host, which should surface loudly.
         if [ -c "/dev/${name}" ]; then
             cp -a "/dev/${name}" "${path}" 2>/dev/null && return 0
         fi
-        mknod -m "${mode}" "${path}" c "${major}" "${minor}" 2>/dev/null || true
+        log_warn "cannot create /dev/${name} in staged rootfs (host lacks the node)"
+        return 1
     }
-    _ensure_char_dev null    1 3 666
-    _ensure_char_dev zero    1 5 666
-    _ensure_char_dev full    1 7 666
-    _ensure_char_dev random  1 8 666
-    _ensure_char_dev urandom 1 9 666
-    _ensure_char_dev tty     5 0 666
-    _ensure_char_dev ptmx    5 2 666
-    # /dev/console as a real char device (5,1) so mkinitramfs can copy it into
-    # the initramfs; without it update-initramfs prints
+    _ensure_char_dev null    666
+    _ensure_char_dev zero    666
+    _ensure_char_dev full    666
+    _ensure_char_dev random  666
+    _ensure_char_dev urandom 666
+    _ensure_char_dev tty     666
+    _ensure_char_dev ptmx    666
+    # /dev/console as a real char device so mkinitramfs can copy it into the
+    # initramfs; without it update-initramfs prints
     # "W: skipping creation of ./dev/console because ./dev/console does not
-    # exist on the outside". A symlink is useless here (mkinitramfs needs a
-    # device node to copy), and the build container itself has no /dev/console,
-    # so bind-mounting the host /dev does not help either.
-    _ensure_char_dev console 5 1 600
+    # exist on the outside". Copied from the host when present.
+    _ensure_char_dev console 600
     [ -e "${d}/stdin" ]  || ln -sf /proc/self/fd/0 "${d}/stdin" 2>/dev/null || true
     [ -e "${d}/stdout" ] || ln -sf /proc/self/fd/1 "${d}/stdout" 2>/dev/null || true
     [ -e "${d}/stderr" ] || ln -sf /proc/self/fd/2 "${d}/stderr" 2>/dev/null || true
     [ -e "${d}/fd" ]     || ln -sf /proc/self/fd "${d}/fd" 2>/dev/null || true
     # Sanity: a working /dev/null is required by almost every later chroot step.
     if ! chroot "${ROOT_DIR}" /bin/sh -c ': > /dev/null' 2>/dev/null; then
-        log_warn "Staged /dev/null is not usable; will rely on host /dev bind mounts"
+        log_warn "Staged /dev/null is not usable; chroot verify steps may warn"
     fi
 }
 
 # Run a command with host runtime mounts over the staged rootfs.
-# Tools such as systemd-analyze verify, sshd -t and update-initramfs need a
-# fully populated /dev plus /proc and /sys. The mknod nodes created by
-# ensure_chroot_dev are enough for simple chroot commands, but systemd-analyze
-# verify builds a private /dev for sandboxed units and can fail to obtain a
-# usable /dev/null there (reporting "Couldn't open /dev/null: Permission
-# denied") under qemu-user/binfmt. Bind-mount the host's real /dev (and
-# proc/sys/run), then unmount so the final rootfs tar/squashfs never captures
-# the host device tree.
+# Tools such as systemd-analyze verify, sshd -t and update-initramfs need
+# /proc, /sys and /run inside the chroot. /dev nodes are provided by
+# ensure_chroot_dev (copied from the host via cp -a, no privileges needed),
+# so there is NO mount --bind of /dev here — that requires CAP_SYS_ADMIN and
+# fails in unprivileged environments (e.g. GitHub Codespaces) anyway.
+# proc/sys/run are mounted (when permitted) and unmounted afterwards so the
+# final rootfs tar/squashfs never captures the host runtime trees.
 with_host_dev() {
     local -a mounted=()
     local mp
@@ -244,13 +243,6 @@ with_host_dev() {
         return 1
     }
 
-    # Ensure the host has a /dev/console node when privileged; after bind this
-    # becomes the chroot's /dev/console for mkinitramfs/sshd.
-    if [ ! -c /dev/console ]; then
-        mknod -m 600 /dev/console c 5 1 2>/dev/null || true
-    fi
-
-    _mount_one /dev  "${ROOT_DIR}/dev"  || true
     _mount_one proc  "${ROOT_DIR}/proc" proc  || true
     _mount_one sysfs "${ROOT_DIR}/sys"  sysfs || true
     _mount_one tmpfs "${ROOT_DIR}/run"  tmpfs "mode=0755,size=64m" || true
@@ -262,12 +254,8 @@ with_host_dev() {
     install -d -m 0755 "${ROOT_DIR}/run/systemd" 2>/dev/null || true
     install -d -m 0755 "${ROOT_DIR}/tmp" 2>/dev/null || true
 
-    if [ ! -c "${ROOT_DIR}/dev/console" ]; then
-        if [ -c /dev/console ]; then
-            cp -a /dev/console "${ROOT_DIR}/dev/console" 2>/dev/null || true
-        fi
-        [ -c "${ROOT_DIR}/dev/console" ] || \
-            mknod -m 600 "${ROOT_DIR}/dev/console" c 5 1 2>/dev/null || true
+    if [ ! -c "${ROOT_DIR}/dev/console" ] && [ -c /dev/console ]; then
+        cp -a /dev/console "${ROOT_DIR}/dev/console" 2>/dev/null || true
     fi
 
     set +e
