@@ -85,13 +85,13 @@ if [ -n "${SOURCE_MANIFEST:-}" ]; then
     [ "$(metadata_value "${KERNEL_BUILD_INFO}" source_manifest)" = "${SOURCE_MANIFEST}" ] ||
         die "Kernel metadata does not identify ${SOURCE_MANIFEST}"
     [ "$(metadata_value "${KERNEL_BUILD_INFO}" kernel_revision)" = \
-        "${EXPECTED_KERNEL_REVISION}" ] || die "Kernel metadata revision mismatch"
+        "${EXPECTED_KERNEL_REVISION:-}" ] || die "Kernel metadata revision mismatch"
     [ "$(metadata_value "${UBOOT_BUILD_INFO}" uboot_revision)" = \
-        "${EXPECTED_UBOOT_REVISION}" ] || die "U-Boot metadata revision mismatch"
+        "${EXPECTED_UBOOT_REVISION:-}" ] || die "U-Boot metadata revision mismatch"
     [ "$(metadata_value "${UBOOT_BUILD_INFO}" rkbin_revision)" = \
-        "${EXPECTED_RKBIN_REVISION}" ] || die "rkbin metadata revision mismatch"
+        "${EXPECTED_RKBIN_REVISION:-}" ] || die "rkbin metadata revision mismatch"
     [ "$(metadata_value "${IMAGE_BUILD_INFO}" buildroot_revision)" = \
-        "${EXPECTED_BUILDROOT_REVISION}" ] || die "Buildroot metadata revision mismatch"
+        "${EXPECTED_BUILDROOT_REVISION:-}" ] || die "Buildroot metadata revision mismatch"
 fi
 
 for required_config in \
