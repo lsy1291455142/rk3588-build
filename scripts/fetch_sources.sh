@@ -54,7 +54,7 @@ repo_sync_with_retry() {
     while [ "${attempt}" -le "${MAX_RETRIES}" ]; do
         log_step "repo sync (第 ${attempt}/${MAX_RETRIES} 次)..."
 
-        if repo --verbose sync "$@"; then
+        if REPO_VERBOSE=1 repo sync "$@"; then
             log_info "repo sync 成功"
             return 0
         else
