@@ -271,6 +271,11 @@ validate_git_revision() {
     local description="$3"
     local actual
 
+    # Skip validation for moving branch heads (no pinned SHA).
+    # Boards that track branch tips (e.g. develop-5.10, next-dev) intentionally
+    # leave EXPECTED_*_REVISION unset; the revision check is skipped for them.
+    [ -n "${expected}" ] || return 0
+
     require_cmd git
     require_dir "${repo}" "${description} source"
     actual="$(git -c safe.directory="${repo}" -C "${repo}" \
