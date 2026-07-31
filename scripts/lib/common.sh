@@ -289,13 +289,13 @@ validate_board_source_revisions() {
     [ -n "${SOURCE_MANIFEST:-}" ] || return 0
 
     validate_git_revision "${SDK_DIR}/kernel" \
-        "${EXPECTED_KERNEL_REVISION}" "kernel"
+        "${EXPECTED_KERNEL_REVISION:-}" "kernel"
     validate_git_revision "${SDK_DIR}/u-boot" \
-        "${EXPECTED_UBOOT_REVISION}" "U-Boot"
+        "${EXPECTED_UBOOT_REVISION:-}" "U-Boot"
     validate_git_revision "${SDK_DIR}/rkbin" \
-        "${EXPECTED_RKBIN_REVISION}" "rkbin"
+        "${EXPECTED_RKBIN_REVISION:-}" "rkbin"
     validate_git_revision "${SDK_DIR}/buildroot" \
-        "${EXPECTED_BUILDROOT_REVISION}" "Buildroot"
+        "${EXPECTED_BUILDROOT_REVISION:-}" "Buildroot"
 }
 
 validate_rootfs_choice() {
