@@ -181,19 +181,15 @@ _aic8800_wire_makefiles() {
 # subsequent make modules compiles aic_load_fw.ko, aic8800_fdrv.ko, and
 # aic_btusb.ko automatically.
 #
-# Idempotent: if drivers/net/wireless/aic8800/Kconfig already exists,
-# the hook is a no-op (safe for repeated builds).
+# Always re-clones and re-integrates to pick up upstream changes.
 # ---------------------------------------------------------------------------
 
 pre_build_kernel() {
     local kernel_dir="${KERNEL_DIR:?KERNEL_DIR not set}"
-    local marker="${kernel_dir}/drivers/net/wireless/aic8800/Kconfig"
 
-    # Idempotency: skip if driver is already integrated
-    if [ -f "${marker}" ]; then
-        _aic8800_log "AIC8800 driver already in kernel tree, skipping integration"
-        return 0
-    fi
+    # Remove stale driver dirs from previous runs
+    rm -rf "${kernel_dir}/drivers/net/wireless/aic8800" \
+           "${kernel_dir}/drivers/bluetooth/aic_btusb"
 
     _aic8800_log "Integrating AIC8800 USB WiFi/BT driver (FCU761K-L / AIC8800DC)"
 
