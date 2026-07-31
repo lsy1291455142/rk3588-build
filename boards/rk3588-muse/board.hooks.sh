@@ -67,6 +67,11 @@ _aic8800_fetch_and_patch() {
         return 1
     fi
 
+    # Source files in the repo have CRLF line endings; patches are LF.
+    # Convert CRLF → LF so patches apply cleanly.
+    find "${repo_dir}/src" -type f \( -name '*.c' -o -name '*.h' -o -name '*.mk' \
+        -o -name 'Makefile' -o -name 'Kconfig' \) -exec sed -i 's/\r$//' {} +
+
     # Apply patches in series order.  Each patch modifies files under
     # src/USB/driver_fw/drivers/ and is designed to be applied from the
     # repo root with git am or patch -p1.
@@ -81,14 +86,12 @@ _aic8800_fetch_and_patch() {
         fi
 
         # Try git am first (preserves commit history for debugging)
-        # Source files have CRLF; use --ignore-whitespace to handle this.
-        if git -C "${repo_dir}" am --quiet --ignore-whitespace \
-                "${patch_dir}/${patch}" 2>/dev/null; then
+        if git -C "${repo_dir}" am --quiet "${patch_dir}/${patch}" 2>/dev/null; then
             applied=$((applied + 1))
         else
-            # git am failed — reset and try patch -p1 (some patches have CRLF)
+            # git am failed — reset and try patch -p1
             git -C "${repo_dir}" am --abort 2>/dev/null || true
-            if patch -p1 -d "${repo_dir}" --no-backup-if-mismatch --ignore-whitespace \
+            if patch -p1 -d "${repo_dir}" --no-backup-if-mismatch \
                     < "${patch_dir}/${patch}" >/dev/null 2>&1; then
                 applied=$((applied + 1))
             else
