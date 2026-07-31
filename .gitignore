@@ -22,13 +22,13 @@ out/
 __pycache__/
 *.pyc
 
-# Board-local WiFi/BT firmware blobs (CokePi AIC; large binaries not in git)
-# Staged by board plugin during build-rootfs (or optional stage-aic8800-firmware.sh)
+# Board-local WiFi/BT firmware blobs (AIC8800; large binaries not in git)
+# Staged by board plugin during build-rootfs (or optional stage-*-firmware.sh)
 boards/*/rootfs/packages/**
 !boards/*/rootfs/packages/**/
 !boards/*/rootfs/packages/.gitkeep
 boards/*/rootfs/overlay/lib/firmware/**
-!boards/*/rootfs/overlay/lib/firmware/**
+!boards/*/rootfs/overlay/lib/firmware/**/
 !boards/*/rootfs/overlay/lib/firmware/**/SOURCE.txt
 # Legacy assets path (ignore blobs; keep markers)
 assets/wifibt/**

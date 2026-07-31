@@ -1,0 +1,36 @@
+AIC8800DC USB firmware for MUSE RK3588 (FCU761K-L / Quectel module).
+
+Source package (same .deb for all chip variants — SDIO/USB/PCIE):
+  aic8800-firmware_5.0+git20260123.5f7be68d-7_all.deb
+  https://github.com/radxa-pkg/aic8800/releases/tag/5.0%2Bgit20260123.5f7be68d-7
+
+Deb firmware layout:
+  lib/firmware/aic8800_fw/USB/aic8800DC/   (DC-specific, 19 files)
+  lib/firmware/aic8800_fw/USB/aic8800/     (shared/BT, 20 files)
+
+Install path (preserves deb layout):
+  - Build: boards/.../plugin.sh reads packages/*.deb (or pre-staged overlay)
+    and installs blobs into the rootfs. The board tree stays read-only
+    (docker mounts ./rootfs:ro).
+  - Optional host stage into overlay/:
+    ./boards/rk3588-muse/rootfs/stage-fcu761k-firmware.sh
+
+Driver:
+  - aic8800-usb-dkms (DKMS package, auto-builds kernel modules)
+  - Or manual: copy src/USB/driver_fw/drivers/aic8800/ into kernel
+    drivers/net/wireless/ and apply debian/patches/fix-usb-*.patch
+  - Patch fix-usb-firmware-path.patch sets firmware path to
+    /lib/firmware/aic8800_fw/USB (matching this install layout).
+  - Patch fix-aic_btusb-use-bluez-by-default.patch sets CONFIG_BLUEDROID=0
+    for BlueZ (Linux native BT stack).
+
+Driver modules:
+  WiFi: aic_load_fw.ko + aic8800_fdrv.ko
+  BT:   aic_load_fw.ko + aic_btusb.ko + aic8800_fdrv.ko
+
+Chip: AIC8800DC (AIC semi)
+Module: FCU761K-L (Quectel)
+Interface: USB (not SDIO)
+USB port on MUSE board: usb_host1 -> CH334H hub -> FCU761K-L downstream
+
+SOURCE.txt alone is not firmware; WiFi/BT needs the installed blobs.
