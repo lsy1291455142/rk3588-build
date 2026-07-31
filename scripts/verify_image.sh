@@ -84,14 +84,23 @@ verify_extlinux_dtb "${DTB_IMAGE}" "Board DTB artifact"
 if [ -n "${SOURCE_MANIFEST:-}" ]; then
     [ "$(metadata_value "${KERNEL_BUILD_INFO}" source_manifest)" = "${SOURCE_MANIFEST}" ] ||
         die "Kernel metadata does not identify ${SOURCE_MANIFEST}"
-    [ "$(metadata_value "${KERNEL_BUILD_INFO}" kernel_revision)" = \
-        "${EXPECTED_KERNEL_REVISION:-}" ] || die "Kernel metadata revision mismatch"
-    [ "$(metadata_value "${UBOOT_BUILD_INFO}" uboot_revision)" = \
-        "${EXPECTED_UBOOT_REVISION:-}" ] || die "U-Boot metadata revision mismatch"
-    [ "$(metadata_value "${UBOOT_BUILD_INFO}" rkbin_revision)" = \
-        "${EXPECTED_RKBIN_REVISION:-}" ] || die "rkbin metadata revision mismatch"
-    [ "$(metadata_value "${IMAGE_BUILD_INFO}" buildroot_revision)" = \
-        "${EXPECTED_BUILDROOT_REVISION:-}" ] || die "Buildroot metadata revision mismatch"
+    # Skip revision checks for moving branch heads (no pinned SHA).
+    if [ -n "${EXPECTED_KERNEL_REVISION:-}" ]; then
+        [ "$(metadata_value "${KERNEL_BUILD_INFO}" kernel_revision)" = \
+            "${EXPECTED_KERNEL_REVISION}" ] || die "Kernel metadata revision mismatch"
+    fi
+    if [ -n "${EXPECTED_UBOOT_REVISION:-}" ]; then
+        [ "$(metadata_value "${UBOOT_BUILD_INFO}" uboot_revision)" = \
+            "${EXPECTED_UBOOT_REVISION}" ] || die "U-Boot metadata revision mismatch"
+    fi
+    if [ -n "${EXPECTED_RKBIN_REVISION:-}" ]; then
+        [ "$(metadata_value "${UBOOT_BUILD_INFO}" rkbin_revision)" = \
+            "${EXPECTED_RKBIN_REVISION}" ] || die "rkbin metadata revision mismatch"
+    fi
+    if [ -n "${EXPECTED_BUILDROOT_REVISION:-}" ]; then
+        [ "$(metadata_value "${IMAGE_BUILD_INFO}" buildroot_revision)" = \
+            "${EXPECTED_BUILDROOT_REVISION}" ] || die "Buildroot metadata revision mismatch"
+    fi
 fi
 
 for required_config in \
