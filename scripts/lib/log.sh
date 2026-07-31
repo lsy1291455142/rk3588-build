@@ -10,8 +10,8 @@ fi
 _LOG_SH_SOURCED=1
 
 if [ -t 2 ]; then
-    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-    CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+    RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'
+    CYAN=$'\033[0;36m'; BOLD=$'\033[1m'; NC=$'\033[0m'
 else
     RED=''; GREEN=''; YELLOW=''; CYAN=''; export BOLD=''; NC=''
 fi
