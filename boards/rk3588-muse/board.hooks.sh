@@ -81,12 +81,14 @@ _aic8800_fetch_and_patch() {
         fi
 
         # Try git am first (preserves commit history for debugging)
-        if git -C "${repo_dir}" am --quiet "${patch_dir}/${patch}" 2>/dev/null; then
+        # Source files have CRLF; use --ignore-whitespace to handle this.
+        if git -C "${repo_dir}" am --quiet --ignore-whitespace \
+                "${patch_dir}/${patch}" 2>/dev/null; then
             applied=$((applied + 1))
         else
             # git am failed — reset and try patch -p1 (some patches have CRLF)
             git -C "${repo_dir}" am --abort 2>/dev/null || true
-            if patch -p1 -d "${repo_dir}" --no-backup-if-mismatch \
+            if patch -p1 -d "${repo_dir}" --no-backup-if-mismatch --ignore-whitespace \
                     < "${patch_dir}/${patch}" >/dev/null 2>&1; then
                 applied=$((applied + 1))
             else
