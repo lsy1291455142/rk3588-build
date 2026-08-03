@@ -30,6 +30,7 @@ boards/*/rootfs/packages/**
 boards/*/rootfs/overlay/lib/firmware/**
 !boards/*/rootfs/overlay/lib/firmware/**/
 !boards/*/rootfs/overlay/lib/firmware/**/SOURCE.txt
+!boards/*/rootfs/overlay/lib/firmware/**/.gitkeep
 # Legacy assets path (ignore blobs; keep markers)
 assets/wifibt/**
 !assets/wifibt/**/
