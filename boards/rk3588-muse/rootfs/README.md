@@ -8,13 +8,24 @@ Board-specific attachments for `rk3588-muse`. Same convention as optional
 
 ```text
 plugin.sh                              # board_plugin_apply(root_dir) — auto at build
-lib-fcu761k.sh                         # install/stage helpers
-stage-fcu761k-firmware.sh              # optional host-only CLI
+lib-fcu761k.sh                         # AIC8800 install/stage helpers
+lib-rm500q.sh                          # RM500Q-GL runtime lib + install helpers
+stage-fcu761k-firmware.sh              # optional host-only CLI (AIC8800)
 overlay/
   lib/firmware/aic8800_fw/USB/         # optional pre-staged blobs (gitignored except SOURCE.txt)
+  lib/firmware/sdx55m/                 # optional pre-staged modem firmware (.mbn)
+  usr/local/lib/rm500q.sh              # runtime helper library (installed to rootfs)
+  usr/local/sbin/rm500q-connect.sh     # CLI: status / connect / disconnect / at
+  usr/local/sbin/quectel-CM            # QConnectManager V1.6.8 (aarch64, pre-compiled)
+  usr/local/sbin/quectel-qmi-proxy     # QMI proxy (for multi-client QMI access)
+  usr/local/sbin/quectel-mbim-proxy    # MBIM proxy
+  usr/local/sbin/quectel-atc-proxy     # AT command proxy
+  usr/share/udhcpc/default.script      # udhcpc dispatcher (IPv4)
+  usr/share/udhcpc/default.script_ip   # udhcpc dispatcher (IPv6)
+  etc/systemd/system/rm500q-modem.service  # auto-connect service (enabled)
   vendor -> /system
   system/etc/firmware -> /lib/firmware
-packages/                              # aic8800-firmware_*.deb input (gitignored)
+packages/                              # aic8800-firmware_*.deb, rm500q*firmware* (gitignored)
 ```
 
 ## Convention
@@ -126,3 +137,204 @@ CONFIG_MAC80211=y             # MAC layer
 The driver Makefile self-contains `CONFIG_PLATFORM_UBUNTU ?= y` and adds
 `-DCONFIG_PLATFORM_UBUNTU` to `ccflags-y`, so the patched firmware path
 (`/lib/firmware/aic8800_fw/USB/`) is used without any kernel config change.
+
+## 5G Modem: Quectel RM500Q-GL (PCIe/MHI)
+
+| Property | Value |
+|----------|-------|
+| Module | RM500Q-GL (Quectel) |
+| Chip | Qualcomm SDX55 |
+| Interface | PCIe 2.0 x1 (pcie2x1l2, combphy0_ps PCIe mode) |
+| Protocol | MHI (Modem Host Interface) over PCIe |
+| Driver | Quectel PCIe MHI Driver V1.4 (2025-08-08) |
+| Driver module | `pcie_mhi.ko` (single self-contained module) |
+| PCI Vendor:Device | `17cb:0306` (SDX55, built into driver) |
+| AT channel | `/dev/mhi_DUN` |
+| QMI channel | `/dev/mhi_QMI0` |
+| MBIM channel | `/dev/mhi_MBIM` |
+| DIAG channel | `/dev/mhi_DIAG` |
+| Data channel | `rmnet_mhi0` + `rmnet_mhi0.1` (QMAP multiplex) |
+| Firmware source | Quectel FAE / customer portal (NOT public) |
+| Firmware path | `/lib/firmware/sdx55m/*.mbn` |
+
+### Driver: Quectel PCIe MHI V1.4
+
+The V1.4 driver is **fully self-contained** — it includes its own MHI bus
+core, PCI controller, UCI channel driver, and network driver.  It does
+**not** depend on the mainline MHI bus (`drivers/bus/mhi/`).
+
+| Component | Source file | Function |
+|-----------|------------|----------|
+| MHI core | `core/mhi_*.c` | MHI protocol, event rings, state machine |
+| PCI controller | `controllers/mhi_qcom.c` | PCI glue, firmware loading |
+| Firmware paths | `controllers/mhi_qti.c` | BHI/BHIe boot image paths |
+| UCI channel | `devices/mhi_uci.c` | `/dev/mhi_DUN`, `/dev/mhi_QMI0`, etc. |
+| Network driver | `devices/mhi_netdev_quectel.c` | `rmnet_mhi0` interface + QMAP |
+
+**Module parameters** (insmod/rmmod or `/etc/modprobe.d/`):
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `mhi_mbim_enabled` | 0 | Enable MBIM channel |
+| `qmap_mode` | 1 | QMAP multiplexing mode |
+| `bridge_mode` | 0 | Bridge mode (0=disabled) |
+| `debug_mode` | 0 | Debug verbosity |
+
+**Supported kernel versions**: 3.10 ~ 6.12 (5.10 ✅)
+
+### Kernel configuration
+
+The V1.4 driver is built as `obj-y` (unconditionally) — no Kconfig
+gating needed.  The only kernel config requirement is PCIe MSI
+interrupts.
+
+**Kernel configs** (in `boards/rk3588-muse/kernel.config`):
+
+```
+CONFIG_PCI_MSI=y                # PCIe MSI (required by MHI event rings)
+```
+
+Mainline MHI bus configs (`CONFIG_MHI_BUS`, `CONFIG_MHI_BUS_PCI_GENERIC`)
+are **not** used — the V1.4 driver is self-contained.
+
+### Driver integration (automatic via board.hooks.sh)
+
+The `pre_build_kernel` hook in `board.hooks.sh` handles:
+
+1. **Copy driver** → `drivers/pcie_mhi/` (full tree: core/ + controllers/ + devices/)
+2. **Wire Makefile** — append `obj-y += pcie_mhi/` to `drivers/Makefile`
+3. **Disable mainline conflict** — comment out `0x0306` in `pci_generic.c`
+   to prevent both V1.4 and mainline from claiming the device
+
+Driver source resolution (first match wins):
+
+| Priority | Source | Env var |
+|----------|--------|---------|
+| 1 | Local directory | `PCIE_MHI_DRIVER_DIR=/path/to/quectel-pcie-mhi` |
+| 2 | Local tarball | `PCIE_MHI_DRIVER_TAR=/path/to/driver.tar.gz` |
+| 3 | Git URL (shallow clone) | `PCIE_MHI_DRIVER_URL=https://...` |
+| 4 | Skip (build succeeds, modem won't work) | — |
+
+```bash
+# Build with V1.4 driver from local directory
+PCIE_MHI_DRIVER_DIR=/path/to/quectel-pcie-mhi make build-kernel
+
+# Build with V1.4 driver from tarball
+PCIE_MHI_DRIVER_TAR=/path/to/Quectel_Linux_PCIE_MHI_Driver_V1.4.tar.gz make build-kernel
+
+# Build with V1.4 driver from git
+PCIE_MHI_DRIVER_URL=https://gitcode.com/MUSEInstitute/Quectel_Linux_PCIE_MHI_Driver.git make build-kernel
+
+# Build without driver (modem won't work)
+make build-kernel
+```
+
+### Firmware installation
+
+RM500Q-GL modem firmware (`.mbn` files) is **not publicly available**.
+Obtain from Quectel FAE and install via one of:
+
+```bash
+# Option 1: place in packages/ directory
+cp rm500q-gl-firmware.tar.gz boards/rk3588-muse/rootfs/packages/
+make build-rootfs
+
+# Option 2: pre-stage in overlay
+mkdir -p boards/rk3588-muse/rootfs/overlay/lib/firmware/sdx55m/
+cp sbl1.mbn amss.mbn boards/rk3588-muse/rootfs/overlay/lib/firmware/sdx55m/
+make build-rootfs
+
+# Option 3: set URL (if hosted internally)
+RM500Q_FIRMWARE_URL=https://internal.repo/rm500q-fw.tar.gz make build-rootfs
+```
+
+Firmware path: `/lib/firmware/sdx55m/` (NOT `/lib/firmware/qcom/sdx55m/`).
+Expected files: `sbl1.mbn`, `amss.mbn`, `boot1.mbn` (names may vary).
+
+If firmware is not found, the build **succeeds with a warning** — the modem
+will be detected but won't boot without firmware.
+
+### Connection manager: quectel-CM V1.6.8
+
+The V1.4 driver creates network interfaces but does **not** establish data
+connections.  `quectel-CM` (Quectel QConnectManager) handles the full
+connection sequence over PCIe/MHI:
+
+1. Detect MHI device via `/sys/bus/mhi_q/devices/`
+2. Open QMI channel (`/dev/mhi_QMI0`)
+3. Establish PDN connection via QMI protocol
+4. Configure QMAP multiplexing on `rmnet_mhi0.1`
+5. Obtain IP address via `udhcpc`
+
+**Source**: [QuectelWB/q_drivers](https://github.com/QuectelWB/q_drivers)
+(`Quectel_QConnectManager_Linux_V1.6.8`)
+
+**Pre-compiled binaries** (aarch64, stripped) are included in the overlay:
+
+| Binary | Size | Function |
+|--------|------|----------|
+| `quectel-CM` | 195K | Main connection manager |
+| `quectel-qmi-proxy` | 67K | QMI proxy (multi-client) |
+| `quectel-mbim-proxy` | 67K | MBIM proxy |
+| `quectel-atc-proxy` | 67K | AT command proxy |
+
+Dependencies: glibc only (statically linked pthread).  No external libraries.
+
+AT commands (via `/dev/mhi_DUN`) are used only for status/signal/registration
+queries — data connection is managed entirely by `quectel-CM` via QMI.
+
+### Runtime usage
+
+The `rm500q-connect` CLI is installed to `/usr/local/sbin/` in the rootfs:
+
+```bash
+# Check modem status
+rm500q-connect status
+
+# Establish data connection (default APN: cmnet)
+rm500q-connect connect
+rm500q-connect connect internet    # custom APN
+
+# Disconnect
+rm500q-connect disconnect
+
+# Send raw AT command
+rm500q-connect at "+CEREG?"
+
+# Check if modem is present
+rm500q-connect detect
+```
+
+**Systemd auto-connect** (`rm500q-modem.service`):
+- Enabled by default in `multi-user.target`
+- `Type=simple` — runs `quectel-CM` in foreground (systemd tracks process)
+- Waits up to 30s for `/dev/mhi_DUN` to appear (modem boot)
+- Connects with APN from `RM500Q_APN` env (default: `cmnet`)
+- Auto-restart on failure (`Restart=on-failure`, 5s delay)
+- Logs to `/var/log/quectel-CM.log`
+- Disable: `systemctl disable rm500q-modem`
+
+**Environment overrides** (in `/etc/systemd/system/rm500q-modem.service` or shell):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RM500Q_AT_PORT` | `/dev/mhi_DUN` | AT command character device |
+| `RM500Q_DATA_IFACE` | `rmnet_mhi0.1` | Data network interface (QMAP) |
+| `RM500Q_APN` | `cmnet` | APN for data connection |
+| `RM500Q_AT_TIMEOUT` | `5` | AT command timeout (seconds) |
+| `RM500Q_CM_BIN` | `/usr/local/sbin/quectel-CM` | quectel-CM binary path |
+| `RM500Q_CM_LOG` | `/var/log/quectel-CM.log` | quectel-CM log file |
+| `RM500Q_CM_PID` | `/var/run/quectel-CM.pid` | quectel-CM PID file |
+
+### DTS hardware configuration
+
+PCIe controller, GPIO power/reset, and combphy PCIe mode are configured in
+`rk3588-muse.dts`:
+
+| GPIO | Function | Active |
+|------|----------|--------|
+| GPIO0_C6 | Modem power (FULL_CARD_POWER_OFF#) | HIGH = ON |
+| GPIO0_B2 | Modem reset (4G_5G_RSTn) | HIGH = running |
+| GPIO4_C1 | PCIe PERST# (controller-managed) | — |
+
+PCIe controller `pcie2x1l2` uses `combphy0_ps` in PCIe mode.

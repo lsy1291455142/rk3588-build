@@ -12,13 +12,19 @@ board_plugin_apply() {
 
     # shellcheck source=lib-fcu761k.sh
     source "${self_dir}/lib-fcu761k.sh"
+    # shellcheck source=lib-rm500q.sh
+    source "${self_dir}/lib-rm500q.sh"
 
-    # Static board tree (SOURCE.txt, vendor links, any host-pre-staged blobs).
+    # Static board tree (SOURCE.txt, vendor links, any host-pre-staged blobs,
+    # RM500Q-GL runtime scripts + systemd service).
     if [ -d "${self_dir}/overlay" ]; then
         apply_rootfs_overlay_tree "${root_dir}" "${self_dir}/overlay"
     fi
 
-    # Ensure firmware blobs exist in the rootfs. If the board overlay only
-    # has SOURCE.txt (clean CI / docker :ro), download from public GitHub repo.
+    # AIC8800DC WiFi/BT firmware (public download from GitHub).
     install_fcu761k_firmware_into_rootfs "${root_dir}" "${self_dir}"
+
+    # RM500Q-GL 5G modem firmware (NOT public — from Quectel FAE).
+    # Skips with warning if not found; does not fail the build.
+    install_rm500q_firmware_into_rootfs "${root_dir}" "${self_dir}"
 }

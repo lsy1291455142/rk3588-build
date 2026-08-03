@@ -1,0 +1,23 @@
+[Unit]
+Description=RM500Q-GL 5G Modem Connection Manager (quectel-CM)
+After=network.target sys-devices-pci0000:00-target.target
+Wants=network.target
+
+[Service]
+Type=simple
+Environment=RM500Q_AT_PORT=/dev/mhi_DUN
+Environment=RM500Q_DATA_IFACE=rmnet_mhi0.1
+Environment=RM500Q_APN=cmnet
+# Wait for modem to be ready (PCIe enumerate + MHI boot ~10-15s)
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do [ -e /dev/mhi_DUN ] && exit 0; sleep 1; done; exit 1'
+# quectel-CM runs in foreground: detects MHI device, establishes QMI PDN,
+# configures QMAP, obtains IP via udhcpc. Stays running to maintain connection.
+ExecStart=/usr/local/sbin/quectel-CM -s cmnet -i rmnet_mhi0.1 -f /var/log/quectel-CM.log
+# SIGINT triggers clean disconnect + exit
+KillSignal=SIGINT
+TimeoutStopSec=15
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
