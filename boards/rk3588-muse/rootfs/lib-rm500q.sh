@@ -381,7 +381,7 @@ RM500Q_FW_DIR="sdx55m"
 _rm500q_has_blobs() {
     local dir="$1"
     [ -d "${dir}" ] || return 1
-    [ -n "$(find "${dir}" -type f ! -name 'SOURCE.txt' 2>/dev/null | head -n 1)" ]
+    [ -n "$(find "${dir}" -type f ! -name 'SOURCE.txt' ! -name '.gitkeep' 2>/dev/null | head -n 1)" ]
 }
 
 # Default firmware URL (empty — Quectel does not publish public downloads)
